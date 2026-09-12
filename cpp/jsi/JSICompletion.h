@@ -5,132 +5,127 @@
 #include <string>
 #include <vector>
 
+// Completion results are assembled as json on the thread that produced them
+// and converted once with fromJson() on the JS thread.
 namespace rnllama_jsi {
 
-    inline jsi::Array createToolCalls(jsi::Runtime& runtime, const std::vector<common_chat_tool_call>& tool_calls) {
-        jsi::Array arr(runtime, tool_calls.size());
-        for (size_t i = 0; i < tool_calls.size(); ++i) {
-            jsi::Object tool(runtime);
-            tool.setProperty(runtime, "type", jsi::String::createFromUtf8(runtime, "function"));
-
-            jsi::Object fn(runtime);
-            fn.setProperty(runtime, "name", jsi::String::createFromUtf8(runtime, tool_calls[i].name));
-            fn.setProperty(runtime, "arguments", jsi::String::createFromUtf8(runtime, tool_calls[i].arguments));
-            tool.setProperty(runtime, "function", fn);
-
-            if (!tool_calls[i].id.empty()) {
-                tool.setProperty(runtime, "id", jsi::String::createFromUtf8(runtime, tool_calls[i].id));
-            } else {
-                tool.setProperty(runtime, "id", jsi::Value::null());
-            }
-
-            arr.setValueAtIndex(runtime, i, tool);
+    inline json toolCallsJson(const std::vector<common_chat_tool_call>& tool_calls) {
+        json arr = json::array();
+        for (const auto& tc : tool_calls) {
+            json tool = json::object({
+                {"type", "function"},
+                {"function", json::object({{"name", tc.name}, {"arguments", tc.arguments}})},
+                {"id", tc.id.empty() ? json(nullptr) : json(tc.id)},
+            });
+            arr.push_back(std::move(tool));
         }
         return arr;
     }
 
-    inline void setChatOutputFields(jsi::Runtime& runtime, jsi::Object& target, const rnllama::completion_chat_output& output) {
+    inline void addChatOutputFields(json& target, const rnllama::completion_chat_output& output) {
         if (!output.content.empty()) {
-            target.setProperty(runtime, "content", jsi::String::createFromUtf8(runtime, output.content));
+            target["content"] = output.content;
         }
         if (!output.reasoning_content.empty()) {
-            target.setProperty(runtime, "reasoning_content", jsi::String::createFromUtf8(runtime, output.reasoning_content));
+            target["reasoning_content"] = output.reasoning_content;
         }
         if (!output.tool_calls.empty()) {
-            target.setProperty(runtime, "tool_calls", createToolCalls(runtime, output.tool_calls));
+            target["tool_calls"] = toolCallsJson(output.tool_calls);
         }
         if (!output.accumulated_text.empty()) {
-            target.setProperty(runtime, "accumulated_text", jsi::String::createFromUtf8(runtime, output.accumulated_text));
+            target["accumulated_text"] = output.accumulated_text;
         }
     }
 
-    inline jsi::Array createCompletionProbabilities(
-        jsi::Runtime& runtime,
+    inline std::string tokenPiece(rnllama::llama_rn_context* ctx, llama_token tok) {
+        std::string piece = (ctx != nullptr && ctx->ctx != nullptr)
+            ? rnllama::tokens_to_output_formatted_string(ctx->ctx, tok)
+            : "";
+        return piece.empty() ? "<UNKNOWN>" : piece;
+    }
+
+    inline json completionProbabilitiesJson(
         rnllama::llama_rn_context* ctx,
         const std::vector<rnllama::completion_token_output>& probs_vec
     ) {
+        json out = json::array();
         if (ctx == nullptr || ctx->ctx == nullptr) {
-            // Return empty array if context is invalid
-            return jsi::Array(runtime, 0);
+            return out;
         }
-
-        jsi::Array out(runtime, probs_vec.size());
-        for (size_t i = 0; i < probs_vec.size(); ++i) {
-            const auto &prob = probs_vec[i];
-
-            jsi::Array probsForToken(runtime, prob.probs.size());
-            for (size_t j = 0; j < prob.probs.size(); ++j) {
-                jsi::Object p(runtime);
-                std::string tokStr = rnllama::tokens_to_output_formatted_string(ctx->ctx, prob.probs[j].tok);
-                if (tokStr.empty()) tokStr = "<UNKNOWN>";
-                p.setProperty(runtime, "tok_str", jsi::String::createFromUtf8(runtime, tokStr));
-                p.setProperty(runtime, "prob", (double)prob.probs[j].prob);
-                probsForToken.setValueAtIndex(runtime, j, p);
+        for (const auto& prob : probs_vec) {
+            json probsForToken = json::array();
+            for (const auto& p : prob.probs) {
+                probsForToken.push_back(json::object({
+                    {"tok_str", tokenPiece(ctx, p.tok)},
+                    {"prob", (double) p.prob},
+                }));
             }
-
-            std::string tokStr = rnllama::tokens_to_output_formatted_string(ctx->ctx, prob.tok);
-            if (tokStr.empty()) tokStr = "<UNKNOWN>";
-
-            jsi::Object completionProb(runtime);
-            completionProb.setProperty(runtime, "content", jsi::String::createFromUtf8(runtime, tokStr));
-            completionProb.setProperty(runtime, "probs", probsForToken);
-
-            out.setValueAtIndex(runtime, i, completionProb);
+            out.push_back(json::object({
+                {"content", tokenPiece(ctx, prob.tok)},
+                {"probs", std::move(probsForToken)},
+            }));
         }
         return out;
     }
 
-    inline jsi::Object createTokenProb(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx, const rnllama::completion_token_output::token_prob& p) {
-        jsi::Object res(runtime);
-        std::string tokStr = (ctx != nullptr && ctx->ctx != nullptr)
-            ? rnllama::tokens_to_output_formatted_string(ctx->ctx, p.tok)
-            : "";
-        if (tokStr.empty()) tokStr = "<UNKNOWN>";
-        res.setProperty(runtime, "tok_str", jsi::String::createFromUtf8(runtime, tokStr));
-        res.setProperty(runtime, "prob", (double)p.prob);
-        return res;
-    }
-
-    inline jsi::Object createTokenResult(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx, const rnllama::completion_token_output& token) {
-        jsi::Object res(runtime);
-        res.setProperty(runtime, "token", jsi::String::createFromUtf8(runtime, token.text));
+    inline json tokenResultJson(rnllama::llama_rn_context* ctx, const rnllama::completion_token_output& token) {
+        json res = json::object({{"token", token.text}});
 
         if (!token.probs.empty()) {
-            jsi::Array probs(runtime, token.probs.size());
-            for (size_t i = 0; i < token.probs.size(); i++) {
-                jsi::Object prob(runtime);
-                prob.setProperty(runtime, "tok", (int)token.probs[i].tok);
-                prob.setProperty(runtime, "prob", (double)token.probs[i].prob);
-                probs.setValueAtIndex(runtime, i, prob);
+            json probs = json::array();
+            json probsWithText = json::array();
+            for (const auto& p : token.probs) {
+                probs.push_back(json::object({{"tok", (int) p.tok}, {"prob", (double) p.prob}}));
+                probsWithText.push_back(json::object({{"tok_str", tokenPiece(ctx, p.tok)}, {"prob", (double) p.prob}}));
             }
-            res.setProperty(runtime, "probs", probs);
+            res["probs"] = std::move(probs);
+            res["completion_probabilities"] = json::array({
+                json::object({{"content", token.text}, {"probs", std::move(probsWithText)}}),
+            });
         }
 
-        if (token.probs.size() > 0) {
-            jsi::Array probs = jsi::Array(runtime, token.probs.size());
-            for (size_t i = 0; i < token.probs.size(); i++) {
-                probs.setValueAtIndex(runtime, i, createTokenProb(runtime, ctx, token.probs[i]));
-            }
-            
-            jsi::Object completionProb(runtime);
-            completionProb.setProperty(runtime, "content", jsi::String::createFromUtf8(runtime, token.text));
-            completionProb.setProperty(runtime, "probs", probs);
-            
-            jsi::Array completionProbs = jsi::Array(runtime, 1);
-            completionProbs.setValueAtIndex(runtime, 0, completionProb);
-            
-            res.setProperty(runtime, "completion_probabilities", completionProbs);
-        }
-        
         // requestId for parallel
         if (token.request_id != -1) {
-            res.setProperty(runtime, "requestId", (int)token.request_id);
+            res["requestId"] = (int) token.request_id;
         }
-        
         return res;
     }
 
-    inline jsi::Object createCompletionResult(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
+    inline json timingsJson(const rnllama::slot_timings& t) {
+        return json::object({
+            {"cache_n", t.cache_n},
+            {"prompt_n", t.prompt_n},
+            {"prompt_ms", t.prompt_ms},
+            {"prompt_per_token_ms", t.prompt_per_token_ms},
+            {"prompt_per_second", t.prompt_per_second},
+            {"predicted_n", t.predicted_n},
+            {"predicted_ms", t.predicted_ms},
+            {"predicted_per_token_ms", t.predicted_per_token_ms},
+            {"predicted_per_second", t.predicted_per_second},
+        });
+    }
+
+    // Single-context completion result. The large numeric payloads stay out
+    // of the json body: a json node per sample would cost more than the
+    // direct jsi::Array build it replaces.
+    struct CompletionResult {
+        json body;
+        std::vector<llama_token> audio_tokens;
+        std::vector<float> embeddings;
+
+        jsi::Value toJsi(jsi::Runtime& rt) const {
+            jsi::Object res = fromJson(rt, body).getObject(rt);
+            if (!audio_tokens.empty()) {
+                res.setProperty(rt, "audio_tokens", toJsNumberArray(rt, audio_tokens));
+            }
+            if (!embeddings.empty()) {
+                res.setProperty(rt, "embeddings", toJsNumberArray(rt, embeddings));
+            }
+            return res;
+        }
+    };
+
+    inline CompletionResult completionResult(rnllama::llama_rn_context* ctx) {
         if (ctx == nullptr) {
             throw std::runtime_error("RNLLAMA_NULL_CONTEXT");
         }
@@ -140,138 +135,64 @@ namespace rnllama_jsi {
         if (ctx->ctx == nullptr) {
             throw std::runtime_error("RNLLAMA_NULL_LLAMA_CONTEXT");
         }
+        auto& c = *ctx->completion;
 
-        jsi::Object res(runtime);
-        res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, ctx->completion->generated_text));
-
-        res.setProperty(runtime, "chat_format", ctx->completion->current_chat_format);
+        CompletionResult result;
+        json& res = result.body;
+        res = json::object({
+            {"text", c.generated_text},
+            {"chat_format", c.current_chat_format},
+        });
 
         // Parse final chat output if available
-        if (!ctx->completion->is_interrupted) {
+        if (!c.is_interrupted) {
             try {
-                auto final_output = ctx->completion->parseChatOutput(false);
-                setChatOutputFields(runtime, res, final_output);
+                addChatOutputFields(res, c.parseChatOutput(false));
             } catch (...) {
                 // Ignore parsing errors
             }
         }
 
-        res.setProperty(
-            runtime,
-            "completion_probabilities",
-            createCompletionProbabilities(runtime, ctx, ctx->completion->generated_token_probs)
-        );
-        res.setProperty(runtime, "tokens_predicted", (double)ctx->completion->num_tokens_predicted);
-        res.setProperty(runtime, "tokens_evaluated", (double)ctx->completion->num_prompt_tokens);
-        res.setProperty(runtime, "draft_tokens", (double)ctx->completion->num_draft_tokens);
-        res.setProperty(runtime, "draft_tokens_accepted", (double)ctx->completion->num_draft_tokens_accepted);
-        res.setProperty(runtime, "truncated", ctx->completion->truncated);
-        res.setProperty(runtime, "context_full", ctx->completion->context_full);
-        res.setProperty(runtime, "interrupted", ctx->completion->is_interrupted);
-        res.setProperty(runtime, "stopped_eos", ctx->completion->stopped_eos);
-        res.setProperty(runtime, "stopped_word", ctx->completion->stopped_word);
-        res.setProperty(runtime, "stopped_limit", ctx->completion->stopped_limit);
-        res.setProperty(runtime, "stopping_word", jsi::String::createFromUtf8(runtime, ctx->completion->stopping_word));
-        res.setProperty(runtime, "tokens_cached", (double)ctx->completion->n_past);
+        res["completion_probabilities"] = completionProbabilitiesJson(ctx, c.generated_token_probs);
+        res["tokens_predicted"] = c.num_tokens_predicted;
+        res["tokens_evaluated"] = c.num_prompt_tokens;
+        res["draft_tokens"] = c.num_draft_tokens;
+        res["draft_tokens_accepted"] = c.num_draft_tokens_accepted;
+        res["truncated"] = c.truncated;
+        res["context_full"] = c.context_full;
+        res["interrupted"] = c.is_interrupted;
+        res["stopped_eos"] = c.stopped_eos;
+        res["stopped_word"] = c.stopped_word;
+        res["stopped_limit"] = c.stopped_limit;
+        res["stopping_word"] = c.stopping_word;
+        res["tokens_cached"] = c.n_past;
 
-        if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr && !ctx->tts_wrapper->audio_tokens.empty()) {
-            jsi::Array audioTokens(runtime, ctx->tts_wrapper->audio_tokens.size());
-            for (size_t i = 0; i < ctx->tts_wrapper->audio_tokens.size(); i++) {
-                audioTokens.setValueAtIndex(runtime, i, (double)ctx->tts_wrapper->audio_tokens[i]);
-            }
-            res.setProperty(runtime, "audio_tokens", audioTokens);
+        if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
+            result.audio_tokens = ctx->tts_wrapper->audio_tokens;
+        }
+        if (!c.embeddings.empty()) {
+            result.embeddings = c.embeddings;
+            res["embedding_dim"] = c.embedding_dim;
         }
 
-        if (!ctx->completion->embeddings.empty()) {
-            jsi::Array embeddings(runtime, ctx->completion->embeddings.size());
-            for (size_t i = 0; i < ctx->completion->embeddings.size(); i++) {
-                embeddings.setValueAtIndex(runtime, i, (double)ctx->completion->embeddings[i]);
-            }
-            res.setProperty(runtime, "embeddings", embeddings);
-            res.setProperty(runtime, "embedding_dim", (double)ctx->completion->embedding_dim);
-        }
+        const auto perf = llama_perf_context(ctx->ctx);
+        rnllama::slot_timings t;
+        t.cache_n = c.n_past;
+        t.prompt_n = perf.n_p_eval;
+        t.prompt_ms = perf.t_p_eval_ms;
+        t.prompt_per_token_ms = perf.n_p_eval > 0 ? perf.t_p_eval_ms / perf.n_p_eval : 0.0;
+        t.prompt_per_second = perf.t_p_eval_ms > 0 ? 1e3 / perf.t_p_eval_ms * perf.n_p_eval : 0.0;
+        t.predicted_n = c.num_tokens_predicted;
+        t.predicted_ms = c.t_token_generation * 1e3;
+        t.predicted_per_token_ms = t.predicted_n > 0 ? t.predicted_ms / t.predicted_n : 0.0;
+        t.predicted_per_second = c.t_token_generation > 0.0 ? t.predicted_n / c.t_token_generation : 0.0;
+        res["timings"] = timingsJson(t);
 
-        const auto timings = llama_perf_context(ctx->ctx);
-
-        jsi::Object timingsObj(runtime);
-        timingsObj.setProperty(runtime, "cache_n", (double)ctx->completion->n_past);
-        timingsObj.setProperty(runtime, "prompt_n", (double)timings.n_p_eval);
-        timingsObj.setProperty(runtime, "prompt_ms", (double)timings.t_p_eval_ms);
-        const double prompt_per_token_ms = timings.n_p_eval > 0 ? timings.t_p_eval_ms / timings.n_p_eval : 0.0;
-        const double prompt_per_second = timings.t_p_eval_ms > 0 ? 1e3 / timings.t_p_eval_ms * timings.n_p_eval : 0.0;
-        timingsObj.setProperty(runtime, "prompt_per_token_ms", prompt_per_token_ms);
-        timingsObj.setProperty(runtime, "prompt_per_second", prompt_per_second);
-
-        const double predicted_n = (double)ctx->completion->num_tokens_predicted;
-        const double predicted_ms = ctx->completion->t_token_generation * 1e3;
-        timingsObj.setProperty(runtime, "predicted_n", predicted_n);
-        timingsObj.setProperty(runtime, "predicted_ms", predicted_ms);
-        const double predicted_per_token_ms = predicted_n > 0 ? predicted_ms / predicted_n : 0.0;
-        const double predicted_per_second = ctx->completion->t_token_generation > 0.0
-            ? predicted_n / ctx->completion->t_token_generation
-            : 0.0;
-        timingsObj.setProperty(runtime, "predicted_per_token_ms", predicted_per_token_ms);
-        timingsObj.setProperty(runtime, "predicted_per_second", predicted_per_second);
-
-        res.setProperty(runtime, "timings", timingsObj);
-
-        return res;
-    }
-    
-    // Overload for parallel slot
-    inline jsi::Object createCompletionResult(jsi::Runtime& runtime, rnllama::llama_rn_slot* slot) {
-        if (slot == nullptr) {
-            throw std::runtime_error("RNLLAMA_NULL_SLOT");
-        }
-
-        jsi::Object res(runtime);
-        res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, slot->generated_text));
-
-        res.setProperty(runtime, "chat_format", slot->current_chat_format);
-
-        try {
-            auto final_output = slot->parseChatOutput(false);
-            setChatOutputFields(runtime, res, final_output);
-        } catch (...) {
-            // ignore
-        }
-
-        auto ctx = slot->parent_ctx;
-        res.setProperty(
-            runtime,
-            "completion_probabilities",
-            createCompletionProbabilities(runtime, ctx, slot->generated_token_probs)
-        );
-
-        res.setProperty(runtime, "tokens_predicted", (double)slot->num_tokens_predicted);
-        res.setProperty(runtime, "tokens_evaluated", (double)slot->num_prompt_tokens);
-        res.setProperty(runtime, "draft_tokens", (double)slot->num_draft_tokens);
-        res.setProperty(runtime, "draft_tokens_accepted", (double)slot->num_draft_tokens_accepted);
-        res.setProperty(runtime, "truncated", slot->truncated);
-        res.setProperty(runtime, "context_full", slot->context_full);
-        res.setProperty(runtime, "interrupted", slot->is_interrupted);
-        res.setProperty(runtime, "stopped_eos", slot->stopped_eos);
-        res.setProperty(runtime, "stopped_word", slot->stopped_word);
-        res.setProperty(runtime, "stopped_limit", slot->stopped_limit);
-        res.setProperty(runtime, "stopping_word", jsi::String::createFromUtf8(runtime, slot->stopping_word));
-        res.setProperty(runtime, "tokens_cached", (double)slot->n_past);
-
-        auto timings = slot->get_timings();
-        jsi::Object timingsObj(runtime);
-        timingsObj.setProperty(runtime, "cache_n", (double)timings.cache_n);
-        timingsObj.setProperty(runtime, "prompt_n", (double)timings.prompt_n);
-        timingsObj.setProperty(runtime, "prompt_ms", (double)timings.prompt_ms);
-        timingsObj.setProperty(runtime, "prompt_per_token_ms", (double)timings.prompt_per_token_ms);
-        timingsObj.setProperty(runtime, "prompt_per_second", (double)timings.prompt_per_second);
-        timingsObj.setProperty(runtime, "predicted_n", (double)timings.predicted_n);
-        timingsObj.setProperty(runtime, "predicted_ms", (double)timings.predicted_ms);
-        timingsObj.setProperty(runtime, "predicted_per_token_ms", (double)timings.predicted_per_token_ms);
-        timingsObj.setProperty(runtime, "predicted_per_second", (double)timings.predicted_per_second);
-        res.setProperty(runtime, "timings", timingsObj);
-
-        return res;
+        return result;
     }
 
+    // Thread-safe copy of a slot's final state; the slot can be reused for
+    // the next request as soon as the completion callback returns.
     struct ParallelCompletionResultSnapshot {
         int32_t request_id = -1;
         std::string text;
@@ -346,63 +267,38 @@ namespace rnllama_jsi {
         return result;
     }
 
-    inline jsi::Object createParallelCompletionResult(
-        jsi::Runtime& runtime,
+    inline json parallelCompletionResultJson(
         rnllama::llama_rn_context* ctx,
         const ParallelCompletionResultSnapshot& result
     ) {
-        jsi::Object res(runtime);
-        res.setProperty(runtime, "requestId", result.request_id);
-        res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, result.text));
-        res.setProperty(runtime, "chat_format", result.chat_format);
-        res.setProperty(runtime, "stopped_eos", result.stopped_eos);
-        res.setProperty(runtime, "stopped_limit", result.stopped_limit);
-        res.setProperty(runtime, "stopped_word", result.stopped_word);
-        res.setProperty(runtime, "context_full", result.context_full);
-        res.setProperty(runtime, "incomplete", result.incomplete);
-        res.setProperty(runtime, "truncated", result.truncated);
-        res.setProperty(runtime, "interrupted", result.interrupted);
-        res.setProperty(
-            runtime,
-            "stopping_word",
-            jsi::String::createFromUtf8(runtime, result.stopping_word)
-        );
-        res.setProperty(runtime, "tokens_predicted", (double)result.tokens_predicted);
-        res.setProperty(runtime, "tokens_evaluated", (double)result.tokens_evaluated);
-        res.setProperty(runtime, "draft_tokens", (double)result.draft_tokens);
-        res.setProperty(runtime, "draft_tokens_accepted", (double)result.draft_tokens_accepted);
-        res.setProperty(runtime, "tokens_cached", (double)result.tokens_cached);
-        res.setProperty(runtime, "n_decoded", (double)result.n_decoded);
-        res.setProperty(
-            runtime,
-            "completion_probabilities",
-            createCompletionProbabilities(runtime, ctx, result.token_probs)
-        );
+        json res = json::object({
+            {"requestId", result.request_id},
+            {"text", result.text},
+            {"chat_format", result.chat_format},
+            {"stopped_eos", result.stopped_eos},
+            {"stopped_limit", result.stopped_limit},
+            {"stopped_word", result.stopped_word},
+            {"context_full", result.context_full},
+            {"incomplete", result.incomplete},
+            {"truncated", result.truncated},
+            {"interrupted", result.interrupted},
+            {"stopping_word", result.stopping_word},
+            {"tokens_predicted", result.tokens_predicted},
+            {"tokens_evaluated", result.tokens_evaluated},
+            {"draft_tokens", result.draft_tokens},
+            {"draft_tokens_accepted", result.draft_tokens_accepted},
+            {"tokens_cached", result.tokens_cached},
+            {"n_decoded", result.n_decoded},
+            {"completion_probabilities", completionProbabilitiesJson(ctx, result.token_probs)},
+        });
 
         if (!result.error_message.empty()) {
-            res.setProperty(
-                runtime,
-                "error",
-                jsi::String::createFromUtf8(runtime, result.error_message)
-            );
+            res["error"] = result.error_message;
         }
-
         if (result.has_final_output) {
-            setChatOutputFields(runtime, res, result.final_output);
+            addChatOutputFields(res, result.final_output);
         }
-
-        jsi::Object timings(runtime);
-        timings.setProperty(runtime, "cache_n", (double)result.timings.cache_n);
-        timings.setProperty(runtime, "prompt_n", (double)result.timings.prompt_n);
-        timings.setProperty(runtime, "prompt_ms", result.timings.prompt_ms);
-        timings.setProperty(runtime, "prompt_per_token_ms", result.timings.prompt_per_token_ms);
-        timings.setProperty(runtime, "prompt_per_second", result.timings.prompt_per_second);
-        timings.setProperty(runtime, "predicted_n", (double)result.timings.predicted_n);
-        timings.setProperty(runtime, "predicted_ms", result.timings.predicted_ms);
-        timings.setProperty(runtime, "predicted_per_token_ms", result.timings.predicted_per_token_ms);
-        timings.setProperty(runtime, "predicted_per_second", result.timings.predicted_per_second);
-        res.setProperty(runtime, "timings", timings);
-
+        res["timings"] = timingsJson(result.timings);
         return res;
     }
 }

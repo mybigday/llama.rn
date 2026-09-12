@@ -2,6 +2,8 @@
 
 #include <jsi/jsi.h>
 #include <cstring>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -84,6 +86,31 @@ namespace rnllama_jsi {
         }
     }
 
+    // Copy a typed array's elements into `out` straight from its backing
+    // ArrayBuffer. `obj` must be a typed array whose element size matches T;
+    // anything else leaves `out` empty.
+    template <typename T>
+    inline void readTypedArray(jsi::Runtime& rt, const jsi::Object& obj, std::vector<T>& out) {
+        auto bufferVal = obj.getProperty(rt, "buffer");
+        if (!bufferVal.isObject() || !bufferVal.getObject(rt).isArrayBuffer(rt)) {
+            return;
+        }
+        auto bytesPerElement = obj.getProperty(rt, "BYTES_PER_ELEMENT");
+        if (!bytesPerElement.isNumber() || (size_t) bytesPerElement.getNumber() != sizeof(T)) {
+            throw std::runtime_error("typed array element size does not match the expected type");
+        }
+        auto buffer = bufferVal.getObject(rt).getArrayBuffer(rt);
+        const size_t byteOffset = (size_t) obj.getProperty(rt, "byteOffset").asNumber();
+        const size_t length = (size_t) obj.getProperty(rt, "length").asNumber();
+        if (byteOffset + length * sizeof(T) > buffer.size(rt)) {
+            throw std::runtime_error("typed array exceeds its ArrayBuffer");
+        }
+        out.resize(length);
+        if (length > 0) {
+            std::memcpy(out.data(), buffer.data(rt) + byteOffset, length * sizeof(T));
+        }
+    }
+
     // Read a JS Float32Array or number[] into a float vector. Typed arrays
     // are copied straight out of the backing ArrayBuffer, which avoids one
     // JSI call per element for large PCM buffers.
@@ -102,21 +129,55 @@ namespace rnllama_jsi {
             return out;
         }
 
-        // Typed array: { buffer: ArrayBuffer, byteOffset, length }
-        auto bufferVal = obj.getProperty(rt, "buffer");
-        if (!bufferVal.isObject() || !bufferVal.getObject(rt).isArrayBuffer(rt)) {
+        readTypedArray(rt, obj, out);
+        return out;
+    }
+
+    // Read a JS Int32Array or number[] into an int32 vector (token ids,
+    // audio codes).
+    inline std::vector<int32_t> toInt32Vector(jsi::Runtime& rt, const jsi::Value& v) {
+        std::vector<int32_t> out;
+        if (!v.isObject()) return out;
+        auto obj = v.getObject(rt);
+
+        if (obj.isArray(rt)) {
+            auto arr = obj.getArray(rt);
+            const size_t n = arr.size(rt);
+            out.reserve(n);
+            for (size_t i = 0; i < n; i++) {
+                out.push_back((int32_t) arr.getValueAtIndex(rt, i).asNumber());
+            }
             return out;
         }
-        auto buffer = bufferVal.getObject(rt).getArrayBuffer(rt);
-        const size_t byteOffset = (size_t) obj.getProperty(rt, "byteOffset").asNumber();
-        const size_t length = (size_t) obj.getProperty(rt, "length").asNumber();
-        if (byteOffset + length * sizeof(float) > buffer.size(rt)) {
-            throw std::runtime_error("typed array exceeds its ArrayBuffer");
-        }
-        out.resize(length);
-        if (length > 0) {
-            std::memcpy(out.data(), buffer.data(rt) + byteOffset, length * sizeof(float));
-        }
+
+        readTypedArray(rt, obj, out);
         return out;
+    }
+
+    // Plain JS number[] from a numeric vector (public fields typed as
+    // number[] keep this shape; large payloads should use makeFloat32Array).
+    template <typename T>
+    inline jsi::Array toJsNumberArray(jsi::Runtime& rt, const std::vector<T>& values) {
+        jsi::Array arr(rt, values.size());
+        for (size_t i = 0; i < values.size(); i++) {
+            arr.setValueAtIndex(rt, i, (double) values[i]);
+        }
+        return arr;
+    }
+
+    // Hand a float vector to JS as a Float32Array without one JSI call per
+    // element: the vector becomes the backing store of an ArrayBuffer and the
+    // Float32Array constructor wraps it. The JS side owns the memory after
+    // this returns.
+    inline jsi::Value makeFloat32Array(jsi::Runtime& rt, std::vector<float> values) {
+        struct VectorBuffer : jsi::MutableBuffer {
+            std::vector<float> storage;
+            explicit VectorBuffer(std::vector<float> v) : storage(std::move(v)) {}
+            size_t size() const override { return storage.size() * sizeof(float); }
+            uint8_t* data() override { return reinterpret_cast<uint8_t*>(storage.data()); }
+        };
+        jsi::ArrayBuffer buffer(rt, std::make_shared<VectorBuffer>(std::move(values)));
+        auto ctor = rt.global().getPropertyAsFunction(rt, "Float32Array");
+        return ctor.callAsConstructor(rt, buffer);
     }
 }

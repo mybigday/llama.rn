@@ -9,39 +9,17 @@
 
 namespace rnllama_jsi {
 
-    inline jsi::Object createTokenizeResult(jsi::Runtime& runtime, const rnllama::llama_rn_tokenize_result& result) {
-        jsi::Object res(runtime);
-        
-        jsi::Array tokens = jsi::Array(runtime, result.tokens.size());
-        for (size_t i = 0; i < result.tokens.size(); ++i) {
-            tokens.setValueAtIndex(runtime, i, (double)result.tokens[i]);
-        }
-        res.setProperty(runtime, "tokens", tokens);
-        
-        res.setProperty(runtime, "has_media", result.has_media);
-        
-        jsi::Array hashes = jsi::Array(runtime, result.bitmap_hashes.size());
-        for (size_t i = 0; i < result.bitmap_hashes.size(); ++i) {
-            hashes.setValueAtIndex(runtime, i, jsi::String::createFromUtf8(runtime, result.bitmap_hashes[i]));
-        }
-        res.setProperty(runtime, "bitmap_hashes", hashes);
-        
-        jsi::Array chunk_pos = jsi::Array(runtime, result.chunk_pos.size());
-        for (size_t i = 0; i < result.chunk_pos.size(); ++i) {
-            chunk_pos.setValueAtIndex(runtime, i, (double)result.chunk_pos[i]);
-        }
-        res.setProperty(runtime, "chunk_pos", chunk_pos);
-        
-        jsi::Array chunk_pos_media = jsi::Array(runtime, result.chunk_pos_media.size());
-        for (size_t i = 0; i < result.chunk_pos_media.size(); ++i) {
-            chunk_pos_media.setValueAtIndex(runtime, i, (double)result.chunk_pos_media[i]);
-        }
-        res.setProperty(runtime, "chunk_pos_media", chunk_pos_media);
-
-        return res;
+    inline json tokenizeResultJson(const rnllama::llama_rn_tokenize_result& result) {
+        return json::object({
+            {"tokens", result.tokens},
+            {"has_media", result.has_media},
+            {"bitmap_hashes", result.bitmap_hashes},
+            {"chunk_pos", result.chunk_pos},
+            {"chunk_pos_media", result.chunk_pos_media},
+        });
     }
 
-    inline jsi::Object loadSession(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx, const std::string& path) {
+    inline json loadSession(rnllama::llama_rn_context* ctx, const std::string& path) {
         if (!ctx || !ctx->completion) {
             throw std::runtime_error("Context or completion not initialized");
         }
@@ -111,10 +89,10 @@ namespace rnllama_jsi {
                      [](llama_token t) { return t != LLAMA_TOKEN_NULL; });
         const std::string text = rnllama::tokens_to_str(ctx->ctx, text_tokens.cbegin(), text_tokens.cend());
 
-        jsi::Object result(runtime);
-        result.setProperty(runtime, "tokens_loaded", (double)embd.size());
-        result.setProperty(runtime, "prompt", jsi::String::createFromUtf8(runtime, text));
-        return result;
+        return json::object({
+            {"tokens_loaded", embd.size()},
+            {"prompt", text},
+        });
     }
 
     inline int saveSession(rnllama::llama_rn_context* ctx, const std::string& path, int size) {

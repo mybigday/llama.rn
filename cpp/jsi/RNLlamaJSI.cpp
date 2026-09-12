@@ -236,15 +236,6 @@ namespace rnllama_jsi {
         });
     }
 
-    // Helper: convert vector<string> to JSI array
-    static jsi::Array toJsStringArray(jsi::Runtime& runtime, const std::vector<std::string>& values) {
-        jsi::Array arr(runtime, values.size());
-        for (size_t i = 0; i < values.size(); ++i) {
-            arr.setValueAtIndex(runtime, i, jsi::String::createFromUtf8(runtime, values[i]));
-        }
-        return arr;
-    }
-
     static bool isThinkingForcedOpen(const common_chat_params& chatParams) {
         if (!chatParams.supports_thinking || chatParams.thinking_start_tag.empty()) {
             return false;
@@ -267,73 +258,127 @@ namespace rnllama_jsi {
         return true;
     }
 
-    static jsi::Object createModelDetails(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
-        jsi::Object model(runtime);
+    static json chatTemplateCapsJson(bool tools, bool toolCalls, bool parallelToolCalls, bool systemRole) {
+        return json::object({
+            {"tools", tools},
+            {"toolCalls", toolCalls},
+            {"parallelToolCalls", parallelToolCalls},
+            {"systemRole", systemRole},
+        });
+    }
 
+    static json modelDetailsJson(rnllama::llama_rn_context* ctx) {
         char desc[1024];
         llama_model_desc(ctx->model, desc, sizeof(desc));
-        model.setProperty(runtime, "desc", jsi::String::createFromUtf8(runtime, desc));
-        model.setProperty(runtime, "size", (double)llama_model_size(ctx->model));
-        model.setProperty(runtime, "nEmbd", (double)llama_model_n_embd(ctx->model));
-        model.setProperty(runtime, "nParams", (double)llama_model_n_params(ctx->model));
-        model.setProperty(runtime, "is_recurrent", llama_model_is_recurrent(ctx->model));
-        model.setProperty(runtime, "is_hybrid", llama_model_is_hybrid(ctx->model));
 
-        // Metadata
-        jsi::Object metadata(runtime);
-        int metaCount = llama_model_meta_count(ctx->model);
+        json metadata = json::object();
+        const int metaCount = llama_model_meta_count(ctx->model);
         for (int i = 0; i < metaCount; ++i) {
             char key[256];
             llama_model_meta_key_by_index(ctx->model, i, key, sizeof(key));
             char val[16384];
             llama_model_meta_val_str_by_index(ctx->model, i, val, sizeof(val));
-            metadata.setProperty(runtime, key, jsi::String::createFromUtf8(runtime, val));
+            metadata[key] = val;
         }
-        model.setProperty(runtime, "metadata", metadata);
 
         // Chat template capabilities
-        jsi::Object chatTemplates(runtime);
-        bool llamaChat = ctx->validateModelChatTemplate(false, nullptr);
-        chatTemplates.setProperty(runtime, "llamaChat", llamaChat);
+        const bool llamaChat = ctx->validateModelChatTemplate(false, nullptr);
 
-        jsi::Object jinja(runtime);
-        bool jinjaDefault = ctx->validateModelChatTemplate(true, nullptr);
-        jinja.setProperty(runtime, "default", jinjaDefault);
-
-        jsi::Object defaultCaps(runtime);
+        json jinja = json::object({{"default", ctx->validateModelChatTemplate(true, nullptr)}});
         if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "")) {
             auto caps = common_chat_templates_get_caps(ctx->templates.get(), "");
-            defaultCaps.setProperty(runtime, "tools", caps.supports_tools);
-            defaultCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
-            defaultCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
-            defaultCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
+            jinja["defaultCaps"] = chatTemplateCapsJson(caps.supports_tools, caps.supports_tool_calls,
+                                                       caps.supports_parallel_tool_calls, caps.supports_system_role);
         } else {
-            defaultCaps.setProperty(runtime, "tools", false);
-            defaultCaps.setProperty(runtime, "toolCalls", false);
-            defaultCaps.setProperty(runtime, "parallelToolCalls", false);
-            defaultCaps.setProperty(runtime, "systemRole", false);
+            jinja["defaultCaps"] = chatTemplateCapsJson(false, false, false, false);
         }
-        jinja.setProperty(runtime, "defaultCaps", defaultCaps);
-
-        bool toolUseSupported = ctx->validateModelChatTemplate(true, "tool_use");
-        jinja.setProperty(runtime, "toolUse", toolUseSupported);
+        jinja["toolUse"] = ctx->validateModelChatTemplate(true, "tool_use");
         if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "tool_use")) {
             auto caps = common_chat_templates_get_caps(ctx->templates.get(), "tool_use");
-            jsi::Object toolUseCaps(runtime);
-            toolUseCaps.setProperty(runtime, "tools", caps.supports_tools);
-            toolUseCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
-            toolUseCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
-            toolUseCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
-            jinja.setProperty(runtime, "toolUseCaps", toolUseCaps);
+            jinja["toolUseCaps"] = chatTemplateCapsJson(caps.supports_tools, caps.supports_tool_calls,
+                                                       caps.supports_parallel_tool_calls, caps.supports_system_role);
         }
 
-        chatTemplates.setProperty(runtime, "jinja", jinja);
-        model.setProperty(runtime, "chatTemplates", chatTemplates);
+        return json::object({
+            {"desc", desc},
+            {"size", llama_model_size(ctx->model)},
+            {"nEmbd", llama_model_n_embd(ctx->model)},
+            {"nParams", llama_model_n_params(ctx->model)},
+            {"is_recurrent", llama_model_is_recurrent(ctx->model)},
+            {"is_hybrid", llama_model_is_hybrid(ctx->model)},
+            {"metadata", metadata},
+            {"chatTemplates", json::object({{"llamaChat", llamaChat}, {"jinja", jinja}})},
+            // Deprecated flag maintained for compatibility
+            {"isChatTemplateSupported", llamaChat},
+        });
+    }
 
-        // Deprecated flag maintained for compatibility
-        model.setProperty(runtime, "isChatTemplateSupported", llamaChat);
+    static json chatParamsJson(const common_chat_params& chatParams) {
+        json result = json::object({
+            {"prompt", chatParams.prompt},
+            {"chat_format", (int) chatParams.format},
+            {"grammar", chatParams.grammar},
+            {"grammar_lazy", chatParams.grammar_lazy},
+            {"generation_prompt", chatParams.generation_prompt},
+            {"thinking_forced_open", isThinkingForcedOpen(chatParams)},
+        });
+        if (!chatParams.thinking_start_tag.empty()) {
+            result["thinking_start_tag"] = chatParams.thinking_start_tag;
+        }
+        if (!chatParams.thinking_end_tags.empty()) {
+            result["thinking_end_tag"] = chatParams.thinking_end_tags.front();
+        }
 
-        return model;
+        // Preserve the same shape as legacy native bridge
+        result["type"] = "jinja";
+        result["preserved_tokens"] = chatParams.preserved_tokens;
+        result["additional_stops"] = chatParams.additional_stops;
+
+        json triggers = json::array();
+        for (const auto& trigger : chatParams.grammar_triggers) {
+            triggers.push_back(json::object({
+                {"type", (int) trigger.type},
+                {"value", trigger.value},
+                {"token", (int) trigger.token},
+            }));
+        }
+        result["grammar_triggers"] = triggers;
+
+        // Return the PEG parser string for COMMON_CHAT_FORMAT_PEG_* formats
+        if (!chatParams.parser.empty()) {
+            result["chat_parser"] = chatParams.parser;
+        }
+        return result;
+    }
+
+    static json rerankResultJson(const std::vector<float>& scores) {
+        json result = json::array();
+        for (size_t i = 0; i < scores.size(); i++) {
+            result.push_back(json::object({{"score", (double) scores[i]}, {"index", (int) i}}));
+        }
+        return result;
+    }
+
+    static json parallelStatusJson(const rnllama::llama_rn_parallel_status& status) {
+        json requests = json::array();
+        for (const auto& req : status.requests) {
+            requests.push_back(json::object({
+                {"request_id", req.request_id},
+                {"type", req.type},
+                {"state", req.state},
+                {"prompt_length", req.prompt_length},
+                {"tokens_generated", req.tokens_generated},
+                {"prompt_ms", req.prompt_ms},
+                {"generation_ms", req.generation_ms},
+                {"tokens_per_second", req.tokens_per_second},
+            }));
+        }
+        return json::object({
+            {"n_parallel", status.n_parallel},
+            {"active_slots", status.active_slots},
+            {"queued_requests", status.queued_requests},
+            {"requests", requests},
+        });
     }
 
     static std::vector<lm_ggml_backend_dev_t> buildDeviceOverrides(
@@ -654,29 +699,22 @@ namespace rnllama_jsi {
 
                          addContext(contextId, (long)ctx);
 
-                         std::string system_info = common_params_get_system_info(ctx->params);
-
-                         return [gpuEnabled, reasonNoGPU, system_info, usedDevices, contextId](jsi::Runtime& rt) {
-                             jsi::Object result(rt);
-                             result.setProperty(rt, "gpu", gpuEnabled);
-                             result.setProperty(rt, "reasonNoGPU", jsi::String::createFromUtf8(rt, reasonNoGPU));
-                             result.setProperty(rt, "systemInfo", jsi::String::createFromUtf8(rt, system_info));
-
+                         std::string androidLibName = "";
+                         #if defined(__ANDROID__)
+                         androidLibName = g_android_loaded_library;
+                         #endif
+                         json result = json::object({
+                             {"gpu", gpuEnabled},
+                             {"reasonNoGPU", reasonNoGPU},
+                             {"systemInfo", common_params_get_system_info(ctx->params)},
                              // Model metadata and chat template capabilities
-                             long ctxPtr = g_llamaContexts.get(contextId);
-                             if (ctxPtr) {
-                                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
-                                 result.setProperty(rt, "model", createModelDetails(rt, ctx));
-                             }
+                             {"model", modelDetailsJson(ctx)},
+                             {"devices", usedDevices},
+                             {"androidLib", androidLibName},
+                         });
 
-                             // Maintain shape expected by TypeScript
-                             result.setProperty(rt, "devices", toJsStringArray(rt, usedDevices));
-                             std::string androidLibName = "";
-                             #if defined(__ANDROID__)
-                             androidLibName = g_android_loaded_library;
-                             #endif
-                             result.setProperty(rt, "androidLib", jsi::String::createFromUtf8(rt, androidLibName));
-                             return result;
+                         return [result](jsi::Runtime& rt) {
+                             return fromJson(rt, result);
                          };
                     } else {
                         delete ctx;
@@ -702,8 +740,9 @@ namespace rnllama_jsi {
                 }
 
                 return createPromiseTask(runtime, callInvoker, [path, skip]() -> PromiseResultGenerator {
-                    return [path, skip](jsi::Runtime& rt) {
-                        return createModelInfo(rt, path, skip);
+                    json info = modelInfoJson(path, skip);
+                    return [info](jsi::Runtime& rt) {
+                        return fromJson(rt, info);
                     };
                 }, -1, false);
             }
@@ -737,13 +776,9 @@ namespace rnllama_jsi {
                 return createPromiseTask(runtime, callInvoker, [contextId, path]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     throwIfContextBusy(ctx);
-                    return [contextId, path](jsi::Runtime& rt) {
-                        long ctxPtr = g_llamaContexts.get(contextId);
-                        if (!ctxPtr) {
-                            throw std::runtime_error("Context was released");
-                        }
-                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
-                        return rnllama_jsi::loadSession(rt, ctx, path);
+                    json result = rnllama_jsi::loadSession(ctx, path);
+                    return [result](jsi::Runtime& rt) {
+                        return fromJson(rt, result);
                     };
                 }, contextId);
             }
@@ -786,9 +821,9 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, text, mediaPaths]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    auto result = ctx->tokenize(text, mediaPaths);
+                    json result = tokenizeResultJson(ctx->tokenize(text, mediaPaths));
                     return [result](jsi::Runtime& rt) {
-                        return createTokenizeResult(rt, result);
+                        return fromJson(rt, result);
                     };
                 }, contextId);
             }
@@ -887,52 +922,9 @@ namespace rnllama_jsi {
                                getBool("force_pure_content", false)
                           );
 
-                          return [chatParams](jsi::Runtime& rt) {
-                              jsi::Object result(rt);
-                              result.setProperty(rt, "prompt", jsi::String::createFromUtf8(rt, chatParams.prompt));
-                              result.setProperty(rt, "chat_format", (int)chatParams.format);
-                              result.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, chatParams.grammar));
-                              result.setProperty(rt, "grammar_lazy", chatParams.grammar_lazy);
-                              result.setProperty(rt, "generation_prompt", jsi::String::createFromUtf8(rt, chatParams.generation_prompt));
-                              result.setProperty(rt, "thinking_forced_open", isThinkingForcedOpen(chatParams));
-                              if (!chatParams.thinking_start_tag.empty()) {
-                                  result.setProperty(rt, "thinking_start_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_start_tag));
-                              }
-                              if (!chatParams.thinking_end_tags.empty()) {
-                                  result.setProperty(rt, "thinking_end_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_end_tags.front()));
-                              }
-
-                              // Preserve the same shape as legacy native bridge
-                              result.setProperty(rt, "type", jsi::String::createFromUtf8(rt, "jinja"));
-
-                              jsi::Array preserved(rt, chatParams.preserved_tokens.size());
-                              for (size_t i = 0; i < chatParams.preserved_tokens.size(); i++) {
-                                  preserved.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, chatParams.preserved_tokens[i]));
-                              }
-                              result.setProperty(rt, "preserved_tokens", preserved);
-
-                              jsi::Array additionalStops(rt, chatParams.additional_stops.size());
-                              for (size_t i = 0; i < chatParams.additional_stops.size(); i++) {
-                                  additionalStops.setValueAtIndex(rt, i, jsi::String::createFromUtf8(rt, chatParams.additional_stops[i]));
-                              }
-                              result.setProperty(rt, "additional_stops", additionalStops);
-
-                              jsi::Array triggers = jsi::Array(rt, chatParams.grammar_triggers.size());
-                              for (size_t i = 0; i < chatParams.grammar_triggers.size(); i++) {
-                                  jsi::Object trigger(rt);
-                                  trigger.setProperty(rt, "type", (int)chatParams.grammar_triggers[i].type);
-                                  trigger.setProperty(rt, "value", jsi::String::createFromUtf8(rt, chatParams.grammar_triggers[i].value));
-                                  trigger.setProperty(rt, "token", (int)chatParams.grammar_triggers[i].token);
-                                  triggers.setValueAtIndex(rt, i, trigger);
-                              }
-                              result.setProperty(rt, "grammar_triggers", triggers);
-
-                              // Return the PEG parser string for COMMON_CHAT_FORMAT_PEG_* formats
-                              if (!chatParams.parser.empty()) {
-                                  result.setProperty(rt, "chat_parser", jsi::String::createFromUtf8(rt, chatParams.parser));
-                              }
-
-                              return result;
+                          json result = chatParamsJson(chatParams);
+                          return [result](jsi::Runtime& rt) {
+                              return fromJson(rt, result);
                           };
                       } else {
                           std::string prompt = ctx->getFormattedChat(messages, chatTemplate);
@@ -979,11 +971,7 @@ namespace rnllama_jsi {
 
                     return [result](jsi::Runtime& rt) {
                         jsi::Object resultDict(rt);
-                        jsi::Array embeddingResult(rt, result.size());
-                        for (size_t i = 0; i < result.size(); i++) {
-                            embeddingResult.setValueAtIndex(rt, i, (double)result[i]);
-                        }
-                        resultDict.setProperty(rt, "embedding", embeddingResult);
+                        resultDict.setProperty(rt, "embedding", makeFloat32Array(rt, result));
                         return resultDict;
                     };
                 }, contextId);
@@ -1013,15 +1001,9 @@ namespace rnllama_jsi {
 
                     std::vector<float> scores = ctx->completion->rerank(query, documents);
 
-                    return [scores](jsi::Runtime& rt) {
-                        jsi::Array result(rt, scores.size());
-                        for (size_t i = 0; i < scores.size(); i++) {
-                            jsi::Object item(rt);
-                            item.setProperty(rt, "score", (double)scores[i]);
-                            item.setProperty(rt, "index", (int)i);
-                            result.setValueAtIndex(rt, i, item);
-                        }
-                        return result;
+                    json result = rerankResultJson(scores);
+                    return [result](jsi::Runtime& rt) {
+                        return fromJson(rt, result);
                     };
                 }, contextId);
             }
@@ -1181,20 +1163,17 @@ namespace rnllama_jsi {
 
                                 auto runtime = runtimePtr;
                                 if (runtime) {
-                                    callInvoker->invokeAsync([onToken, output_copy, contextId, partial_output, has_partial_output, runtime]() {
-                                        // Check if context is still valid (may have been released during async callback)
-                                        long ctxPtr = g_llamaContexts.get(contextId);
-                                        if (!ctxPtr) {
-                                            // Context was released, skip token callback
+                                    json tokenResult = tokenResultJson(ctx, output_copy);
+                                    if (has_partial_output) {
+                                        addChatOutputFields(tokenResult, partial_output);
+                                    }
+                                    callInvoker->invokeAsync([onToken, tokenResult, contextId, runtime]() {
+                                        // Skip the callback if the context was released meanwhile
+                                        if (!g_llamaContexts.get(contextId)) {
                                             return;
                                         }
-                                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
                                         auto& rt = *runtime;
-                                        jsi::Object res = createTokenResult(rt, ctx, output_copy);
-                                        if (has_partial_output) {
-                                            setChatOutputFields(rt, res, partial_output);
-                                        }
-                                        onToken->call(rt, res);
+                                        onToken->call(rt, fromJson(rt, tokenResult));
                                     });
                                 }
                             }
@@ -1204,19 +1183,19 @@ namespace rnllama_jsi {
                     common_perf_print(ctx->ctx, ctx->completion->ctx_sampling);
                     ctx->completion->endCompletion();
 
-                    return [contextId](jsi::Runtime& rt) -> jsi::Value {
-                        // Check if context is still valid (may have been released during async callback)
-                        long ctxPtr = g_llamaContexts.get(contextId);
-                        if (!ctxPtr) {
+                    // Snapshot the result here, before another task can touch the context
+                    CompletionResult result = completionResult(ctx);
+
+                    return [contextId, result](jsi::Runtime& rt) -> jsi::Value {
+                        if (!g_llamaContexts.get(contextId)) {
                             // Context was released, return minimal interrupted result
-                            jsi::Object res(rt);
-                            res.setProperty(rt, "text", jsi::String::createFromUtf8(rt, ""));
-                            res.setProperty(rt, "interrupted", true);
-                            res.setProperty(rt, "context_released", true);
-                            return jsi::Value(std::move(res));
+                            return fromJson(rt, json::object({
+                                {"text", ""},
+                                {"interrupted", true},
+                                {"context_released", true},
+                            }));
                         }
-                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
-                        return jsi::Value(std::move(createCompletionResult(rt, ctx)));
+                        return result.toJsi(rt);
                     };
                 }, contextId);
             }
@@ -1371,23 +1350,19 @@ namespace rnllama_jsi {
 
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
                         if (callbacks.onToken) {
-                            rnllama::completion_token_output tokenCopy = token;
+                            json tokenResult = tokenResultJson(ctx, token);
+                            if (has_parsed_output) {
+                                addChatOutputFields(tokenResult, parsed_output);
+                            }
                             auto runtime = runtimePtr;
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, tokenCopy, requestId, parsed_output, has_parsed_output, runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, tokenResult, requestId, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
-                                long ctxPtr = g_llamaContexts.get(contextId);
-                                if (ctxPtr) {
-                                    auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
-                                    auto& rt = *runtime;
-                                    jsi::Object res = createTokenResult(rt, ctx, tokenCopy);
-                                    if (has_parsed_output) {
-                                        setChatOutputFields(rt, res, parsed_output);
-                                    }
-                                    callbacks.onToken->call(rt, res, jsi::Value(requestId));
-                                }
+                                if (!g_llamaContexts.get(contextId)) return;
+                                auto& rt = *runtime;
+                                callbacks.onToken->call(rt, fromJson(rt, tokenResult), jsi::Value(requestId));
                             });
                         }
                     };
@@ -1400,21 +1375,16 @@ namespace rnllama_jsi {
                                 common_perf_print(slot->parent_ctx->ctx, slot->ctx_sampling);
                             }
 
-                            auto result = captureParallelCompletionResult(slot);
+                            json result = parallelCompletionResultJson(slot->parent_ctx, captureParallelCompletionResult(slot));
                             auto runtime = runtimePtr;
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, result = std::move(result), runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, result, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
-                                long ctxPtr = g_llamaContexts.get(contextId);
-                                if (!ctxPtr) {
-                                    return;
-                                }
-                                auto ctxVal = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                                if (!g_llamaContexts.get(contextId)) return;
                                 auto& rt = *runtime;
-                                auto res = createParallelCompletionResult(rt, ctxVal, result);
-                                callbacks.onComplete->call(rt, res);
+                                callbacks.onComplete->call(rt, fromJson(rt, result));
                             });
                         }
                     };
@@ -1436,9 +1406,7 @@ namespace rnllama_jsi {
                     }
 
                     return [requestId](jsi::Runtime& rt) {
-                        jsi::Object res(rt);
-                        res.setProperty(rt, "requestId", requestId);
-                        return res;
+                        return fromJson(rt, json::object({{"requestId", requestId}}));
                     };
                 }, contextId);
             }
@@ -1458,9 +1426,8 @@ namespace rnllama_jsi {
                     if (result == rnllama::llama_rn_cancel_result::QUEUED) {
                         auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
                         if (callbacks.onComplete) {
-                            auto snapshot = createQueuedCancellationSnapshot(requestId);
-                            auto response = createParallelCompletionResult(runtime, ctx, snapshot);
-                            callbacks.onComplete->call(runtime, response);
+                            json response = parallelCompletionResultJson(ctx, createQueuedCancellationSnapshot(requestId));
+                            callbacks.onComplete->call(runtime, fromJson(runtime, response));
                         }
                     }
                 }
@@ -1509,11 +1476,7 @@ namespace rnllama_jsi {
                             invokeAsyncTracked(callInvoker, contextId, [callbacks, embCopy, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
                                 auto& rt = *runtime;
-                                jsi::Array res(rt, embCopy.size());
-                                for (size_t i = 0; i < embCopy.size(); i++) {
-                                    res.setValueAtIndex(rt, i, (double)embCopy[i]);
-                                }
-                                callbacks.onResult->call(rt, res);
+                                callbacks.onResult->call(rt, makeFloat32Array(rt, embCopy));
                             });
                         }
                     };
@@ -1535,9 +1498,7 @@ namespace rnllama_jsi {
                     }
 
                     return [requestId](jsi::Runtime& rt) {
-                        jsi::Object res(rt);
-                        res.setProperty(rt, "requestId", requestId);
-                        return res;
+                        return fromJson(rt, json::object({{"requestId", requestId}}));
                     };
                 }, contextId);
             }
@@ -1569,22 +1530,15 @@ namespace rnllama_jsi {
                     auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const std::vector<float>& scores) {
                         auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
                         if (callbacks.onResult) {
-                            std::vector<float> scoresCopy = scores;
+                            json result = rerankResultJson(scores);
                             auto runtime = runtimePtr;
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, scoresCopy, runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, result, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
                                 auto& rt = *runtime;
-                                jsi::Array res(rt, scoresCopy.size());
-                                for (size_t i = 0; i < scoresCopy.size(); i++) {
-                                    jsi::Object item(rt);
-                                    item.setProperty(rt, "score", (double)scoresCopy[i]);
-                                    item.setProperty(rt, "index", (int)i);
-                                    res.setValueAtIndex(rt, i, item);
-                                }
-                                callbacks.onResult->call(rt, res);
+                                callbacks.onResult->call(rt, fromJson(rt, result));
                             });
                         }
                     };
@@ -1605,46 +1559,18 @@ namespace rnllama_jsi {
                     }
 
                     return [requestId](jsi::Runtime& rt) {
-                        jsi::Object res(rt);
-                        res.setProperty(rt, "requestId", requestId);
-                        return res;
+                        return fromJson(rt, json::object({{"requestId", requestId}}));
                     };
                 }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueRerank", queueRerank);
 
-        // Helper function to create parallel status object
-        auto createParallelStatusObject = [](jsi::Runtime& rt, const rnllama::llama_rn_parallel_status& status) -> jsi::Object {
-            jsi::Object result(rt);
-            result.setProperty(rt, "n_parallel", status.n_parallel);
-            result.setProperty(rt, "active_slots", status.active_slots);
-            result.setProperty(rt, "queued_requests", status.queued_requests);
-
-            jsi::Array requests(rt, status.requests.size());
-            for (size_t i = 0; i < status.requests.size(); i++) {
-                const auto& req = status.requests[i];
-                jsi::Object reqObj(rt);
-                reqObj.setProperty(rt, "request_id", req.request_id);
-                reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
-                reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
-                reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
-                reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
-                reqObj.setProperty(rt, "generation_ms", req.generation_ms);
-                reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
-                requests.setValueAtIndex(rt, i, reqObj);
-            }
-            result.setProperty(rt, "requests", requests);
-
-            return result;
-        };
-
         // Get parallel status (one-time snapshot)
         auto getParallelStatus = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetParallelStatus"),
             1,
-            [callInvoker, createParallelStatusObject](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
 
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
@@ -1653,31 +1579,10 @@ namespace rnllama_jsi {
                         throw std::runtime_error("Parallel mode not enabled");
                     }
 
-                    auto status = ctx->slot_manager->get_status();
+                    json result = parallelStatusJson(ctx->slot_manager->get_status());
 
-                    return [status](jsi::Runtime& rt) {
-                        jsi::Object result(rt);
-                        result.setProperty(rt, "n_parallel", status.n_parallel);
-                        result.setProperty(rt, "active_slots", status.active_slots);
-                        result.setProperty(rt, "queued_requests", status.queued_requests);
-
-                        jsi::Array requests(rt, status.requests.size());
-                        for (size_t i = 0; i < status.requests.size(); i++) {
-                            const auto& req = status.requests[i];
-                            jsi::Object reqObj(rt);
-                            reqObj.setProperty(rt, "request_id", req.request_id);
-                            reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
-                            reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                            reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
-                            reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
-                            reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
-                            reqObj.setProperty(rt, "generation_ms", req.generation_ms);
-                            reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
-                            requests.setValueAtIndex(rt, i, reqObj);
-                        }
-                        result.setProperty(rt, "requests", requests);
-
-                        return result;
+                    return [result](jsi::Runtime& rt) {
+                        return fromJson(rt, result);
                     };
                 }, contextId);
             }
@@ -1704,44 +1609,19 @@ namespace rnllama_jsi {
                     auto statusCallback = [contextId, callInvoker, onStatus, runtimePtr](
                         const rnllama::llama_rn_parallel_status& status
                     ) {
-                        // Copy status for async callback
-                        rnllama::llama_rn_parallel_status statusCopy = status;
+                        json result = parallelStatusJson(status);
 
-                        callInvoker->invokeAsync([onStatus, statusCopy, runtimePtr]() {
+                        callInvoker->invokeAsync([onStatus, result, runtimePtr]() {
                             if (!runtimePtr || !*runtimePtr) return;
                             auto& rt = **runtimePtr;
-
-                            jsi::Object result(rt);
-                            result.setProperty(rt, "n_parallel", statusCopy.n_parallel);
-                            result.setProperty(rt, "active_slots", statusCopy.active_slots);
-                            result.setProperty(rt, "queued_requests", statusCopy.queued_requests);
-
-                            jsi::Array requests(rt, statusCopy.requests.size());
-                            for (size_t i = 0; i < statusCopy.requests.size(); i++) {
-                                const auto& req = statusCopy.requests[i];
-                                jsi::Object reqObj(rt);
-                                reqObj.setProperty(rt, "request_id", req.request_id);
-                                reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
-                                reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                                reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
-                                reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
-                                reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
-                                reqObj.setProperty(rt, "generation_ms", req.generation_ms);
-                                reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
-                                requests.setValueAtIndex(rt, i, reqObj);
-                            }
-                            result.setProperty(rt, "requests", requests);
-
-                            onStatus->call(rt, result);
+                            onStatus->call(rt, fromJson(rt, result));
                         });
                     };
 
                     int32_t subscriberId = ctx->slot_manager->add_status_subscriber(statusCallback);
 
                     return [subscriberId](jsi::Runtime& rt) {
-                        jsi::Object res(rt);
-                        res.setProperty(rt, "subscriberId", subscriberId);
-                        return res;
+                        return fromJson(rt, json::object({{"subscriberId", subscriberId}}));
                     };
                 }, contextId);
             }
@@ -1903,16 +1783,12 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    auto adapters = ctx->getLoadedLoraAdapters();
+                    json adapters = json::array();
+                    for (const auto& la : ctx->getLoadedLoraAdapters()) {
+                        adapters.push_back(json::object({{"path", la.path}, {"scaled", (double) la.scale}}));
+                    }
                     return [adapters](jsi::Runtime& rt) {
-                        jsi::Array res(rt, adapters.size());
-                        for (size_t i = 0; i < adapters.size(); i++) {
-                            jsi::Object item(rt);
-                            item.setProperty(rt, "path", jsi::String::createFromUtf8(rt, adapters[i].path));
-                            item.setProperty(rt, "scaled", (double)adapters[i].scale);
-                            res.setValueAtIndex(rt, i, item);
-                        }
-                        return res;
+                        return fromJson(rt, adapters);
                     };
                 }, contextId);
             }
@@ -1959,14 +1835,13 @@ namespace rnllama_jsi {
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isMultimodalEnabled()) throw std::runtime_error("Multimodal is not enabled");
-                    bool vision = ctx->isMultimodalSupportVision();
-                    bool audio = ctx->isMultimodalSupportAudio();
-                    return [vision, audio](jsi::Runtime& rt) {
-                        jsi::Object res(rt);
-                            res.setProperty(rt, "vision", vision);
-                            res.setProperty(rt, "audio", audio);
-                            return res;
-                        };
+                    json support = json::object({
+                        {"vision", ctx->isMultimodalSupportVision()},
+                        {"audio", ctx->isMultimodalSupportAudio()},
+                    });
+                    return [support](jsi::Runtime& rt) {
+                        return fromJson(rt, support);
+                    };
                 }, contextId);
             }
         );
@@ -2046,15 +1921,14 @@ namespace rnllama_jsi {
 
                     try {
                         auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId);
-                        return [audio_result](jsi::Runtime& rt) {
-                            jsi::Object res(rt);
-                            res.setProperty(rt, "prompt", jsi::String::createFromUtf8(rt, audio_result.prompt));
-                            if (!audio_result.grammar.empty()) {
-                                res.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, audio_result.grammar));
-                            }
-                            res.setProperty(rt, "embedding", audio_result.embedding);
-                            res.setProperty(rt, "flow", jsi::String::createFromUtf8(rt, audio_result.flow));
-                            return res;
+                        json res = json::object({{"prompt", audio_result.prompt}});
+                        if (!audio_result.grammar.empty()) {
+                            res["grammar"] = audio_result.grammar;
+                        }
+                        res["embedding"] = audio_result.embedding;
+                        res["flow"] = audio_result.flow;
+                        return [res](jsi::Runtime& rt) {
+                            return fromJson(rt, res);
                         };
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
@@ -2073,14 +1947,15 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
                     auto cap = ctx->tts_wrapper->getTTSCapabilities(ctx);
-                    return [cap](jsi::Runtime& rt) {
-                        jsi::Object obj(rt);
-                        obj.setProperty(rt, "type", jsi::Value(cap.type));
-                        obj.setProperty(rt, "promptKind", jsi::String::createFromUtf8(rt, cap.prompt_kind));
-                        obj.setProperty(rt, "family", jsi::String::createFromUtf8(rt, cap.family));
-                        obj.setProperty(rt, "requiresPhonemes", jsi::Value(cap.requires_phonemes));
-                        obj.setProperty(rt, "defaultLanguage", jsi::String::createFromUtf8(rt, cap.default_language));
-                        return obj;
+                    json res = json::object({
+                        {"type", cap.type},
+                        {"promptKind", cap.prompt_kind},
+                        {"family", cap.family},
+                        {"requiresPhonemes", cap.requires_phonemes},
+                        {"defaultLanguage", cap.default_language},
+                    });
+                    return [res](jsi::Runtime& rt) {
+                        return fromJson(rt, res);
                     };
                 }, contextId);
             }
@@ -2092,11 +1967,8 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Array tokensArr = arguments[1].asObject(runtime).asArray(runtime);
-                std::vector<llama_token> tokens;
-                for (size_t i = 0; i < tokensArr.size(runtime); i++) {
-                    tokens.push_back((llama_token)tokensArr.getValueAtIndex(runtime, i).asNumber());
-                }
+                // Int32Array | number[]
+                std::vector<llama_token> tokens = toInt32Vector(runtime, arguments[1]);
 
                 return createPromiseTask(runtime, callInvoker, [contextId, tokens]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
@@ -2105,11 +1977,7 @@ namespace rnllama_jsi {
                     try {
                         auto audio_data = ctx->tts_wrapper->decodeAudioTokens(ctx, tokens);
                         return [audio_data](jsi::Runtime& rt) {
-                            jsi::Array res(rt, audio_data.size());
-                            for (size_t i = 0; i < audio_data.size(); i++) {
-                                res.setValueAtIndex(rt, i, (double)audio_data[i]);
-                            }
-                            return res;
+                            return makeFloat32Array(rt, audio_data);
                         };
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
@@ -2171,18 +2039,15 @@ namespace rnllama_jsi {
 
                     try {
                         auto r = ctx->tts_wrapper->generateAudioCodes(ctx, opts, cb);
-                        return [r](jsi::Runtime& rt) {
-                            jsi::Object obj(rt);
-                            jsi::Array arr(rt, r.codes.size());
-                            for (size_t i = 0; i < r.codes.size(); ++i) {
-                                arr.setValueAtIndex(rt, i, (double) r.codes[i]);
-                            }
-                            obj.setProperty(rt, "codes", arr);
-                            obj.setProperty(rt, "nCodebook",     jsi::Value((double) r.n_codebook));
-                            obj.setProperty(rt, "nFrames",       jsi::Value((double) r.n_frames));
-                            obj.setProperty(rt, "stoppedOnEos",  jsi::Value(r.stopped_on_eos));
-                            obj.setProperty(rt, "aborted",       jsi::Value(r.aborted));
-                            return obj;
+                        json res = json::object({
+                            {"codes", r.codes},
+                            {"nCodebook", r.n_codebook},
+                            {"nFrames", r.n_frames},
+                            {"stoppedOnEos", r.stopped_on_eos},
+                            {"aborted", r.aborted},
+                        });
+                        return [res](jsi::Runtime& rt) {
+                            return fromJson(rt, res);
                         };
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
@@ -2221,16 +2086,15 @@ namespace rnllama_jsi {
                         has_emotion ? opts.emotion : 0.5f, has_emotion, opts.bake);
 
                     const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
-                    int rows  = spk ? spk->rows  : 0;
-                    bool baked = spk ? spk->baked : false;
+                    json res = json::object({
+                        {"id", speakerId},
+                        {"family", family},
+                        {"rows", spk ? spk->rows : 0},
+                        {"baked", spk ? spk->baked : false},
+                    });
 
-                    return [speakerId, family, rows, baked](jsi::Runtime& rt) {
-                        jsi::Object obj(rt);
-                        obj.setProperty(rt, "id",     jsi::Value((double) speakerId));
-                        obj.setProperty(rt, "family", jsi::String::createFromUtf8(rt, family));
-                        obj.setProperty(rt, "rows",   jsi::Value((double) rows));
-                        obj.setProperty(rt, "baked",  jsi::Value(baked));
-                        return obj;
+                    return [res](jsi::Runtime& rt) {
+                        return fromJson(rt, res);
                     };
                 }, contextId);
             }
@@ -2255,14 +2119,9 @@ namespace rnllama_jsi {
                     const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
                     if (!spk) throw std::runtime_error("bakeSpeaker: speaker id not found");
 
-                    int rows  = spk->rows;
-                    bool baked = spk->baked;
-
-                    return [rows, baked](jsi::Runtime& rt) {
-                        jsi::Object obj(rt);
-                        obj.setProperty(rt, "rows",  jsi::Value((double) rows));
-                        obj.setProperty(rt, "baked", jsi::Value(baked));
-                        return obj;
+                    json res = json::object({{"rows", spk->rows}, {"baked", spk->baked}});
+                    return [res](jsi::Runtime& rt) {
+                        return fromJson(rt, res);
                     };
                 }, contextId);
             }
@@ -2295,13 +2154,9 @@ namespace rnllama_jsi {
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Array embeddingsArr = arguments[1].asObject(runtime).asArray(runtime);
+                // Float32Array | number[]
+                std::vector<float> embeddings = toFloatVector(runtime, arguments[1]);
                 int embeddingDim = (int)arguments[2].asNumber();
-                std::vector<float> embeddings;
-                embeddings.reserve(embeddingsArr.size(runtime));
-                for (size_t i = 0; i < embeddingsArr.size(runtime); i++) {
-                    embeddings.push_back((float)embeddingsArr.getValueAtIndex(runtime, i).asNumber());
-                }
 
                 return createPromiseTask(runtime, callInvoker, [contextId, embeddings, embeddingDim]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
@@ -2310,11 +2165,7 @@ namespace rnllama_jsi {
                     try {
                         auto audio_data = ctx->tts_wrapper->decodeAudioEmbeddings(ctx, embeddings, embeddingDim);
                         return [audio_data](jsi::Runtime& rt) {
-                            jsi::Array res(rt, audio_data.size());
-                            for (size_t i = 0; i < audio_data.size(); i++) {
-                                res.setValueAtIndex(rt, i, (double)audio_data[i]);
-                            }
-                            return res;
+                            return makeFloat32Array(rt, audio_data);
                         };
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());

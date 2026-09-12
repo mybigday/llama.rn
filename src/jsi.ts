@@ -6,7 +6,6 @@ import type {
   NativeCompletionResult,
   NativeTokenizeResult,
   NativeEmbeddingParams,
-  NativeEmbeddingResult,
   NativeSessionLoadResult,
   NativeRerankParams,
   NativeRerankResult,
@@ -61,7 +60,7 @@ declare global {
     contextId: number,
     text: string,
     params: NativeEmbeddingParams,
-  ) => Promise<NativeEmbeddingResult>
+  ) => Promise<{ embedding: Float32Array }>
   var llamaRerank: (
     contextId: number,
     query: string,
@@ -167,8 +166,8 @@ declare global {
   }>
   var llamaDecodeAudioTokens: (
     contextId: number,
-    tokens: number[],
-  ) => Promise<number[]>
+    tokens: Int32Array | number[],
+  ) => Promise<Float32Array>
   var llamaGenerateAudioCodes: (
     contextId: number,
     opts: {
@@ -204,9 +203,9 @@ declare global {
   var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
   var llamaDecodeAudioEmbeddings: (
     contextId: number,
-    embeddings: number[],
+    embeddings: Float32Array | number[],
     embeddingDim: number,
-  ) => Promise<number[]>
+  ) => Promise<Float32Array>
   var llamaGetAudioSampleRate: (contextId: number) => Promise<number>
   var llamaReleaseVocoder: (contextId: number) => Promise<void>
   var llamaClearCache: (contextId: number, clearData: boolean) => Promise<void>
@@ -230,7 +229,7 @@ declare global {
     contextId: number,
     text: string,
     params: NativeEmbeddingParams,
-    onResult: (result: number[]) => void,
+    onResult: (result: Float32Array) => void,
   ) => Promise<{ requestId: number }>
   var llamaQueueRerank: (
     contextId: number,

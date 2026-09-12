@@ -573,7 +573,7 @@ export class LlamaContext {
             text,
             params || {},
             (embedding) => {
-              resolveResult({ embedding })
+              resolveResult({ embedding: Array.from(embedding) })
             },
           )
 
@@ -943,12 +943,15 @@ export class LlamaContext {
     return llamaDetokenize(this.id, tokens)
   }
 
-  embedding(
+  async embedding(
     text: string,
     params?: EmbeddingParams,
   ): Promise<NativeEmbeddingResult> {
     const { llamaEmbedding } = getJsi()
-    return llamaEmbedding(this.id, text, params || {})
+    // Native hands the vector over as a Float32Array (one ArrayBuffer instead
+    // of one JSI call per element); the public type stays number[].
+    const { embedding } = await llamaEmbedding(this.id, text, params || {})
+    return { embedding: Array.from(embedding) }
   }
 
   async rerank(
@@ -1209,9 +1212,17 @@ export class LlamaContext {
     return llamaGetFormattedAudioCompletion(this.id, payload, inputText)
   }
 
-  async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
+  async decodeAudioTokens(
+    tokens: number[] | Int32Array,
+  ): Promise<Array<number>> {
     const { llamaDecodeAudioTokens } = getJsi()
-    return await llamaDecodeAudioTokens(this.id, tokens)
+    // Typed arrays cross JSI as one ArrayBuffer copy each way; converting
+    // here keeps the per-element work inside the JS engine.
+    const pcm = await llamaDecodeAudioTokens(
+      this.id,
+      tokens instanceof Int32Array ? tokens : Int32Array.from(tokens),
+    )
+    return Array.from(pcm)
   }
 
   /**
@@ -1273,11 +1284,18 @@ export class LlamaContext {
   }
 
   async decodeAudioEmbeddings(
-    embeddings: number[],
+    embeddings: number[] | Float32Array,
     embeddingDim: number,
   ): Promise<Array<number>> {
     const { llamaDecodeAudioEmbeddings } = getJsi()
-    return await llamaDecodeAudioEmbeddings(this.id, embeddings, embeddingDim)
+    const pcm = await llamaDecodeAudioEmbeddings(
+      this.id,
+      embeddings instanceof Float32Array
+        ? embeddings
+        : Float32Array.from(embeddings),
+      embeddingDim,
+    )
+    return Array.from(pcm)
   }
 
   async getAudioSampleRate(): Promise<number> {

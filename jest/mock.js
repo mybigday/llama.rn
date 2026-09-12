@@ -229,7 +229,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaEmbedding',
-      jest.fn(async () => ({ embedding: demoEmbedding })),
+      jest.fn(async () => ({ embedding: Float32Array.from(demoEmbedding) })),
     )
     setGlobal(
       'llamaRerank',
@@ -321,7 +321,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaDecodeAudioTokens',
-      jest.fn(async () => []),
+      jest.fn(async () => new Float32Array([0.25, -0.5])),
     )
     setGlobal(
       'llamaGenerateAudioCodes',
@@ -347,7 +347,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaDecodeAudioEmbeddings',
-      jest.fn(async () => []),
+      jest.fn(async () => new Float32Array([0.125])),
     )
     setGlobal('llamaGetAudioSampleRate', jest.fn(async () => 24000))
     setGlobal(
@@ -391,7 +391,7 @@ if (!NativeModules.RNLlama) {
       'llamaQueueEmbedding',
       jest.fn(async (_ctx, _text, _params, onResult) => {
         const reqId = getNextRequestId()
-        if (typeof onResult === 'function') onResult([...demoEmbedding])
+        if (typeof onResult === 'function') onResult(Float32Array.from(demoEmbedding))
         return { requestId: reqId }
       }),
     )
