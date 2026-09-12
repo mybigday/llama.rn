@@ -2,8 +2,9 @@ const { NativeModules } = require('react-native')
 
 if (!NativeModules.RNLlama) {
   const demoEmbedding = new Array(768).fill(0.01)
-  const benchJson =
-    '{"n_kv_max":2048,"n_batch":2048,"n_ubatch":512,"flash_attn":0,"is_pp_shared":0,"n_gpu_layers":99,"n_threads":8,"n_threads_batch":8,"pp":128,"tg":128,"pl":1,"n_kv":256,"t_pp":0.23381,"speed_pp":547.453064,"t_tg":3.503684,"speed_tg":36.532974,"t":3.737494,"speed":68.495094}'
+  const benchResult = JSON.parse(
+    '{"n_kv_max":2048,"n_batch":2048,"n_ubatch":512,"flash_attn":0,"is_pp_shared":0,"n_gpu_layers":99,"n_threads":8,"n_threads_batch":8,"pp":128,"tg":128,"pl":1,"n_kv":256,"t_pp":0.23381,"speed_pp":547.453064,"t_tg":3.503684,"speed_tg":36.532974,"t":3.737494,"speed":68.495094}',
+  )
 
   const contextMap = {}
   const vocoderMap = {}
@@ -194,7 +195,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaGetBackendDevicesInfo',
-      jest.fn(async () => '[]'),
+      jest.fn(async () => []),
     )
     setGlobal(
       'llamaLoadSession',
@@ -241,7 +242,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaBench',
-      jest.fn(async () => benchJson),
+      jest.fn(async () => benchResult),
     )
     setGlobal(
       'llamaCompletion',

@@ -977,8 +977,7 @@ export class LlamaContext {
     nr: number,
   ): Promise<BenchResult> {
     const { llamaBench } = getJsi()
-    const result = await llamaBench(this.id, pp, tg, pl, nr)
-    const parsed = JSON.parse(result)
+    const parsed = await llamaBench(this.id, pp, tg, pl, nr)
     return {
       nKvMax: parsed.n_kv_max,
       nBatch: parsed.n_batch,
@@ -1460,11 +1459,10 @@ export async function getBackendDevicesInfo(): Promise<
   await installJsi()
   const { llamaGetBackendDevicesInfo } = getJsi()
   try {
-    const jsonString = await llamaGetBackendDevicesInfo()
-    return JSON.parse(jsonString as string)
+    return await llamaGetBackendDevicesInfo()
   } catch (e) {
     console.warn(
-      '[RNLlama] Failed to parse backend devices info, falling back to empty list',
+      '[RNLlama] Failed to read backend devices info, falling back to empty list',
       e,
     )
     return []

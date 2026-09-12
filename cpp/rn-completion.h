@@ -206,7 +206,7 @@ struct llama_rn_context_completion {
     std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
 
     // Benchmarking methods
-    std::string bench(int pp, int tg, int pl, int nr);
+    json bench(int pp, int tg, int pl, int nr);
 
     // Multimodal processing methods
     void processMedia(

@@ -756,10 +756,10 @@ namespace rnllama_jsi {
                  return createPromiseTask(runtime, callInvoker, [callInvoker]() -> PromiseResultGenerator {
                      ensureBackendInitialized();
 
-                     std::string info = rnllama::get_backend_devices_info();
+                     json info = rnllama::get_backend_devices_info();
 
                      return [info](jsi::Runtime& rt) {
-                         return jsi::String::createFromUtf8(rt, info);
+                         return fromJson(rt, info);
                      };
                  }, -1, false);
             }
@@ -1022,12 +1022,12 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, pp, tg, pl, nr]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (!ctx->completion) return [](jsi::Runtime& rt) { return jsi::String::createFromUtf8(rt, ""); };
+                    if (!ctx->completion) throw std::runtime_error("Completion not initialized");
 
-                    std::string res = ctx->completion->bench(pp, tg, pl, nr);
+                    json res = ctx->completion->bench(pp, tg, pl, nr);
 
                     return [res](jsi::Runtime& rt) {
-                        return jsi::String::createFromUtf8(rt, res);
+                        return fromJson(rt, res);
                     };
                 }, contextId);
             }

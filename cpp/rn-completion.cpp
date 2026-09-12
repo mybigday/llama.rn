@@ -1869,15 +1869,15 @@ std::vector<float> llama_rn_context_completion::rerank(const std::string &query,
     return scores;
 }
 
-std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
+json llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     if (is_predicting) {
         LOG_ERROR("cannot benchmark while predicting", "");
-        return std::string("{}");
+        return json::object();
     }
 
     if (pp <= 0 || tg <= 0 || pl <= 0 || nr <= 0) {
         LOG_ERROR("invalid benchmark parameters pp=%d tg=%d pl=%d nr=%d", pp, tg, pl, nr);
-        return std::string("{}");
+        return json::object();
     }
 
     is_predicting = true;
@@ -1903,7 +1903,7 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     if (n_ctx_req > n_kv_max) {
         LOG_ERROR("benchmark requires n_ctx=%d but only %d available", n_ctx_req, n_kv_max);
         endCompletion();
-        return std::string("{}");
+        return json::object();
     }
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -1956,7 +1956,7 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     if (!decode_helper(batch, n_batch, true)) {
         llama_batch_free(batch);
         endCompletion();
-        return std::string("{}");
+        return json::object();
     }
 
     double acc_t_pp = 0.0;
@@ -2081,7 +2081,7 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     llama_batch_free(batch);
     endCompletion();
 
-    return result_json.dump();
+    return result_json;
 }
 
 void llama_rn_context_completion::processMedia(

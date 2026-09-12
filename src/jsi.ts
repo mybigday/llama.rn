@@ -9,6 +9,8 @@ import type {
   NativeSessionLoadResult,
   NativeRerankParams,
   NativeRerankResult,
+  NativeBackendDeviceInfo,
+  NativeBenchResult,
   JinjaFormattedChatResult,
   ParallelStatus,
 } from './types'
@@ -22,7 +24,7 @@ declare global {
   var llamaReleaseContext: (contextId: number) => Promise<void>
   var llamaReleaseAllContexts: () => Promise<void>
   var llamaModelInfo: (path: string, skip: string[]) => Promise<object>
-  var llamaGetBackendDevicesInfo: () => Promise<string>
+  var llamaGetBackendDevicesInfo: () => Promise<NativeBackendDeviceInfo[]>
   var llamaLoadSession: (
     contextId: number,
     path: string,
@@ -73,7 +75,7 @@ declare global {
     tg: number,
     pl: number,
     nr: number,
-  ) => Promise<string>
+  ) => Promise<NativeBenchResult>
   var llamaToggleNativeLog: (
     enabled: boolean,
     onLog?: (level: string, text: string) => void,
