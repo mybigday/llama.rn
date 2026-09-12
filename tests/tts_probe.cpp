@@ -262,7 +262,7 @@ int main(int argc, char ** argv) {
 
     // Build prompt via the exact same entry point the JS layer uses.
     const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(
-        &ctx, speaker_json, text);
+        &ctx, speaker_json.empty() ? json(nullptr) : json::parse(speaker_json), text);
     std::printf("[probe] flow=%s embedding=%d prompt.len=%zu\n",
                 formatted.flow.c_str(),
                 (int) formatted.embedding,

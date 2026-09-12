@@ -2028,26 +2028,21 @@ namespace rnllama_jsi {
             4,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                // Speaker payload arrives as a JS object (or null when the
-                // caller relies on a registered speaker id). rn-tts still
-                // consumes it as a JSON string, so serialize here on the JS
-                // thread instead of asking JS to JSON.stringify.
-                std::string speakerJsonStr;
-                if (arguments[1].isObject()) {
-                    speakerJsonStr = toJson(runtime, arguments[1]).dump();
-                }
+                // Speaker payload arrives as a JS object, or null when the
+                // caller relies on a registered speaker id.
+                json speaker = arguments[1].isObject() ? toJson(runtime, arguments[1]) : json(nullptr);
                 std::string textToSpeak = arguments[2].asString(runtime).utf8(runtime);
                 // Optional 4th arg: speakerId (registry id >= 0, or -1 for none).
                 int speakerId = (count >= 4 && arguments[3].isNumber())
                     ? (int)arguments[3].asNumber()
                     : -1;
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speakerJsonStr, textToSpeak, speakerId]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speakerJsonStr, textToSpeak, speakerId);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId);
                         return [audio_result](jsi::Runtime& rt) {
                             jsi::Object res(rt);
                             res.setProperty(rt, "prompt", jsi::String::createFromUtf8(rt, audio_result.prompt));

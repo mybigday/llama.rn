@@ -349,7 +349,10 @@ struct llama_rn_context_tts {
     // unchanged.  When >= 0, pending_speaker_id is set and each injection
     // point in rn-completion.cpp / getFormattedAudioCompletion re-sources the
     // speaker embedding from the native registry (auto-baking on first use).
-    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak, int speakerId = -1);
+    // speaker: parsed speaker payload; null means "no speaker" (an empty
+    // object still counts as a provided speaker, matching the old "" vs "{}"
+    // string semantics).
+    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId = -1);
     // DEPRECATED source-compat shim.  As of the "one completion API"
     // refactor, codec_lm-AR TTS (CSM / Qwen3-TTS / MOSS-TTSD /
     // MOSS-TTS-Realtime / Chatterbox) shares the standard `completion`
