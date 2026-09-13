@@ -38,21 +38,21 @@ std::unique_ptr<llm_graph_context> llama_model_eurobert::build_arch_graph(const 
 llama_model_eurobert::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
+    ggml_tensor * inp_pos = build_inp_pos();
 
     inpL = build_inp_embd(model.tok_embd);
     cb(inpL, "inp_embd", -1);
 
     auto * inp_attn = build_attn_inp_no_cache();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * cur = inpL;
+        ggml_tensor * cur = inpL;
 
         cur = build_norm(inpL,
                 model.layers[il].attn_norm, NULL,
@@ -62,13 +62,13 @@ llama_model_eurobert::graph::graph(const llama_model & model, const llm_graph_pa
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -85,13 +85,13 @@ llama_model_eurobert::graph::graph(const llama_model & model, const llm_graph_pa
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0,  cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
-        cur = lm_ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, inpL);
 
-        lm_ggml_tensor * ffn_inp = cur;
+        ggml_tensor * ffn_inp = cur;
         cb(ffn_inp, "ffn_inp", il);
 
         cur = build_norm(ffn_inp,
@@ -106,7 +106,7 @@ llama_model_eurobert::graph::graph(const llama_model & model, const llm_graph_pa
                 NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
         cb(cur, "ffn_out", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         // input for next layer
         inpL = cur;
@@ -120,5 +120,5 @@ llama_model_eurobert::graph::graph(const llama_model & model, const llm_graph_pa
     cb(cur, "result_embd", -1);
     res->t_embd = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

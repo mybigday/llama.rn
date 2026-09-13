@@ -67,11 +67,11 @@ std::unique_ptr<llm_graph_context> llama_model_mpt::build_arch_graph(const llm_g
 llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * pos;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * pos;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
@@ -79,18 +79,18 @@ llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params 
 
     if (model.pos_embd) {
         // inp_pos - contains the positions
-        lm_ggml_tensor * inp_pos = build_inp_pos();
-        pos                   = lm_ggml_get_rows(ctx0, model.pos_embd, inp_pos);
+        ggml_tensor * inp_pos = build_inp_pos();
+        pos                   = ggml_get_rows(ctx0, model.pos_embd, inp_pos);
         cb(pos, "pos_embd", -1);
 
-        inpL = lm_ggml_add(ctx0, inpL, pos);
+        inpL = ggml_add(ctx0, inpL, pos);
         cb(inpL, "inpL", -1);
     }
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * attn_norm;
+        ggml_tensor * attn_norm;
 
         attn_norm = build_norm(inpL, model.layers[il].attn_norm, model.layers[il].attn_norm_b, LLM_NORM, il);
         cb(attn_norm, "attn_norm", il);
@@ -104,15 +104,15 @@ llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params 
 
             // Q/K Layernorm
             if (model.layers[il].attn_q_norm) {
-                Qcur = lm_ggml_reshape_2d(ctx0, Qcur, n_embd_head * n_head, n_tokens);
-                Kcur = lm_ggml_reshape_2d(ctx0, Kcur, n_embd_head * n_head_kv, n_tokens);
+                Qcur = ggml_reshape_2d(ctx0, Qcur, n_embd_head * n_head, n_tokens);
+                Kcur = ggml_reshape_2d(ctx0, Kcur, n_embd_head * n_head_kv, n_tokens);
 
                 Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, model.layers[il].attn_q_norm_b, LLM_NORM, il);
 
                 Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, model.layers[il].attn_k_norm_b, LLM_NORM, il);
 
-                Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
-                Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+                Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
+                Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
             }
 
             cb(Qcur, "Qcur", il);
@@ -125,12 +125,12 @@ llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params 
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         // Add the input
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpL);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed forward
@@ -145,7 +145,7 @@ llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params 
             cb(cur, "ffn_out", il);
         }
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -166,5 +166,5 @@ llama_model_mpt::graph::graph(const llama_model & model, const llm_graph_params 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

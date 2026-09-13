@@ -8,15 +8,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_definitions(
     -DNDEBUG
     -DO3
-    -DLM_GGML_USE_CPU
+    -DGGML_USE_CPU
 )
 
 # Platform-specific defines
 if(APPLE)
     add_definitions(
-        -DLM_GGML_USE_ACCELERATE
+        -DGGML_USE_ACCELERATE
         # Metal disabled for tests to avoid shader file dependencies
-        # -DLM_GGML_USE_METAL
+        # -DGGML_USE_METAL
     )
 elseif(UNIX AND NOT APPLE)
     # Linux-specific defines for CPU affinity and scheduling
@@ -24,23 +24,23 @@ elseif(UNIX AND NOT APPLE)
 endif()
 
 # Force generic CPU optimizations to avoid missing assembly functions
-add_definitions(-DLM_GGML_CPU_GENERIC)
+add_definitions(-DGGML_CPU_GENERIC)
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 include_directories(${SOURCE_DIR}/hash)
 
 # Collect source files using glob patterns
 file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
-# Shared sources build in generic mode (-DLM_GGML_CPU_GENERIC below), so only
+# Shared sources build in generic mode (-DGGML_CPU_GENERIC below), so only
 # the portable ggml-cpu kernels are compiled — matching the library/main build.
 # The per-arch SIMD kernels (arch/x86) are added ONLY to the probe targets,
-# which undefine LM_GGML_CPU_GENERIC + build -march=native for accurate perf.
+# which undefine GGML_CPU_GENERIC + build -march=native for accurate perf.
 # Compiling arch/x86 into a generic-mode target double-defines the public
 # kernels and leaves the *_generic fallbacks unresolved.
 file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
 file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
 if(APPLE)
-    # Probe targets keep LM_GGML_CPU_GENERIC on Apple (no -U override below),
+    # Probe targets keep GGML_CPU_GENERIC on Apple (no -U override below),
     # so the per-arch SIMD sources must be left out — mixing them with the
     # generic build double-defines the public kernels / drops the *_generic
     # fallbacks and the link fails.
@@ -270,7 +270,7 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(bluemagpie_probe PRIVATE Threads::Threads m dl)
     # Native SIMD for accurate perf measurement (skip the forced-generic
     # define; the ggml-cpu arch sources will pick native ARM/x86 kernels).
-    target_compile_options(bluemagpie_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+    target_compile_options(bluemagpie_probe PRIVATE -march=native -U GGML_CPU_GENERIC)
 endif()
 
 # -DTESTS_METAL=ON (Apple only): compile the Metal backend into tts_probe so
@@ -295,7 +295,7 @@ add_executable(tts_probe
     ${TTS_PROBE_METAL_FILES}
 )
 if(APPLE AND TESTS_METAL)
-    target_compile_definitions(tts_probe PRIVATE LM_GGML_USE_METAL LM_GGML_METAL_EMBED_LIBRARY=1)
+    target_compile_definitions(tts_probe PRIVATE GGML_USE_METAL GGML_METAL_EMBED_LIBRARY=1 GGMLMetalClass=RNLlamaGGMLMetalClass)
 endif()
 target_include_directories(tts_probe
     PRIVATE
@@ -322,7 +322,7 @@ if(APPLE)
 elseif(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
     target_link_libraries(tts_probe PRIVATE Threads::Threads m dl)
-    target_compile_options(tts_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+    target_compile_options(tts_probe PRIVATE -march=native -U GGML_CPU_GENERIC)
 endif()
 
 add_executable(barbet_hidden_dump
@@ -349,7 +349,7 @@ if(APPLE)
 elseif(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
     target_link_libraries(barbet_hidden_dump PRIVATE Threads::Threads m dl)
-    target_compile_options(barbet_hidden_dump PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+    target_compile_options(barbet_hidden_dump PRIVATE -march=native -U GGML_CPU_GENERIC)
 endif()
 
 # Create KV-cache-reuse harness executable

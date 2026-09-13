@@ -12,7 +12,7 @@
 #include <qurt_thread.h>
 #include <string.h>
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "htp-ctx.h"
 #include "hex-dma.h"

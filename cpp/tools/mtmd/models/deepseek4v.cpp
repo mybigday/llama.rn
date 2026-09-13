@@ -15,23 +15,23 @@
 //
 // ref: inference/vision.py and inference/image_processor.py in the HF repo
 
-lm_ggml_cgraph * clip_graph_deepseek4v::build() {
+ggml_cgraph * clip_graph_deepseek4v::build() {
     const int n_merge = hparams.n_merge;
 
     // 2D input positions
-    lm_ggml_tensor * positions = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_patches * 4);
-    lm_ggml_set_name(positions, "positions");
-    lm_ggml_set_input(positions);
+    ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches * 4);
+    ggml_set_name(positions, "positions");
+    ggml_set_input(positions);
 
     int sections[4] = {d_head/4, d_head/4, 0, 0};
-    auto add_pos = [&](lm_ggml_tensor * cur, const clip_layer &) {
-        return lm_ggml_rope_multi(ctx0, cur, positions, nullptr,
-            d_head/2, sections, LM_GGML_ROPE_TYPE_VISION,
+    auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
+        return ggml_rope_multi(ctx0, cur, positions, nullptr,
+            d_head/2, sections, GGML_ROPE_TYPE_VISION,
             0, hparams.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
     };
 
-    lm_ggml_tensor * inp = build_inp();
-    lm_ggml_tensor * cur = build_vit(
+    ggml_tensor * inp = build_inp();
+    ggml_tensor * cur = build_vit(
                             inp, n_patches,
                             NORM_TYPE_RMS,
                             hparams.ffn_op,
@@ -42,19 +42,19 @@ lm_ggml_cgraph * clip_graph_deepseek4v::build() {
     // aligner patch merge: zero-pad the patch grid to a multiple of n_merge
     // then F.unfold == im2col with a dummy kernel (same trick as pixtral)
     {
-        cur = lm_ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
-        cur = lm_ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
-        cur = lm_ggml_cont(ctx0, cur);
+        cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
+        cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
+        cur = ggml_cont(ctx0, cur);
 
         const int pad_x = (n_merge - n_patches_x % n_merge) % n_merge;
         const int pad_y = (n_merge - n_patches_y % n_merge) % n_merge;
         if (pad_x || pad_y) {
-            cur = lm_ggml_pad(ctx0, cur, pad_x, pad_y, 0, 0);
+            cur = ggml_pad(ctx0, cur, pad_x, pad_y, 0, 0);
         }
 
-        lm_ggml_tensor * kernel = lm_ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
-        cur = lm_ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
-        cur = lm_ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+        ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
+        cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
+        cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
 
         // aligner MLP (F.gelu in the reference == erf-based gelu)
         cur = build_ffn(cur,
@@ -73,30 +73,30 @@ lm_ggml_cgraph * clip_graph_deepseek4v::build() {
         const int64_t n_grid     = cur->ne[1]; // n_llm_w * n_llm_h
 
         // rows n_grid + 0..3, keep in sync with the index computation in set_input
-        lm_ggml_tensor * sentinels[] = {
+        ggml_tensor * sentinels[] = {
             model.token_embd_img_start,
             model.token_embd_img_end,
             model.image_newline,
             model.token_embd_img_pad,
         };
-        for (lm_ggml_tensor * tok : sentinels) {
-            cur = lm_ggml_concat(ctx0, cur, lm_ggml_reshape_2d(ctx0, tok, n_embd_out, 1), 1);
+        for (ggml_tensor * tok : sentinels) {
+            cur = ggml_concat(ctx0, cur, ggml_reshape_2d(ctx0, tok, n_embd_out, 1), 1);
         }
 
         const int n_llm_w = CLIP_ALIGN(n_patches_x, n_merge) / n_merge;
         const int n_llm_h = CLIP_ALIGN(n_patches_y, n_merge) / n_merge;
         const int n_out   = dsv4_get_block_layout(n_llm_w, n_llm_h, img.lead_pad).n_out;
-        LM_GGML_ASSERT(n_grid == n_llm_w * n_llm_h);
+        GGML_ASSERT(n_grid == n_llm_w * n_llm_h);
 
-        lm_ggml_tensor * layout_idx = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_out);
-        lm_ggml_set_name(layout_idx, "layout_idx");
-        lm_ggml_set_input(layout_idx);
+        ggml_tensor * layout_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_out);
+        ggml_set_name(layout_idx, "layout_idx");
+        ggml_set_input(layout_idx);
 
-        cur = lm_ggml_get_rows(ctx0, cur, layout_idx);
+        cur = ggml_get_rows(ctx0, cur, layout_idx);
     }
 
     // build the graph
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 
     return gf;
 }

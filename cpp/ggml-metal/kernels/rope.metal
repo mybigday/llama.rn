@@ -46,7 +46,7 @@ static void rope_yarn_corr_dims(
 
 template<typename T>
 kernel void kernel_rope_norm(
-        constant lm_ggml_metal_kargs_rope & args,
+        constant ggml_metal_kargs_rope & args,
         device const char * src0,
         device const char * src1,
         device const char * src2,
@@ -104,7 +104,7 @@ kernel void kernel_rope_norm(
 
 template<typename T>
 kernel void kernel_rope_neox(
-        constant lm_ggml_metal_kargs_rope & args,
+        constant ggml_metal_kargs_rope & args,
         device const char * src0,
         device const char * src1,
         device const char * src2,
@@ -162,7 +162,7 @@ kernel void kernel_rope_neox(
 
 template<typename T>
 kernel void kernel_rope_multi(
-        constant lm_ggml_metal_kargs_rope & args,
+        constant ggml_metal_kargs_rope & args,
         device const char * src0,
         device const char * src1,
         device const char * src2,
@@ -250,7 +250,7 @@ kernel void kernel_rope_multi(
 
 template<typename T>
 kernel void kernel_rope_vision(
-        constant lm_ggml_metal_kargs_rope & args,
+        constant ggml_metal_kargs_rope & args,
         device const char * src0,
         device const char * src1,
         device const char * src2,

@@ -29,15 +29,15 @@ struct llama_memory_buffer {
     int n_tensors = 0;
     size_t total_size = 0;
 
-    lm_ggml_backend_buffer_ptr buf;
+    ggml_backend_buffer_ptr buf;
 
-    lm_ggml_context_ptr ctx;
+    ggml_context_ptr ctx;
 
-    std::vector<lm_ggml_tensor *> org;
-    std::vector<lm_ggml_tensor *> cpy;
+    std::vector<ggml_tensor *> org;
+    std::vector<ggml_tensor *> cpy;
 };
 
-using llama_memory_buffers = std::map<lm_ggml_backend_buffer_type_t, llama_memory_buffer>;
+using llama_memory_buffers = std::map<ggml_backend_buffer_type_t, llama_memory_buffer>;
 
 struct llama_context {
     // init scheduler and compute buffers, reserve worst-case graphs
@@ -60,7 +60,7 @@ struct llama_context {
     const llama_model   & get_model()   const;
     const llama_cparams & get_cparams() const;
 
-    lm_ggml_backend_sched_t get_sched() const;
+    ggml_backend_sched_t get_sched() const;
 
     uint32_t n_ctx()     const;
     uint32_t n_ctx_seq() const;
@@ -103,8 +103,8 @@ struct llama_context {
     size_t get_sampled_candidates_count(int32_t idx);
 
     void attach_threadpool(
-            lm_ggml_threadpool_t threadpool,
-            lm_ggml_threadpool_t threadpool_batch);
+            ggml_threadpool_t threadpool,
+            ggml_threadpool_t threadpool_batch);
 
     void detach_threadpool();
 
@@ -133,12 +133,12 @@ struct llama_context {
     // process a single ubatch with a specific graph type
     // if memory_context is provided, it will be applied first to the context's memory
     // ret contains the status of the graph computation
-    // returns nullptr only if ret != LM_GGML_STATUS_SUCCESS
+    // returns nullptr only if ret != GGML_STATUS_SUCCESS
     llm_graph_result * process_ubatch(
                 const llama_ubatch & ubatch,
                     llm_graph_type   gtype,
             llama_memory_context_i * mctx,
-                       lm_ggml_status & ret);
+                       ggml_status & ret);
 
     int encode(const llama_batch & batch_inp);
     int decode(const llama_batch & batch_inp);
@@ -197,20 +197,20 @@ struct llama_context {
 
     // TODO: more flexible combinations of logical/physical batch size and context size
     void opt_epoch(
-            lm_ggml_opt_dataset_t      dataset,
-            lm_ggml_opt_result_t       result_train,
-            lm_ggml_opt_result_t       result_eval,
+            ggml_opt_dataset_t      dataset,
+            ggml_opt_result_t       result_train,
+            ggml_opt_result_t       result_eval,
             int64_t                 idata_split,
-            lm_ggml_opt_epoch_callback callback_train,
-            lm_ggml_opt_epoch_callback callback_eval);
+            ggml_opt_epoch_callback callback_train,
+            ggml_opt_epoch_callback callback_eval);
 
     void opt_epoch_iter(
-            lm_ggml_opt_dataset_t               dataset,
-            lm_ggml_opt_result_t                result,
+            ggml_opt_dataset_t               dataset,
+            ggml_opt_result_t                result,
             const std::vector<llama_token> & tokens,
             const std::vector<llama_token> & labels_sparse,
             llama_batch                    & batch,
-            lm_ggml_opt_epoch_callback          callback,
+            ggml_opt_epoch_callback          callback,
             bool                             train,
             int64_t                          idata_in_loop,
             int64_t                          ndata_in_loop,
@@ -244,11 +244,11 @@ public:
     // can reuse the llm_graph_result instance of the context (for example to update a memory module)
     llm_graph_result * get_gf_res_reserve() const;
 
-    // returns the result of lm_ggml_backend_sched_graph_compute_async execution
-    lm_ggml_status graph_compute(lm_ggml_cgraph * gf, bool batched);
+    // returns the result of ggml_backend_sched_graph_compute_async execution
+    ggml_status graph_compute(ggml_cgraph * gf, bool batched);
 
     // reserve a graph with a dummy ubatch of the specified size
-    lm_ggml_cgraph * graph_reserve(
+    ggml_cgraph * graph_reserve(
         uint32_t n_tokens, uint32_t n_seqs, uint32_t n_outputs, const llama_memory_context_i * mctx, bool split_only = false, size_t * sizes = nullptr);
 
     bool set_sampler(llama_seq_id seq_id, llama_sampler * sampler);
@@ -341,34 +341,34 @@ private:
 
     std::vector<swap_info> output_swaps;
 
-    lm_ggml_backend_sched_ptr sched;
+    ggml_backend_sched_ptr sched;
 
     bool sched_need_reserve = true;
 
-    lm_ggml_backend_t backend_cpu = nullptr;
-    std::vector<lm_ggml_backend_ptr> backends;
+    ggml_backend_t backend_cpu = nullptr;
+    std::vector<ggml_backend_ptr> backends;
 
     // training
-    lm_ggml_opt_context_t opt_ctx = nullptr;
+    ggml_opt_context_t opt_ctx = nullptr;
 
-    lm_ggml_threadpool_t threadpool       = nullptr;
-    lm_ggml_threadpool_t threadpool_batch = nullptr;
+    ggml_threadpool_t threadpool       = nullptr;
+    ggml_threadpool_t threadpool_batch = nullptr;
 
-    lm_ggml_abort_callback abort_callback      = nullptr;
+    ggml_abort_callback abort_callback      = nullptr;
     void *              abort_callback_data = nullptr;
 
-    std::vector<std::pair<lm_ggml_backend_t, lm_ggml_backend_set_n_threads_t>> set_n_threads_fns;
+    std::vector<std::pair<ggml_backend_t, ggml_backend_set_n_threads_t>> set_n_threads_fns;
 
     // pointers and buffer types used for the compute buffer of each backend
-    std::vector<lm_ggml_backend_t>             backend_ptrs;
-    std::vector<lm_ggml_backend_buffer_type_t> backend_buft;
+    std::vector<ggml_backend_t>             backend_ptrs;
+    std::vector<ggml_backend_buffer_type_t> backend_buft;
     std::vector<size_t>                     backend_buf_exp_size; // expected buffer sizes
 
     llm_graph_result_ptr gf_res_prev;
     llm_graph_result_ptr gf_res_reserve;
 
     // host buffer for the model output (logits and embeddings)
-    lm_ggml_backend_buffer_ptr buf_output;
+    ggml_backend_buffer_ptr buf_output;
 
     // keep copies of the per-sequence memory on the device
     std::map<llama_seq_id, llama_memory_buffers> mem_storage;

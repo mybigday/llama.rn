@@ -90,14 +90,14 @@ void emit_event(const char * phase, int64_t wall_us, const std::string & detail)
 }  // namespace
 
 codec_perf_scope::codec_perf_scope(const char * phase_name)
-    : phase(phase_name), t0_us(lm_ggml_time_us()) {}
+    : phase(phase_name), t0_us(ggml_time_us()) {}
 
 codec_perf_scope::codec_perf_scope(const char * phase_name, std::string detail_str)
-    : phase(phase_name), t0_us(lm_ggml_time_us()), detail(std::move(detail_str)) {}
+    : phase(phase_name), t0_us(ggml_time_us()), detail(std::move(detail_str)) {}
 
 codec_perf_scope::~codec_perf_scope() {
     if (resolve_path() == nullptr) return;
-    const int64_t dt = lm_ggml_time_us() - t0_us;
+    const int64_t dt = ggml_time_us() - t0_us;
     emit_event(phase, dt, detail);
 }
 

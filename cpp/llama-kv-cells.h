@@ -528,7 +528,7 @@ private:
     void seq_pos_dec(llama_seq_id s, uint32_t i) {
         const auto n = seq_pos[s].erase({ pos[i], i });
         assert(n == 1);
-        LM_GGML_UNUSED(n);
+        GGML_UNUSED(n);
     }
 
     void seq_pos_inc(llama_seq_id s, uint32_t i) {

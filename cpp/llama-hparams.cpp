@@ -52,7 +52,7 @@ uint32_t llama_hparams::n_head(uint32_t il) const {
         return n_head_arr[il];
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_head_kv(uint32_t il) const {
@@ -60,7 +60,7 @@ uint32_t llama_hparams::n_head_kv(uint32_t il) const {
         return n_head_kv_arr[il];
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_ff(uint32_t il) const {
@@ -68,7 +68,7 @@ uint32_t llama_hparams::n_ff(uint32_t il) const {
         return n_ff_arr[il];
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_ff_exp(uint32_t il) const {
@@ -76,7 +76,7 @@ uint32_t llama_hparams::n_ff_exp(uint32_t il) const {
         return n_ff_exp_arr[il];
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_expert_used(uint32_t il) const {
@@ -84,7 +84,7 @@ uint32_t llama_hparams::n_expert_used(uint32_t il) const {
         return n_expert_used_arr[il];
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_expert_used_max() const {
@@ -112,7 +112,7 @@ uint32_t llama_hparams::n_rot(uint32_t il) const {
         return is_swa(il) ? n_rot_swa : n_rot_full;
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_embd_inp() const {
@@ -142,7 +142,7 @@ uint32_t llama_hparams::n_embd_head_k(uint32_t il) const {
         return is_swa(il) ? n_embd_head_k_swa : n_embd_head_k_full;
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_embd_head_v(uint32_t il) const {
@@ -150,7 +150,7 @@ uint32_t llama_hparams::n_embd_head_v(uint32_t il) const {
         return is_swa(il) ? n_embd_head_v_swa : n_embd_head_v_full;
     }
 
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 uint32_t llama_hparams::n_embd_k_gqa(uint32_t il) const {
@@ -262,7 +262,7 @@ bool llama_hparams::is_recr(uint32_t il) const {
         return is_recr_impl[il];
     }
 
-    LM_GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
 }
 
 uint32_t llama_hparams::ple_conv_state() const {
@@ -279,7 +279,7 @@ bool llama_hparams::is_ple(uint32_t il) const {
         return is_ple_impl[il];
     }
 
-    LM_GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
 }
 
 uint32_t llama_hparams::n_pos_per_embd() const {
@@ -291,7 +291,7 @@ bool llama_hparams::is_swa(uint32_t il) const {
         return is_swa_impl[il];
     }
 
-    LM_GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
 }
 
 bool llama_hparams::is_mla() const {
@@ -306,7 +306,7 @@ bool llama_hparams::is_indexer_full(uint32_t il) const {
         return is_indexer_full_impl[il];
     }
 
-    LM_GGML_ABORT("%s: il (%u) out of bounds (n_layer: %u)\n", __func__, il, n_layer());
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer: %u)\n", __func__, il, n_layer());
 }
 
 uint32_t llama_hparams::n_embd_head_k_mla() const {
@@ -341,7 +341,7 @@ bool llama_hparams::has_rope(uint32_t il) const {
         return rope_pattern[il] != 0;
     }
 
-    LM_GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer_all: %u)\n", __func__, il, n_layer_all);
 }
 
 uint32_t llama_hparams::n_layer() const {

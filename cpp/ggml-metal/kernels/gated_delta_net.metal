@@ -7,7 +7,7 @@ constant short FC_gated_delta_net_K    [[function_constant(FC_GATED_DELTA_NET + 
 #if 1
 template<short NSG>
 kernel void kernel_gated_delta_net_impl(
-        constant lm_ggml_metal_kargs_gated_delta_net & args,
+        constant ggml_metal_kargs_gated_delta_net & args,
         device const char * q,
         device const char * k,
         device const char * v,
@@ -150,7 +150,7 @@ template [[host_name("kernel_gated_delta_net_f32_4")]] kernel kernel_gated_delta
 
 template<typename T, short NSG>
 kernel void kernel_gated_delta_net_impl(
-        constant lm_ggml_metal_kargs_gated_delta_net & args,
+        constant ggml_metal_kargs_gated_delta_net & args,
         device const char * q,
         device const char * k,
         device const char * v,

@@ -32,7 +32,7 @@ static capture g_layer;
 
 static bool g_verbose_names = false;
 
-static bool eval_cb(struct lm_ggml_tensor * t, bool ask, void * /*ud*/) {
+static bool eval_cb(struct ggml_tensor * t, bool ask, void * /*ud*/) {
     if (ask) {
         if (g_verbose_names && t->name && t->name[0]) std::printf("[cb] %s\n", t->name);
         // Observe result_norm and the requested layer's l_out.
@@ -54,7 +54,7 @@ static bool eval_cb(struct lm_ggml_tensor * t, bool ask, void * /*ud*/) {
     dst->ne1 = t->ne[1];
     const size_t n = (size_t) t->ne[0] * t->ne[1];
     dst->data.resize(n);
-    lm_ggml_backend_tensor_get(t, dst->data.data(), 0, n * sizeof(float));
+    ggml_backend_tensor_get(t, dst->data.data(), 0, n * sizeof(float));
     return true;
 }
 

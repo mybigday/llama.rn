@@ -45,7 +45,7 @@ MetalAvailability getMetalAvailability(bool skipGpuDevices) {
         return availability;
     }
 
-#if defined(LM_GGML_USE_METAL)
+#if defined(GGML_USE_METAL)
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     bool supportsMetal = false;
 

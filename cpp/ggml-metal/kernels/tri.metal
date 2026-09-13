@@ -1,31 +1,31 @@
 #include "common.h"
 
 template<uint32_t ttype>
-bool _lm_ggml_vec_tri_cmp(const int i, const int r);
+bool _ggml_vec_tri_cmp(const int i, const int r);
 
 template<>
-bool _lm_ggml_vec_tri_cmp</* LM_GGML_TRI_TYPE_LOWER */ 3>(const int i, const int r) {
+bool _ggml_vec_tri_cmp</* GGML_TRI_TYPE_LOWER */ 3>(const int i, const int r) {
     return i < r;
 }
 
 template<>
-bool _lm_ggml_vec_tri_cmp</* LM_GGML_TRI_TYPE_LOWER_DIAG */ 2>(const int i, const int r) {
+bool _ggml_vec_tri_cmp</* GGML_TRI_TYPE_LOWER_DIAG */ 2>(const int i, const int r) {
     return i <= r;
 }
 
 template<>
-bool _lm_ggml_vec_tri_cmp</* LM_GGML_TRI_TYPE_UPPER */ 1>(const int i, const int r) {
+bool _ggml_vec_tri_cmp</* GGML_TRI_TYPE_UPPER */ 1>(const int i, const int r) {
     return i > r;
 }
 
 template<>
-bool _lm_ggml_vec_tri_cmp</* LM_GGML_TRI_TYPE_UPPER_DIAG */ 0>(const int i, const int r) {
+bool _ggml_vec_tri_cmp</* GGML_TRI_TYPE_UPPER_DIAG */ 0>(const int i, const int r) {
     return i >= r;
 }
 
 template<typename T, int ttype>
 kernel void kernel_tri(
-        constant lm_ggml_metal_kargs_tri & args,
+        constant ggml_metal_kargs_tri & args,
         device const char * src0,
         device const char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -47,7 +47,7 @@ kernel void kernel_tri(
     // responsible for
     for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
         // Use the comparison as a mask for branchless
-        dst_row[i0] = static_cast<T>(_lm_ggml_vec_tri_cmp<ttype>(i0, i1)) * src_row[i0];
+        dst_row[i0] = static_cast<T>(_ggml_vec_tri_cmp<ttype>(i0, i1)) * src_row[i0];
     }
 }
 
@@ -61,7 +61,7 @@ template [[host_name("kernel_tri_f16_0")]] kernel kernel_tri_t kernel_tri<half, 
 template [[host_name("kernel_tri_f16_1")]] kernel kernel_tri_t kernel_tri<half, 1>;
 template [[host_name("kernel_tri_f16_2")]] kernel kernel_tri_t kernel_tri<half, 2>;
 template [[host_name("kernel_tri_f16_3")]] kernel kernel_tri_t kernel_tri<half, 3>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_tri_bf16_0")]] kernel kernel_tri_t kernel_tri<bfloat, 0>;
 template [[host_name("kernel_tri_bf16_1")]] kernel kernel_tri_t kernel_tri<bfloat, 1>;
 template [[host_name("kernel_tri_bf16_2")]] kernel kernel_tri_t kernel_tri<bfloat, 2>;

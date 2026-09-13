@@ -71,19 +71,19 @@ static const char* g_col[] = {
     "",
 };
 
-static const char * level_str(enum lm_ggml_log_level level) {
+static const char * level_str(enum ggml_log_level level) {
     switch (level) {
-        case LM_GGML_LOG_LEVEL_DEBUG: return "debug";
-        case LM_GGML_LOG_LEVEL_INFO:  return "info";
-        case LM_GGML_LOG_LEVEL_WARN:  return "warn";
-        case LM_GGML_LOG_LEVEL_ERROR: return "error";
-        case LM_GGML_LOG_LEVEL_CONT:  return "cont";
+        case GGML_LOG_LEVEL_DEBUG: return "debug";
+        case GGML_LOG_LEVEL_INFO:  return "info";
+        case GGML_LOG_LEVEL_WARN:  return "warn";
+        case GGML_LOG_LEVEL_ERROR: return "error";
+        case GGML_LOG_LEVEL_CONT:  return "cont";
         default:                   return "none";
     }
 }
 
 struct common_log_entry {
-    enum lm_ggml_log_level level {LM_GGML_LOG_LEVEL_INFO};
+    enum ggml_log_level level {GGML_LOG_LEVEL_INFO};
 
     std::vector<char> msg;
 
@@ -98,16 +98,16 @@ struct common_log_entry {
     void android_print() const {
         int android_log_priority;
         switch (level) {
-            case LM_GGML_LOG_LEVEL_INFO:
+            case GGML_LOG_LEVEL_INFO:
                 android_log_priority = ANDROID_LOG_INFO;
                 break;
-            case LM_GGML_LOG_LEVEL_WARN:
+            case GGML_LOG_LEVEL_WARN:
                 android_log_priority = ANDROID_LOG_WARN;
                 break;
-            case LM_GGML_LOG_LEVEL_ERROR:
+            case GGML_LOG_LEVEL_ERROR:
                 android_log_priority = ANDROID_LOG_ERROR;
                 break;
-            case LM_GGML_LOG_LEVEL_DEBUG:
+            case GGML_LOG_LEVEL_DEBUG:
                 android_log_priority = ANDROID_LOG_DEBUG;
                 break;
             default:
@@ -128,13 +128,13 @@ struct common_log_entry {
         if (!fcur) {
             // stderr displays DBG messages only when their verbosity level is not higher than the threshold
             // these messages will still be logged to a file
-            if (level == LM_GGML_LOG_LEVEL_DEBUG && common_log_verbosity_thold < LOG_DEFAULT_DEBUG) {
+            if (level == GGML_LOG_LEVEL_DEBUG && common_log_verbosity_thold < LOG_DEFAULT_DEBUG) {
                 return;
             }
 
             fcur = stdout;
 
-            if (level != LM_GGML_LOG_LEVEL_NONE && !jsonl) {
+            if (level != GGML_LOG_LEVEL_NONE && !jsonl) {
                 fcur = stderr;
             }
         }
@@ -151,7 +151,7 @@ struct common_log_entry {
             return;
         }
 
-        if (level != LM_GGML_LOG_LEVEL_NONE && level != LM_GGML_LOG_LEVEL_CONT && prefix) {
+        if (level != GGML_LOG_LEVEL_NONE && level != GGML_LOG_LEVEL_CONT && prefix) {
             if (timestamp) {
                 // [M.s.ms.us]
                 fprintf(fcur, "%s%d.%02d.%03d.%03d%s ",
@@ -164,10 +164,10 @@ struct common_log_entry {
             }
 
             switch (level) {
-                case LM_GGML_LOG_LEVEL_INFO:  fprintf(fcur, "%sI %s", g_col[COMMON_LOG_COL_GREEN],   g_col[COMMON_LOG_COL_DEFAULT]); break;
-                case LM_GGML_LOG_LEVEL_WARN:  fprintf(fcur, "%sW %s", g_col[COMMON_LOG_COL_MAGENTA], ""                        ); break;
-                case LM_GGML_LOG_LEVEL_ERROR: fprintf(fcur, "%sE %s", g_col[COMMON_LOG_COL_RED],     ""                        ); break;
-                case LM_GGML_LOG_LEVEL_DEBUG: fprintf(fcur, "%sD %s", g_col[COMMON_LOG_COL_YELLOW],  ""                        ); break;
+                case GGML_LOG_LEVEL_INFO:  fprintf(fcur, "%sI %s", g_col[COMMON_LOG_COL_GREEN],   g_col[COMMON_LOG_COL_DEFAULT]); break;
+                case GGML_LOG_LEVEL_WARN:  fprintf(fcur, "%sW %s", g_col[COMMON_LOG_COL_MAGENTA], ""                        ); break;
+                case GGML_LOG_LEVEL_ERROR: fprintf(fcur, "%sE %s", g_col[COMMON_LOG_COL_RED],     ""                        ); break;
+                case GGML_LOG_LEVEL_DEBUG: fprintf(fcur, "%sD %s", g_col[COMMON_LOG_COL_YELLOW],  ""                        ); break;
                 default:
                     break;
             }
@@ -175,7 +175,7 @@ struct common_log_entry {
 
         fprintf(fcur, "%s", msg.data());
 
-        if (level == LM_GGML_LOG_LEVEL_WARN || level == LM_GGML_LOG_LEVEL_ERROR || level == LM_GGML_LOG_LEVEL_DEBUG) {
+        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR || level == GGML_LOG_LEVEL_DEBUG) {
             fprintf(fcur, "%s", g_col[COMMON_LOG_COL_DEFAULT]);
         }
 
@@ -258,7 +258,7 @@ public:
         return head == tail;
     }
 
-    void add(enum lm_ggml_log_level level, const char * fmt, va_list args) {
+    void add(enum ggml_log_level level, const char * fmt, va_list args) {
         std::unique_lock<std::mutex> lock(mtx);
 
         // block if the queue is full
@@ -467,7 +467,7 @@ void common_log_free(struct common_log * log) {
     delete log;
 }
 
-void common_log_add(struct common_log * log, enum lm_ggml_log_level level, const char * fmt, ...) {
+void common_log_add(struct common_log * log, enum ggml_log_level level, const char * fmt, ...) {
     va_list args;
     va_start(args, fmt);
     log->add(level, fmt, args);
@@ -489,7 +489,7 @@ void common_log_set_colors(struct common_log * log, log_colors colors) {
         return;
     }
 
-    LM_GGML_ASSERT(colors == LOG_COLORS_ENABLED);
+    GGML_ASSERT(colors == LOG_COLORS_ENABLED);
     log->set_colors(true);
 }
 
@@ -510,20 +510,20 @@ void common_log_flush(struct common_log * log) {
     log->resume();
 }
 
-int common_log_get_verbosity(enum lm_ggml_log_level level) {
+int common_log_get_verbosity(enum ggml_log_level level) {
     switch (level) {
-        case LM_GGML_LOG_LEVEL_DEBUG: return LOG_LEVEL_DEBUG;
-        case LM_GGML_LOG_LEVEL_INFO:  return LOG_LEVEL_TRACE;
-        case LM_GGML_LOG_LEVEL_WARN:  return LOG_LEVEL_WARN;
-        case LM_GGML_LOG_LEVEL_ERROR: return LOG_LEVEL_ERROR;
-        case LM_GGML_LOG_LEVEL_CONT:  return LOG_LEVEL_TRACE;
-        case LM_GGML_LOG_LEVEL_NONE:
+        case GGML_LOG_LEVEL_DEBUG: return LOG_LEVEL_DEBUG;
+        case GGML_LOG_LEVEL_INFO:  return LOG_LEVEL_TRACE;
+        case GGML_LOG_LEVEL_WARN:  return LOG_LEVEL_WARN;
+        case GGML_LOG_LEVEL_ERROR: return LOG_LEVEL_ERROR;
+        case GGML_LOG_LEVEL_CONT:  return LOG_LEVEL_TRACE;
+        case GGML_LOG_LEVEL_NONE:
         default:
             return LOG_LEVEL_OUTPUT;
     }
 }
 
-void common_log_default_callback(enum lm_ggml_log_level level, const char * text, void * /*user_data*/) {
+void common_log_default_callback(enum ggml_log_level level, const char * text, void * /*user_data*/) {
     auto verbosity = common_log_get_verbosity(level);
     if (verbosity <= common_log_verbosity_thold) {
         common_log_add(common_log_main(), level, "%s", text);

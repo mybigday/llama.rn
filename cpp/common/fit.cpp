@@ -30,25 +30,25 @@ static std::vector<llama_device_memory_data> common_get_device_memory_data_impl(
         const char * path_model,
         const llama_model_params * mparams,
         const llama_context_params * cparams,
-        std::vector<lm_ggml_backend_dev_t> & devs,
+        std::vector<ggml_backend_dev_t> & devs,
         uint32_t & hp_ngl,
         uint32_t & hp_n_ctx_train,
         uint32_t & hp_n_expert,
-        lm_ggml_log_level log_level) {
+        ggml_log_level log_level) {
     struct user_data_t {
         struct {
-            lm_ggml_log_callback callback;
+            ggml_log_callback callback;
             void * user_data;
         } original_logger;
-        lm_ggml_log_level min_level; // prints below this log level go to debug log
+        ggml_log_level min_level; // prints below this log level go to debug log
     };
     user_data_t ud;
     llama_log_get(&ud.original_logger.callback, &ud.original_logger.user_data);
     ud.min_level = log_level;
 
-    llama_log_set([](lm_ggml_log_level level, const char * text, void * user_data) {
+    llama_log_set([](ggml_log_level level, const char * text, void * user_data) {
         const user_data_t * ud = (const user_data_t *) user_data;
-        const lm_ggml_log_level level_eff = level >= ud->min_level ? level : LM_GGML_LOG_LEVEL_DEBUG;
+        const ggml_log_level level_eff = level >= ud->min_level ? level : GGML_LOG_LEVEL_DEBUG;
         ud->original_logger.callback(level_eff, text, ud->original_logger.user_data);
     }, &ud);
 
@@ -75,14 +75,14 @@ static std::vector<llama_device_memory_data> common_get_device_memory_data_impl(
     llama_memory_breakdown memory_breakdown = llama_get_memory_breakdown(ctx);
 
     for (const auto & [buft, mb] : memory_breakdown) {
-        if (lm_ggml_backend_buft_is_host(buft)) {
+        if (ggml_backend_buft_is_host(buft)) {
             ret.back().mb.model   += mb.model;
             ret.back().mb.context += mb.context;
             ret.back().mb.compute += mb.compute;
             continue;
         }
 
-        lm_ggml_backend_dev_t dev = lm_ggml_backend_buft_get_device(buft);
+        ggml_backend_dev_t dev = ggml_backend_buft_get_device(buft);
         if (!dev) {
             continue;
         }
@@ -97,31 +97,31 @@ static std::vector<llama_device_memory_data> common_get_device_memory_data_impl(
     }
 
     {
-        lm_ggml_backend_dev_t cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+        ggml_backend_dev_t cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
         if (cpu_dev == nullptr) {
             throw std::runtime_error("no CPU backend found");
         }
         size_t free;
         size_t total;
-        lm_ggml_backend_dev_memory(cpu_dev, &free, &total);
+        ggml_backend_dev_memory(cpu_dev, &free, &total);
         ret.back().free  = free;
         ret.back().total = total;
     }
     for (size_t i = 0; i < nd; i++) {
-        lm_ggml_backend_dev_t dev = llama_model_get_device(model, i);
+        ggml_backend_dev_t dev = llama_model_get_device(model, i);
 
         size_t free;
         size_t total;
-        lm_ggml_backend_dev_memory(dev, &free, &total);
+        ggml_backend_dev_memory(dev, &free, &total);
 
         // Some non-GPU accelerator backends, such as BLAS, report 0/0 and rely on
         // the host-memory fallback. For GPU-like backends, keep 0/0 so --fit does
         // not assign anything to a device with an unknown memory budget.
         if (free == 0 && total == 0) {
-            const enum lm_ggml_backend_dev_type type = lm_ggml_backend_dev_type(dev);
-            if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            const enum ggml_backend_dev_type type = ggml_backend_dev_type(dev);
+            if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
                 LOG_WRN("%s: device %s did not report memory; --fit will not use it\n",
-                        __func__, lm_ggml_backend_dev_name(dev));
+                        __func__, ggml_backend_dev_name(dev));
             } else {
                 free  = ret.back().free;
                 total = ret.back().total;
@@ -156,11 +156,11 @@ common_device_memory_data_vec common_get_device_memory_data(
         const char * path_model,
         const llama_model_params * mparams,
         const llama_context_params * cparams,
-        std::vector<lm_ggml_backend_dev_t> & devs,
+        std::vector<ggml_backend_dev_t> & devs,
         uint32_t & hp_ngl,
         uint32_t & hp_n_ctx_train,
         uint32_t & hp_n_expert,
-        lm_ggml_log_level log_level) {
+        ggml_log_level log_level) {
     std::vector<llama_device_memory_data> impl = common_get_device_memory_data_impl(
             path_model, mparams, cparams, devs, hp_ngl, hp_n_ctx_train, hp_n_expert, log_level);
 
@@ -178,7 +178,7 @@ common_device_memory_data_vec common_get_device_memory_data(
 static void common_params_fit_impl(
         const char * path_model, struct llama_model_params * mparams, struct llama_context_params * cparams,
         float * tensor_split, struct llama_model_tensor_buft_override * tensor_buft_overrides,
-        size_t * margins_s, uint32_t n_ctx_min, const common_fit_extra_model * extra, enum lm_ggml_log_level log_level) {
+        size_t * margins_s, uint32_t n_ctx_min, const common_fit_extra_model * extra, enum ggml_log_level log_level) {
     if (mparams->split_mode == LLAMA_SPLIT_MODE_TENSOR) {
         throw common_params_fit_exception("llama_params_fit is not implemented for SPLIT_MODE_TENSOR, abort");
     }
@@ -186,7 +186,7 @@ static void common_params_fit_impl(
     typedef std::vector<llama_device_memory_data> dmds_t;
     const llama_model_params default_mparams = llama_model_default_params();
 
-    std::vector<lm_ggml_backend_dev_t> devs;
+    std::vector<ggml_backend_dev_t> devs;
     uint32_t hp_ngl = 0; // hparams.n_gpu_layers
     uint32_t hp_nct = 0; // hparams.n_ctx_train
     uint32_t hp_nex = 0; // hparams.n_expert
@@ -207,7 +207,7 @@ static void common_params_fit_impl(
         }
 
         if (dmds_extra.empty() || n_ctx_extra != cparams->n_ctx) {
-            std::vector<lm_ggml_backend_dev_t> devs_extra;
+            std::vector<ggml_backend_dev_t> devs_extra;
             uint32_t ngl_extra = 0;
             uint32_t nct_extra = 0;
             uint32_t nex_extra = 0;
@@ -294,9 +294,9 @@ static void common_params_fit_impl(
         dev_names.reserve(nd);
         size_t max_length = 0;
         for (const auto & dev : devs) {
-            std::string name = lm_ggml_backend_dev_name(dev);
+            std::string name = ggml_backend_dev_name(dev);
             name += " (";
-            name += lm_ggml_backend_dev_description(dev);
+            name += ggml_backend_dev_description(dev);
             name += ")";
             dev_names.push_back(name);
             max_length = std::max(max_length, name.length());
@@ -524,7 +524,7 @@ static void common_params_fit_impl(
                 return patterns[il].c_str();
             }
             default:
-                LM_GGML_ABORT("fatal error");
+                GGML_ABORT("fatal error");
         }
     };
 
@@ -546,7 +546,7 @@ static void common_params_fit_impl(
     // utility function to set n_gpu_layers and tensor_split
     auto set_ngl_tensor_split_tbo = [&](
             const std::vector<ngl_t> & ngl_per_device,
-            const std::vector<lm_ggml_backend_buffer_type_t> & overflow_bufts,
+            const std::vector<ggml_backend_buffer_type_t> & overflow_bufts,
             llama_model_params & mparams) {
         mparams.n_gpu_layers = 0;
         for (size_t id = 0; id < nd; id++) {
@@ -573,7 +573,7 @@ static void common_params_fit_impl(
                         + std::to_string(ntbo) + " is insufficient for model");
                 }
                 tensor_buft_overrides[itbo].pattern = get_overflow_pattern(il, il == il0 ? ngl_per_device[id].overflow_type : LAYER_FRACTION_MOE);
-                tensor_buft_overrides[itbo].buft = il == il0 ? overflow_bufts[id] : lm_ggml_backend_cpu_buffer_type();
+                tensor_buft_overrides[itbo].buft = il == il0 ? overflow_bufts[id] : ggml_backend_cpu_buffer_type();
                 itbo++;
             }
             il0 += ngl_per_device[id].n_part;
@@ -588,7 +588,7 @@ static void common_params_fit_impl(
     auto get_memory_for_layers = [&](
             const char * func_name,
             const std::vector<ngl_t> & ngl_per_device,
-            const std::vector<lm_ggml_backend_buffer_type_t> & overflow_bufts) -> std::vector<int64_t> {
+            const std::vector<ggml_backend_buffer_type_t> & overflow_bufts) -> std::vector<int64_t> {
         llama_model_params mparams_copy = *mparams;
         set_ngl_tensor_split_tbo(ngl_per_device, overflow_bufts, mparams_copy);
 
@@ -615,7 +615,7 @@ static void common_params_fit_impl(
     int64_t global_surplus_cpu_moe = 0;
     if (hp_nex > 0) {
         const static std::string pattern_moe_all = "blk\\.\\d+\\.ffn_(up|down|gate_up|gate)_(ch|)exps"; // matches all MoE tensors
-        lm_ggml_backend_buffer_type_t cpu_buft = lm_ggml_backend_cpu_buffer_type();
+        ggml_backend_buffer_type_t cpu_buft = ggml_backend_cpu_buffer_type();
         tensor_buft_overrides[0] = {pattern_moe_all.c_str(), cpu_buft};
         tensor_buft_overrides[1] = {nullptr, nullptr};
         mparams->tensor_buft_overrides = tensor_buft_overrides;
@@ -650,10 +650,10 @@ static void common_params_fit_impl(
         LOG_TRC("%s: id=%zu, target=%" PRId64 " MiB\n", __func__, id, targets[id]/MiB);
     }
 
-    std::vector<lm_ggml_backend_buffer_type_t> overflow_bufts; // which bufts the first partial layer of a device overflows to:
+    std::vector<ggml_backend_buffer_type_t> overflow_bufts; // which bufts the first partial layer of a device overflows to:
     overflow_bufts.reserve(nd);
     for (size_t id = 0; id < nd; id++) {
-        overflow_bufts.push_back(lm_ggml_backend_cpu_buffer_type());
+        overflow_bufts.push_back(ggml_backend_cpu_buffer_type());
     }
 
     std::vector<ngl_t> ngl_per_device(nd);
@@ -818,9 +818,9 @@ static void common_params_fit_impl(
                 id_dense_start_test++;
             }
             ngl_per_device_test[id].overflow_type = LAYER_FRACTION_UP;
-            std::vector<lm_ggml_backend_buffer_type_t> overflow_bufts_test = overflow_bufts;
+            std::vector<ggml_backend_buffer_type_t> overflow_bufts_test = overflow_bufts;
             if (id < nd - 1) {
-                overflow_bufts_test[id] = lm_ggml_backend_dev_buffer_type(devs[id + 1]);
+                overflow_bufts_test[id] = ggml_backend_dev_buffer_type(devs[id + 1]);
             }
             LOG_TRC("%s: trying to fit one extra layer with overflow_type=LAYER_FRACTION_UP\n", __func__);
             std::vector<int64_t> mem_test = get_memory_for_layers(__func__, ngl_per_device_test, overflow_bufts_test);
@@ -884,7 +884,7 @@ enum common_params_fit_status common_fit_params(
         size_t * margins,
         uint32_t n_ctx_min,
         const common_fit_extra_model * extra,
-        lm_ggml_log_level log_level) {
+        ggml_log_level log_level) {
     const int64_t t0_us = llama_time_us();
     common_params_fit_status status = COMMON_PARAMS_FIT_STATUS_SUCCESS;
     try {
@@ -906,7 +906,7 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
     //const auto & devices = ctx->get_model().devices;
     const auto * model = llama_get_model(ctx);
 
-    std::vector<lm_ggml_backend_dev_t> devices;
+    std::vector<ggml_backend_dev_t> devices;
     for (int i = 0; i < llama_model_n_devices(model); i++) {
         devices.push_back(llama_model_get_device(model, i));
     }
@@ -925,23 +925,23 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
     const std::vector<std::string> desc_prefixes_strip = {"NVIDIA ", "GeForce ", "Tesla ", "AMD ", "Radeon ", "Instinct "};
 
     // track seen buffer types to avoid double counting:
-    std::set<lm_ggml_backend_buffer_type_t> seen_buffer_types;
+    std::set<ggml_backend_buffer_type_t> seen_buffer_types;
 
     // accumulative memory breakdown for each device and for host:
     std::vector<llama_memory_breakdown_data> mb_dev(devices.size());
     llama_memory_breakdown_data              mb_host;
 
     for (const auto & buft_mb : memory_breakdown) {
-        lm_ggml_backend_buffer_type_t          buft = buft_mb.first;
+        ggml_backend_buffer_type_t          buft = buft_mb.first;
         const llama_memory_breakdown_data & mb   = buft_mb.second;
-        if (lm_ggml_backend_buft_is_host(buft)) {
+        if (ggml_backend_buft_is_host(buft)) {
             mb_host.model   += mb.model;
             mb_host.context += mb.context;
             mb_host.compute += mb.compute;
             seen_buffer_types.insert(buft);
             continue;
         }
-        lm_ggml_backend_dev_t dev = lm_ggml_backend_buft_get_device(buft);
+        ggml_backend_dev_t dev = ggml_backend_buft_get_device(buft);
         if (dev) {
             int i_dev = -1;
             for (size_t i = 0; i < devices.size(); i++) {
@@ -962,11 +962,11 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
 
     // print memory breakdown for each device:
     for (size_t i = 0; i < devices.size(); i++) {
-        lm_ggml_backend_dev_t dev = devices[i];
+        ggml_backend_dev_t dev = devices[i];
         llama_memory_breakdown_data mb = mb_dev[i];
 
-        const std::string name = lm_ggml_backend_dev_name(dev);
-        std::string desc = lm_ggml_backend_dev_description(dev);
+        const std::string name = ggml_backend_dev_name(dev);
+        std::string desc = ggml_backend_dev_description(dev);
         for (const std::string & prefix : desc_prefixes_strip) {
             if (desc.length() >= prefix.length() && desc.substr(0, prefix.length()) == prefix) {
                 desc = desc.substr(prefix.length());
@@ -974,7 +974,7 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
         }
 
         size_t free, total;
-        lm_ggml_backend_dev_memory(dev, &free, &total);
+        ggml_backend_dev_memory(dev, &free, &total);
 
         const size_t self = mb.model + mb.context + mb.compute;
         const int64_t unaccounted = static_cast<int64_t>(total) - static_cast<int64_t>(free) - static_cast<int64_t>(self);
@@ -1008,12 +1008,12 @@ void common_memory_breakdown_print(const struct llama_context * ctx) {
 
     // print memory breakdown for all remaining buffer types:
     for (const auto & buft_mb : memory_breakdown) {
-        lm_ggml_backend_buffer_type_t          buft = buft_mb.first;
+        ggml_backend_buffer_type_t          buft = buft_mb.first;
         const llama_memory_breakdown_data & mb   = buft_mb.second;
         if (seen_buffer_types.count(buft) == 1) {
             continue;
         }
-        const std::string name = lm_ggml_backend_buft_name(buft);
+        const std::string name = ggml_backend_buft_name(buft);
         const size_t self = mb.model + mb.context + mb.compute;
         table_data.push_back({
             template_other,
@@ -1048,16 +1048,16 @@ void common_fit_print(
         const char * path_model,
         llama_model_params * mparams,
         llama_context_params * cparams) {
-    std::vector<lm_ggml_backend_dev_t> devs;
+    std::vector<ggml_backend_dev_t> devs;
     uint32_t hp_ngl = 0; // hparams.n_gpu_layers
     uint32_t hp_nct = 0; // hparams.n_ctx_train
     uint32_t hp_nex = 0; // hparams.n_expert
 
-    auto dmd = common_get_device_memory_data_impl(path_model, mparams, cparams, devs, hp_ngl, hp_nct, hp_nex, LM_GGML_LOG_LEVEL_ERROR);
-    LM_GGML_ASSERT(dmd.size() == devs.size() + 1);
+    auto dmd = common_get_device_memory_data_impl(path_model, mparams, cparams, devs, hp_ngl, hp_nct, hp_nex, GGML_LOG_LEVEL_ERROR);
+    GGML_ASSERT(dmd.size() == devs.size() + 1);
 
     for (size_t id = 0; id < devs.size(); id++) {
-        printf("%s ",  lm_ggml_backend_dev_name(devs[id]));
+        printf("%s ",  ggml_backend_dev_name(devs[id]));
         printf("%zu ", dmd[id].mb.model/1024/1024);
         printf("%zu ", dmd[id].mb.context/1024/1024);
         printf("%zu ", dmd[id].mb.compute/1024/1024);

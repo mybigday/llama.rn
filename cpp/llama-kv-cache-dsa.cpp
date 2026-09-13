@@ -13,8 +13,8 @@
 
 llama_kv_cache_dsa::llama_kv_cache_dsa(
         const llama_model & model,
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                      bool   offload,
                      bool   unified,
@@ -95,8 +95,8 @@ llama_pos llama_kv_cache_dsa::seq_pos_max(llama_seq_id seq_id) const {
     return kv_mla->seq_pos_max(seq_id);
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_kv_cache_dsa::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> mb = kv_mla->memory_breakdown();
+std::map<ggml_backend_buffer_type_t, size_t> llama_kv_cache_dsa::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> mb = kv_mla->memory_breakdown();
     for (const auto & buft_size : kv_lid->memory_breakdown()) {
         mb[buft_size.first] += buft_size.second;
     }
@@ -107,7 +107,7 @@ llama_memory_context_ptr llama_kv_cache_dsa::init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) {
-    LM_GGML_UNUSED(embd_all);
+    GGML_UNUSED(embd_all);
 
     do {
         balloc.split_reset();

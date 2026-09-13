@@ -19,7 +19,7 @@
 #include "models/pocket_mimi.h"
 #include "ops/safe_math.h"
 #include "runtime/graph.h"
-#include "runtime/lm_gguf_kv.h"
+#include "runtime/gguf_kv.h"
 #include "runtime/tensor_utils.h"
 
 #include <ggml-backend.h>
@@ -33,51 +33,51 @@
 #include <string>
 #include <vector>
 
-static void codec_backend_set_n_threads(lm_ggml_backend_t backend, int n_threads) {
+static void codec_backend_set_n_threads(ggml_backend_t backend, int n_threads) {
     if (backend == nullptr || n_threads <= 0) {
         return;
     }
 
-    lm_ggml_backend_dev_t dev = lm_ggml_backend_get_device(backend);
+    ggml_backend_dev_t dev = ggml_backend_get_device(backend);
     if (dev == nullptr) {
         return;
     }
 
-    lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
     if (reg == nullptr) {
         return;
     }
 
-    lm_ggml_backend_set_n_threads_t set_n_threads = reinterpret_cast<lm_ggml_backend_set_n_threads_t>(
-        lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_backend_set_n_threads"));
+    ggml_backend_set_n_threads_t set_n_threads = reinterpret_cast<ggml_backend_set_n_threads_t>(
+        ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads"));
     if (set_n_threads != nullptr) {
         set_n_threads(backend, n_threads);
     }
 }
 
-static lm_ggml_backend_t codec_backend_init(bool use_gpu) {
+static ggml_backend_t codec_backend_init(bool use_gpu) {
     if (use_gpu) {
         // Load any dynamically available backends and pick the best available device.
         // This follows ggml's own backend selection logic and should work for any
         // ggml-native accelerator backend compiled/available (CUDA/Vulkan/Metal/SYCL/OpenCL/etc.).
-        lm_ggml_backend_load_all();
+        ggml_backend_load_all();
 
-        lm_ggml_backend_t backend = lm_ggml_backend_init_best();
+        ggml_backend_t backend = ggml_backend_init_best();
         if (backend != nullptr) {
             return backend;
         }
     }
 
     // Explicit CPU fallback
-    lm_ggml_backend_t backend = lm_ggml_backend_init_by_name("CPU", nullptr);
+    ggml_backend_t backend = ggml_backend_init_by_name("CPU", nullptr);
     if (backend == nullptr) {
-        backend = lm_ggml_backend_init_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+        backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
     }
 
     return backend;
 }
 
-void codec_metadata_free(struct codec_lm_gguf_metadata * meta) {
+void codec_metadata_free(struct codec_gguf_metadata * meta) {
     if (meta == nullptr || meta->items == nullptr) {
         return;
     }
@@ -305,21 +305,21 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
         return nullptr;
     }
 
-    struct lm_ggml_context * weights = nullptr;
-    struct lm_gguf_init_params lm_gguf_params = {
+    struct ggml_context * weights = nullptr;
+    struct gguf_init_params gguf_params = {
         /*.no_alloc =*/ true,
         /*.ctx      =*/ &weights,
     };
 
-    struct lm_gguf_context * gf = lm_gguf_init_from_file(path_model, lm_gguf_params);
+    struct gguf_context * gf = gguf_init_from_file(path_model, gguf_params);
     if (gf == nullptr) {
         return nullptr;
     }
 
     codec_model * model = new (std::nothrow) codec_model();
     if (model == nullptr) {
-        lm_gguf_free(gf);
-        lm_ggml_free(weights);
+        gguf_free(gf);
+        ggml_free(weights);
         return nullptr;
     }
 
@@ -328,7 +328,7 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     model->metadata = { nullptr, 0 };
     model->arch = CODEC_ARCH_UNKNOWN;
     model->name = "unknown";
-    model->n_tensors = lm_gguf_get_n_tensors(gf);
+    model->n_tensors = gguf_get_n_tensors(gf);
     model->use_gpu = params.use_gpu;
     model->n_threads = params.n_threads > 0 ? params.n_threads : 1;
     model->backend = codec_backend_init(params.use_gpu);
@@ -337,20 +337,20 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
         return nullptr;
     }
     codec_backend_set_n_threads(model->backend, model->n_threads);
-    model->buffer_type = lm_ggml_backend_get_default_buffer_type(model->backend);
+    model->buffer_type = ggml_backend_get_default_buffer_type(model->backend);
     if (model->buffer_type == nullptr) {
         codec_model_free(model);
         return nullptr;
     }
-    model->weights_buffer = lm_ggml_backend_alloc_ctx_tensors(model->weights, model->backend);
+    model->weights_buffer = ggml_backend_alloc_ctx_tensors(model->weights, model->backend);
     if (model->weights_buffer == nullptr) {
         codec_model_free(model);
         return nullptr;
     }
-    lm_ggml_backend_buffer_set_usage(model->weights_buffer, LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
+    ggml_backend_buffer_set_usage(model->weights_buffer, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
 
-    const int64_t n_tensors = lm_gguf_get_n_tensors(gf);
-    const size_t data_offset = lm_gguf_get_data_offset(gf);
+    const int64_t n_tensors = gguf_get_n_tensors(gf);
+    const size_t data_offset = gguf_get_data_offset(gf);
 
     std::ifstream model_file(path_model, std::ios::binary);
     if (!model_file.is_open()) {
@@ -359,18 +359,18 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     }
 
     for (int64_t i = 0; i < n_tensors; ++i) {
-        const char * name = lm_gguf_get_tensor_name(gf, i);
+        const char * name = gguf_get_tensor_name(gf, i);
         if (name == nullptr) {
             continue;
         }
 
-        struct lm_ggml_tensor * t = lm_ggml_get_tensor(model->weights, name);
+        struct ggml_tensor * t = ggml_get_tensor(model->weights, name);
         if (t == nullptr) {
             continue;
         }
 
-        const size_t t_offset = lm_gguf_get_tensor_offset(gf, i);
-        const size_t t_size = lm_ggml_nbytes(t);
+        const size_t t_offset = gguf_get_tensor_offset(gf, i);
+        const size_t t_size = ggml_nbytes(t);
         if (t_offset > std::numeric_limits<size_t>::max() - data_offset) {
             codec_model_free(model);
             return nullptr;
@@ -397,7 +397,7 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
                 return nullptr;
             }
 
-            lm_ggml_backend_tensor_set(t, temp_data.data(), 0, t_size);
+            ggml_backend_tensor_set(t, temp_data.data(), 0, t_size);
         }
     }
 
@@ -413,9 +413,9 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     model->n_mels = -1;
     model->latent_dim = -1;
 
-    const int arch_id = lm_gguf_find_key(gf, "general.architecture");
-    if (arch_id >= 0 && lm_gguf_get_kv_type(gf, arch_id) == LM_GGUF_TYPE_STRING) {
-        const char * arch = lm_gguf_get_val_str(gf, arch_id);
+    const int arch_id = gguf_find_key(gf, "general.architecture");
+    if (arch_id >= 0 && gguf_get_kv_type(gf, arch_id) == GGUF_TYPE_STRING) {
+        const char * arch = gguf_get_val_str(gf, arch_id);
         if (arch != nullptr) {
             model->arch = codec_arch_from_string(arch);
         }
@@ -430,15 +430,15 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
         }
     }
 
-    const int name_id = lm_gguf_find_key(gf, "general.name");
-    if (name_id >= 0 && lm_gguf_get_kv_type(gf, name_id) == LM_GGUF_TYPE_STRING) {
-        const char * name = lm_gguf_get_val_str(gf, name_id);
+    const int name_id = gguf_find_key(gf, "general.name");
+    if (name_id >= 0 && gguf_get_kv_type(gf, name_id) == GGUF_TYPE_STRING) {
+        const char * name = gguf_get_val_str(gf, name_id);
         if (name != nullptr) {
             model->name = name;
         }
     }
 
-    codec_collect_lm_gguf_metadata(model);
+    codec_collect_gguf_metadata(model);
     const enum codec_status init_st = codec_model_init_arch(model);
     if (init_st != CODEC_STATUS_SUCCESS) {
         codec_model_free(model);
@@ -461,21 +461,21 @@ void codec_model_free(struct codec_model * model) {
     }
 
     if (model->weights_buffer != nullptr) {
-        lm_ggml_backend_buffer_free(model->weights_buffer);
+        ggml_backend_buffer_free(model->weights_buffer);
         model->weights_buffer = nullptr;
     }
 
     if (model->backend != nullptr) {
-        lm_ggml_backend_free(model->backend);
+        ggml_backend_free(model->backend);
         model->backend = nullptr;
     }
 
     if (model->gguf != nullptr) {
-        lm_gguf_free(model->gguf);
+        gguf_free(model->gguf);
     }
 
     if (model->weights != nullptr) {
-        lm_ggml_free(model->weights);
+        ggml_free(model->weights);
     }
 
     delete model;
@@ -872,6 +872,6 @@ int32_t codec_model_latent_dim(const struct codec_model * model) {
     return model ? model->latent_dim : -1;
 }
 
-const struct codec_lm_gguf_metadata * codec_model_metadata(const struct codec_model * model) {
+const struct codec_gguf_metadata * codec_model_metadata(const struct codec_model * model) {
     return model ? &model->metadata : nullptr;
 }

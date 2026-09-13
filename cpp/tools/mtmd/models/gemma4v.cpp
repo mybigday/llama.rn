@@ -1,79 +1,79 @@
 #include "models.h"
 #include <cmath>
 
-lm_ggml_cgraph * clip_graph_gemma4v::build() {
-    lm_ggml_tensor * inp_raw = build_inp_raw();
+ggml_cgraph * clip_graph_gemma4v::build() {
+    ggml_tensor * inp_raw = build_inp_raw();
 
     // patches = 2 * (patches - 0.5)
     // equivalent to: patches * 2 - 1
-    inp_raw = lm_ggml_scale_bias(ctx0, inp_raw, 2.0f, -1.0f);
-    lm_ggml_set_name(inp_raw, "inp_raw_scaled");
+    inp_raw = ggml_scale_bias(ctx0, inp_raw, 2.0f, -1.0f);
+    ggml_set_name(inp_raw, "inp_raw_scaled");
 
-    lm_ggml_tensor * inp = lm_ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = lm_ggml_reshape_3d(ctx0, inp, n_patches, n_embd, n_batch);
-    inp = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, inp));
-    lm_ggml_set_name(inp, "inp");
+    ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+    inp = ggml_reshape_3d(ctx0, inp, n_patches, n_embd, n_batch);
+    inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+    ggml_set_name(inp, "inp");
     // note: no patch bias
 
-    lm_ggml_tensor * pos_x = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_patches);
-    lm_ggml_set_name(pos_x, "pos_x");
-    lm_ggml_set_input(pos_x);
+    ggml_tensor * pos_x = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+    ggml_set_name(pos_x, "pos_x");
+    ggml_set_input(pos_x);
 
-    lm_ggml_tensor * pos_y = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_patches);
-    lm_ggml_set_name(pos_y, "pos_y");
-    lm_ggml_set_input(pos_y);
+    ggml_tensor * pos_y = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+    ggml_set_name(pos_y, "pos_y");
+    ggml_set_input(pos_y);
 
     {
         const int64_t pos_size = model.position_embeddings->ne[1];
-        const size_t  nb1      = lm_ggml_row_size(model.position_embeddings->type, n_embd);
+        const size_t  nb1      = ggml_row_size(model.position_embeddings->type, n_embd);
 
         // positional embeddings are stored as lookup tables (one for x, one for y)
-        lm_ggml_tensor * tbl_x = lm_ggml_view_2d(ctx0, model.position_embeddings,
+        ggml_tensor * tbl_x = ggml_view_2d(ctx0, model.position_embeddings,
                                              n_embd, pos_size, nb1, 0);
-        lm_ggml_tensor * tbl_y = lm_ggml_view_2d(ctx0, model.position_embeddings,
+        ggml_tensor * tbl_y = ggml_view_2d(ctx0, model.position_embeddings,
                                              n_embd, pos_size, nb1, pos_size * nb1);
 
-        // lm_ggml_get_rows: [n_embd, n_patches]
-        lm_ggml_tensor * emb_x = lm_ggml_get_rows(ctx0, tbl_x, pos_x);
-        lm_ggml_tensor * emb_y = lm_ggml_get_rows(ctx0, tbl_y, pos_y);
+        // ggml_get_rows: [n_embd, n_patches]
+        ggml_tensor * emb_x = ggml_get_rows(ctx0, tbl_x, pos_x);
+        ggml_tensor * emb_y = ggml_get_rows(ctx0, tbl_y, pos_y);
 
-        inp = lm_ggml_add(ctx0, inp, emb_x);
-        inp = lm_ggml_add(ctx0, inp, emb_y);
+        inp = ggml_add(ctx0, inp, emb_x);
+        inp = ggml_add(ctx0, inp, emb_y);
         cb(inp, "pos_embd", -1);
     }
 
     // similar to build_rope_2d, but use neox ordering
-    auto add_pos = [&](lm_ggml_tensor * cur, const clip_layer &) {
+    auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
         const int64_t n_dim = cur->ne[0];
 
         // first half, dims [0, n_dim/2)
-        cur = lm_ggml_rope_ext(
+        cur = ggml_rope_ext(
             ctx0,
             cur,
             pos_x,      // positions
             nullptr,    // freq factors
             n_dim/2,    // n_dims
-            LM_GGML_ROPE_TYPE_NEOX, 0, hparams.rope_theta,
+            GGML_ROPE_TYPE_NEOX, 0, hparams.rope_theta,
             1.0f, 0.0f, 1.0f, 0.0f, 0.0f
         );
 
         // second half, dims [n_dim/2, n_dim)
-        cur = lm_ggml_rope_ext(
+        cur = ggml_rope_ext(
             ctx0,
             cur,
             pos_y,      // positions
             nullptr,    // freq factors
             n_dim/2,    // n_dims
-            LM_GGML_ROPE_TYPE_NEOX, 0, hparams.rope_theta,
+            GGML_ROPE_TYPE_NEOX, 0, hparams.rope_theta,
             1.0f, 0.0f, 1.0f, 0.0f, 0.0f
         );
-        cur = lm_ggml_rope_set_offset(cur, n_dim/2);
+        cur = ggml_rope_set_offset(cur, n_dim/2);
 
         return cur;
     };
 
     kq_scale = 1.0f;
-    lm_ggml_tensor * cur = build_vit(
+    ggml_tensor * cur = build_vit(
                         inp, n_patches,
                         NORM_TYPE_RMS,
                         hparams.ffn_op,
@@ -83,51 +83,51 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
     // Gemma4VisionPooler
     {
         const int kernel_size = hparams.n_merge;
-        LM_GGML_ASSERT(kernel_size > 0);
+        GGML_ASSERT(kernel_size > 0);
 
         // [n_embd, n_patches] -> [n_patches_x, n_patches_y, n_embd, n_batch]
-        cur = lm_ggml_cont_4d(ctx0, lm_ggml_transpose(ctx0, cur), n_patches_x, n_patches_y, n_embd, n_batch);
-        cur = lm_ggml_pool_2d(ctx0, cur, LM_GGML_OP_POOL_AVG,
+        cur = ggml_cont_4d(ctx0, ggml_transpose(ctx0, cur), n_patches_x, n_patches_y, n_embd, n_batch);
+        cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG,
                            kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
         const int out_x = n_patches_x / kernel_size;
         const int out_y = n_patches_y / kernel_size;
         // [out_x, out_y, n_embd, n_batch] -> [n_embd, out_x * out_y, n_batch]
-        cur = lm_ggml_reshape_3d(ctx0, cur, out_x * out_y, n_embd, n_batch);
-        cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
-        cur = lm_ggml_scale(ctx0, cur, sqrtf((float)n_embd));
+        cur = ggml_reshape_3d(ctx0, cur, out_x * out_y, n_embd, n_batch);
+        cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
+        cur = ggml_scale(ctx0, cur, sqrtf((float)n_embd));
         cb(cur, "pooled", -1);
     }
 
     // hidden_states = (hidden_states - self.std_bias) * self.std_scale
     if (model.std_bias && model.std_scale) {
-        cur = lm_ggml_sub(ctx0, cur, model.std_bias);
-        cur = lm_ggml_mul(ctx0, cur, model.std_scale);
+        cur = ggml_sub(ctx0, cur, model.std_bias);
+        cur = ggml_mul(ctx0, cur, model.std_scale);
         cb(cur, "std_scaled", -1);
     }
 
     // Gemma4MultimodalEmbedder
     {
         // embedding_pre_projection_norm
-        cur = lm_ggml_rms_norm(ctx0, cur, hparams.eps);
+        cur = ggml_rms_norm(ctx0, cur, hparams.eps);
         cur = build_mm(model.mm_input_proj_w, cur);
         cb(cur, "projected", -1);
     }
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
     return gf;
 }
 
-lm_ggml_tensor * clip_graph_gemma4v::build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const {
+ggml_tensor * clip_graph_gemma4v::build_mm(ggml_tensor * w, ggml_tensor * x) const {
     // Gemma4ClippableLinear
 
     auto it = model.clamp_info_map.find(w->name);
     if (it == model.clamp_info_map.end()) {
-        return lm_ggml_mul_mat(ctx0, w, x);
+        return ggml_mul_mat(ctx0, w, x);
     } else {
         const auto & clamp_info = it->second;
-        lm_ggml_tensor * clamped = lm_ggml_clamp(ctx0, x, clamp_info.inp_min, clamp_info.inp_max);
-        lm_ggml_tensor * out = lm_ggml_mul_mat(ctx0, w, clamped);
-        out = lm_ggml_clamp(ctx0, out, clamp_info.out_min, clamp_info.out_max);
+        ggml_tensor * clamped = ggml_clamp(ctx0, x, clamp_info.inp_min, clamp_info.inp_max);
+        ggml_tensor * out = ggml_mul_mat(ctx0, w, clamped);
+        out = ggml_clamp(ctx0, out, clamp_info.out_min, clamp_info.out_max);
         return out;
     }
 }

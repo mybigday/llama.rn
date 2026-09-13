@@ -1,7 +1,7 @@
 #include "soprano.h"
 
 #include "../ops/conv1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../runtime/audio_dsp.h"
 #include "../runtime/graph.h"
 #include "../runtime/tensor_utils.h"
@@ -45,7 +45,7 @@ struct sop_decode_build {
     const codec_model * model = nullptr;
 };
 
-static bool codec_sop_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool codec_sop_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     sop_decode_build * p = static_cast<sop_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) {
         return false;
@@ -54,48 +54,48 @@ static bool codec_sop_build_decode(lm_ggml_context * ctx_eval, void * user_data,
         return false;
     }
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
-    lm_ggml_tensor * t_in = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->t, p->in_ch);
-    lm_ggml_set_name(t_in, "sop.decode.in");
+    ggml_tensor * t_in = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->t, p->in_ch);
+    ggml_set_name(t_in, "sop.decode.in");
 
-    lm_ggml_tensor * t_emb_w = W(codec_sop_name_embed_w());
-    lm_ggml_tensor * t_emb_b = W(codec_sop_name_embed_b());
+    ggml_tensor * t_emb_w = W(codec_sop_name_embed_w());
+    ggml_tensor * t_emb_b = W(codec_sop_name_embed_b());
     if (t_emb_w == nullptr || t_emb_b == nullptr) {
         return false;
     }
-    lm_ggml_tensor * x = codec_conv1d(ctx_eval, t_in, t_emb_w, t_emb_b, 1, 1, 0); // [t, dim]
+    ggml_tensor * x = codec_conv1d(ctx_eval, t_in, t_emb_w, t_emb_b, 1, 1, 0); // [t, dim]
     if (x == nullptr) {
         return false;
     }
 
-    lm_ggml_tensor * t_norm_w = W(codec_sop_name_norm_w());
-    lm_ggml_tensor * t_norm_b = W(codec_sop_name_norm_b());
+    ggml_tensor * t_norm_w = W(codec_sop_name_norm_w());
+    ggml_tensor * t_norm_b = W(codec_sop_name_norm_b());
     if (t_norm_w == nullptr || t_norm_b == nullptr) {
         return false;
     }
 
-    lm_ggml_tensor * x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x)); // [c, t]
-    lm_ggml_set_name(x_ct, "sop.stage.embed.ct");
+    ggml_tensor * x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x)); // [c, t]
+    ggml_set_name(x_ct, "sop.stage.embed.ct");
     x_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-6f, t_norm_w, t_norm_b);
     if (x_ct == nullptr) {
         return false;
     }
-    lm_ggml_set_name(x_ct, "sop.stage.norm.ct");
+    ggml_set_name(x_ct, "sop.stage.norm.ct");
 
     const int32_t pad = p->dw_kernel / 2;
     for (int32_t li = 0; li < p->n_layers; ++li) {
-        lm_ggml_tensor * t_dw_w = W(codec_sop_name_cnx_dw_w(li));
-        lm_ggml_tensor * t_dw_b = W(codec_sop_name_cnx_dw_b(li));
-        lm_ggml_tensor * t_ln_w = W(codec_sop_name_cnx_ln_w(li));
-        lm_ggml_tensor * t_ln_b = W(codec_sop_name_cnx_ln_b(li));
-        lm_ggml_tensor * t_pw1_w = W(codec_sop_name_cnx_pw1_w(li));
-        lm_ggml_tensor * t_pw1_b = W(codec_sop_name_cnx_pw1_b(li));
-        lm_ggml_tensor * t_pw2_w = W(codec_sop_name_cnx_pw2_w(li));
-        lm_ggml_tensor * t_pw2_b = W(codec_sop_name_cnx_pw2_b(li));
-        lm_ggml_tensor * t_gamma = W(codec_sop_name_cnx_gamma(li));
+        ggml_tensor * t_dw_w = W(codec_sop_name_cnx_dw_w(li));
+        ggml_tensor * t_dw_b = W(codec_sop_name_cnx_dw_b(li));
+        ggml_tensor * t_ln_w = W(codec_sop_name_cnx_ln_w(li));
+        ggml_tensor * t_ln_b = W(codec_sop_name_cnx_ln_b(li));
+        ggml_tensor * t_pw1_w = W(codec_sop_name_cnx_pw1_w(li));
+        ggml_tensor * t_pw1_b = W(codec_sop_name_cnx_pw1_b(li));
+        ggml_tensor * t_pw2_w = W(codec_sop_name_cnx_pw2_w(li));
+        ggml_tensor * t_pw2_b = W(codec_sop_name_cnx_pw2_b(li));
+        ggml_tensor * t_gamma = W(codec_sop_name_cnx_gamma(li));
         if (t_dw_w == nullptr || t_dw_b == nullptr || t_ln_w == nullptr || t_ln_b == nullptr ||
             t_pw1_w == nullptr || t_pw1_b == nullptr || t_pw2_w == nullptr || t_pw2_b == nullptr ||
             t_gamma == nullptr) {
@@ -107,11 +107,11 @@ static bool codec_sop_build_decode(lm_ggml_context * ctx_eval, void * user_data,
         if (x_ct == nullptr) {
             return false;
         }
-        lm_ggml_set_name(x_ct, ("sop.stage.block." + std::to_string(li) + ".ct").c_str());
+        ggml_set_name(x_ct, ("sop.stage.block." + std::to_string(li) + ".ct").c_str());
     }
 
-    lm_ggml_tensor * t_fln_w = W(codec_sop_name_fln_w());
-    lm_ggml_tensor * t_fln_b = W(codec_sop_name_fln_b());
+    ggml_tensor * t_fln_w = W(codec_sop_name_fln_w());
+    ggml_tensor * t_fln_b = W(codec_sop_name_fln_b());
     if (t_fln_w == nullptr || t_fln_b == nullptr) {
         return false;
     }
@@ -119,19 +119,19 @@ static bool codec_sop_build_decode(lm_ggml_context * ctx_eval, void * user_data,
     if (x_ct == nullptr) {
         return false;
     }
-    lm_ggml_set_name(x_ct, "sop.stage.final.ct");
+    ggml_set_name(x_ct, "sop.stage.final.ct");
 
-    lm_ggml_tensor * t_head_w = W(codec_sop_name_head_w());
-    lm_ggml_tensor * t_head_b = W(codec_sop_name_head_b());
+    ggml_tensor * t_head_w = W(codec_sop_name_head_w());
+    ggml_tensor * t_head_b = W(codec_sop_name_head_b());
     if (t_head_w == nullptr || t_head_b == nullptr) {
         return false;
     }
-    lm_ggml_tensor * t_head = codec_op_linear(ctx_eval, x_ct, t_head_w, t_head_b); // [out_dim, t]
+    ggml_tensor * t_head = codec_op_linear(ctx_eval, x_ct, t_head_w, t_head_b); // [out_dim, t]
     if (t_head == nullptr) {
         return false;
     }
-    lm_ggml_tensor * t_out = lm_ggml_cont(ctx_eval, t_head);
-    lm_ggml_set_name(t_out, "sop.decode.head.out");
+    ggml_tensor * t_out = ggml_cont(ctx_eval, t_head);
+    ggml_set_name(t_out, "sop.decode.head.out");
     *out = t_out;
     return true;
 }
@@ -185,7 +185,7 @@ static bool codec_sop_init_decode_build(codec_context * ctx, int32_t t, sop_deco
     build->dw_kernel = std::max(1, sop.dw_kernel);
     build->model = ctx->model;
 
-    lm_ggml_tensor * head_b = codec_model_get_tensor(ctx->model, codec_sop_name_head_b());
+    ggml_tensor * head_b = codec_model_get_tensor(ctx->model, codec_sop_name_head_b());
     if (head_b == nullptr) {
         if (err != nullptr) {
             *err = "missing Soprano head bias tensor";
@@ -275,8 +275,8 @@ enum codec_status codec_soprano_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_in = codec_graph_get_tensor(ctx, entry, "sop.decode.in");
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "sop.decode.head.out");
+    ggml_tensor * t_in = codec_graph_get_tensor(ctx, entry, "sop.decode.in");
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "sop.decode.head.out");
     if (t_in == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached Soprano decode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -305,7 +305,7 @@ enum codec_status codec_soprano_decode_latent(
     }
 
     std::vector<float> window;
-    lm_ggml_tensor * w_tensor = codec_model_get_tensor(ctx->model, codec_sop_name_istft_window());
+    ggml_tensor * w_tensor = codec_model_get_tensor(ctx->model, codec_sop_name_istft_window());
     if (w_tensor != nullptr && w_tensor->ne[1] == 1 && w_tensor->ne[2] == 1) {
         if (!codec_tensor_as_vec_f32(w_tensor, &window)) {
             window.clear();

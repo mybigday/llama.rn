@@ -122,8 +122,8 @@ struct llama_rn_slot_manager {
     float mtp_spec_p_min = 0.0f;
     bool mtp_spec_backend_sampling = true;
     int32_t mtp_spec_n_gpu_layers = -1;
-    lm_ggml_type mtp_spec_cache_type_k = LM_GGML_TYPE_F16;
-    lm_ggml_type mtp_spec_cache_type_v = LM_GGML_TYPE_F16;
+    ggml_type mtp_spec_cache_type_k = GGML_TYPE_F16;
+    ggml_type mtp_spec_cache_type_v = GGML_TYPE_F16;
 
     // Configuration
     float slot_prompt_similarity;          // Threshold for cache reuse (0.0-1.0)

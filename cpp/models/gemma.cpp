@@ -41,20 +41,20 @@ std::unique_ptr<llm_graph_context> llama_model_gemma::build_arch_graph(const llm
 llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
-    inpL = lm_ggml_scale(ctx0, inpL, sqrtf(n_embd));
+    inpL = ggml_scale(ctx0, inpL, sqrtf(n_embd));
     cb(inpL, "inp_scaled", -1);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         // norm
@@ -69,12 +69,12 @@ llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_param
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow);
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow);
@@ -83,7 +83,7 @@ llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_param
             cb(Kcur, "Kcur", il);
             cb(Vcur, "Vcur", il);
 
-            Qcur = lm_ggml_scale(ctx0, Qcur, 1.0f / sqrtf(float(n_embd_head)));
+            Qcur = ggml_scale(ctx0, Qcur, 1.0f / sqrtf(float(n_embd_head)));
             cb(Qcur, "Qcur_scaled", il);
 
             cur = build_attn(inp_attn,
@@ -91,10 +91,10 @@ llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_param
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f, il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0,  cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
-        lm_ggml_tensor * sa_out = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * sa_out = ggml_add(ctx0, cur, inpL);
         cb(sa_out, "sa_out", il);
 
         cur = build_norm(sa_out,
@@ -112,7 +112,7 @@ llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_param
                     LLM_FFN_GELU, LLM_FFN_PAR, il);
             cb(cur, "ffn_out", il);
         }
-        cur = lm_ggml_add(ctx0, cur, sa_out);
+        cur = ggml_add(ctx0, cur, sa_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -135,5 +135,5 @@ llama_model_gemma::graph::graph(const llama_model & model, const llm_graph_param
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

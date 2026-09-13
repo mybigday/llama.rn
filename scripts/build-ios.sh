@@ -48,6 +48,21 @@ copy_framework_support_files() {
   # embedded via cpp/ggml-metal/ggml-metal-embed-*.s.
 }
 
+# ggml/gguf keep upstream names; they must stay internal to this framework so a
+# second ggml-based framework in the same app never resolves through it (see
+# ios/unexported-symbols.txt).
+assert_no_ggml_exports() {
+  local binary="$1"
+  local leaked
+
+  leaked="$(nm -gU "$binary" | awk '{print $3}' | grep -E '^_(ggml|gguf|quantize|dequantize|iq2xs|iq3xs)_|^__Z[A-Z]*[0-9]+(ggml|gguf)_|^__Z[A-Z]*N4ggml' || true)"
+  if [[ -n "$leaked" ]]; then
+    echo "ggml symbols exported from $binary:" >&2
+    echo "$leaked" | head -20 >&2
+    exit 1
+  fi
+}
+
 assert_matching_dsym() {
   local framework_path="$1"
   local dsym_path="$2"
@@ -113,6 +128,7 @@ build_framework_slice() {
   fi
 
   assert_matching_dsym "$framework_path" "$dsym_path"
+  assert_no_ggml_exports "$framework_path/rnllama"
 
   ditto "$framework_path" "$staged_dir/rnllama.framework"
   copy_framework_support_files "$staged_dir/rnllama.framework"

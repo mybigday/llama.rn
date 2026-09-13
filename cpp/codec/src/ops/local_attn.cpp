@@ -5,12 +5,12 @@
 #include <algorithm>
 #include <cmath>
 
-lm_ggml_tensor * codec_op_local_attn(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * q_dth,
-    lm_ggml_tensor * k_dth,
-    lm_ggml_tensor * v_dth,
-    lm_ggml_tensor * score_bias_kqh,
+ggml_tensor * codec_op_local_attn(
+    ggml_context * ctx,
+    ggml_tensor * q_dth,
+    ggml_tensor * k_dth,
+    ggml_tensor * v_dth,
+    ggml_tensor * score_bias_kqh,
     int32_t head_dim,
     int32_t n_heads) {
 
@@ -20,16 +20,16 @@ lm_ggml_tensor * codec_op_local_attn(
     }
 
     const float scale = 1.0f / std::sqrt((float) head_dim);
-    lm_ggml_tensor * k_cont = lm_ggml_cont(ctx, k_dth);
-    lm_ggml_tensor * scores = lm_ggml_mul_mat(ctx, k_cont, q_dth);   // (t_k, t_q, h)
+    ggml_tensor * k_cont = ggml_cont(ctx, k_dth);
+    ggml_tensor * scores = ggml_mul_mat(ctx, k_cont, q_dth);   // (t_k, t_q, h)
     if (scores == nullptr) return nullptr;
-    scores = lm_ggml_scale_inplace(ctx, scores, scale);
-    scores = lm_ggml_add(ctx, scores, score_bias_kqh);            // causal + block + rel-pos
+    scores = ggml_scale_inplace(ctx, scores, scale);
+    scores = ggml_add(ctx, scores, score_bias_kqh);            // causal + block + rel-pos
 
-    lm_ggml_tensor * probs = lm_ggml_soft_max(ctx, scores);
+    ggml_tensor * probs = ggml_soft_max(ctx, scores);
     if (probs == nullptr) return nullptr;
-    lm_ggml_tensor * v_tdh = lm_ggml_cont(ctx, lm_ggml_permute(ctx, v_dth, 1, 0, 2, 3));
-    return lm_ggml_mul_mat(ctx, v_tdh, probs);                     // (d, t, h)
+    ggml_tensor * v_tdh = ggml_cont(ctx, ggml_permute(ctx, v_dth, 1, 0, 2, 3));
+    return ggml_mul_mat(ctx, v_tdh, probs);                     // (d, t, h)
 }
 
 void codec_local_attn_fill_mask(

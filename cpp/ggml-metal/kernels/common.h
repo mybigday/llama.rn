@@ -4,7 +4,7 @@
 
 #include <metal_stdlib>
 
-#ifdef LM_GGML_METAL_HAS_TENSOR
+#ifdef GGML_METAL_HAS_TENSOR
 #include <metal_tensor>
 
 #include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
@@ -28,11 +28,11 @@ using namespace metal;
 //   .../usr/bin/metal -dM -E -c                             ggml/src/ggml-metal/kernels/<src>.metal
 //   .../usr/bin/metal -dM -E -c -target air64-apple-ios14.0 ggml/src/ggml-metal/kernels/<src>.metal
 //
-#if __METAL_VERSION__ < 310 && defined(LM_GGML_METAL_HAS_BF16)
-#undef LM_GGML_METAL_HAS_BF16
+#if __METAL_VERSION__ < 310 && defined(GGML_METAL_HAS_BF16)
+#undef GGML_METAL_HAS_BF16
 #endif
 
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 typedef matrix<bfloat, 4, 4> bfloat4x4;
 typedef matrix<bfloat, 2, 4> bfloat2x4;
 #endif
@@ -80,9 +80,9 @@ static inline float sum(float4 x) {
     return x[0] + x[1] + x[2] + x[3];
 }
 
-enum lm_ggml_sort_order {
-    LM_GGML_SORT_ORDER_ASC,
-    LM_GGML_SORT_ORDER_DESC,
+enum ggml_sort_order {
+    GGML_SORT_ORDER_ASC,
+    GGML_SORT_ORDER_DESC,
 };
 
 constant float GELU_COEF_A     = 0.044715f;

@@ -2,7 +2,7 @@
 // expensive clBuildProgram-from-source step when a binary for the exact same
 // (source, compile options, device, driver, platform) was previously saved.
 //
-// Activation: default on via LM_GGML_OPENCL_KERNEL_CACHE_DIR:
+// Activation: default on via GGML_OPENCL_KERNEL_CACHE_DIR:
 //   unset / empty / "1" / "default"      : platform default cache dir
 //                                          (%LOCALAPPDATA%\llama.cpp\cl-cache,
 //                                          ~/Library/Caches/llama.cpp/cl-cache,
@@ -11,7 +11,7 @@
 //   any other value                      : used verbatim as the cache path
 // If the chosen directory cannot be created/used, the cache silently disables
 // itself for the process and falls back to source compile.
-// LM_GGML_OPENCL_KERNEL_CACHE_DEBUG=1 prints a HIT/MISS/SAVE trace (with a running
+// GGML_OPENCL_KERNEL_CACHE_DEBUG=1 prints a HIT/MISS/SAVE trace (with a running
 // tally) straight to stderr — visible even in tools that filter INFO/WARN logs;
 // redirect stderr to record it.
 //

@@ -2,7 +2,7 @@
 
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../runtime/graph.h"
 #include "../runtime/tensor_utils.h"
 
@@ -15,11 +15,11 @@
 #include <string>
 #include <vector>
 
-static lm_ggml_tensor * nemo_conv1d_replicate(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x,
-    lm_ggml_tensor * w,
-    lm_ggml_tensor * b,
+static ggml_tensor * nemo_conv1d_replicate(
+    ggml_context * ctx,
+    ggml_tensor * x,
+    ggml_tensor * w,
+    ggml_tensor * b,
     int32_t stride,
     int32_t dilation,
     int32_t padding) {
@@ -28,23 +28,23 @@ static lm_ggml_tensor * nemo_conv1d_replicate(
         return nullptr;
     }
 
-    lm_ggml_tensor * x_pad = codec_op_pad_1d_replicate(ctx, x, padding, padding);
+    ggml_tensor * x_pad = codec_op_pad_1d_replicate(ctx, x, padding, padding);
     if (x_pad == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * w_f32 = codec_graph_cast_f32(ctx, w);
-    lm_ggml_tensor * b_f32 = codec_graph_cast_f32(ctx, b);
-    lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, w_f32, x_pad, stride, 0, 0, 0, dilation, 0, false, LM_GGML_TYPE_F32);
-    lm_ggml_tensor * im2col_2d = lm_ggml_reshape_2d(ctx, im2col, im2col->ne[0], (im2col->ne[2] * im2col->ne[1]));
-    lm_ggml_tensor * w_2d = lm_ggml_reshape_2d(ctx, w_f32, (w_f32->ne[0] * w_f32->ne[1]), w_f32->ne[2]);
-    lm_ggml_tensor * y = lm_ggml_mul_mat(ctx, im2col_2d, w_2d);
-    y = lm_ggml_reshape_3d(ctx, y, im2col->ne[1], w_f32->ne[2], im2col->ne[2]);
+    ggml_tensor * w_f32 = codec_graph_cast_f32(ctx, w);
+    ggml_tensor * b_f32 = codec_graph_cast_f32(ctx, b);
+    ggml_tensor * im2col = ggml_im2col(ctx, w_f32, x_pad, stride, 0, 0, 0, dilation, 0, false, GGML_TYPE_F32);
+    ggml_tensor * im2col_2d = ggml_reshape_2d(ctx, im2col, im2col->ne[0], (im2col->ne[2] * im2col->ne[1]));
+    ggml_tensor * w_2d = ggml_reshape_2d(ctx, w_f32, (w_f32->ne[0] * w_f32->ne[1]), w_f32->ne[2]);
+    ggml_tensor * y = ggml_mul_mat(ctx, im2col_2d, w_2d);
+    y = ggml_reshape_3d(ctx, y, im2col->ne[1], w_f32->ne[2], im2col->ne[2]);
     if (b_f32 != nullptr) {
-        lm_ggml_tensor * b2 = lm_ggml_reshape_2d(ctx, b_f32, 1, y->ne[1]);
-        y = lm_ggml_add(ctx, y, lm_ggml_repeat(ctx, b2, y));
+        ggml_tensor * b2 = ggml_reshape_2d(ctx, b_f32, 1, y->ne[1]);
+        y = ggml_add(ctx, y, ggml_repeat(ctx, b2, y));
     }
-    return lm_ggml_cont(ctx, y);
+    return ggml_cont(ctx, y);
 }
 
 static std::string nemo_enc_down_w_name(int32_t i) { return "nemo.enc.down." + std::to_string(i) + ".w"; }
@@ -104,23 +104,23 @@ struct nemo_decode_build {
     const codec_model * model = nullptr;
 };
 
-static bool nemo_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool nemo_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     nemo_encode_build * p = static_cast<nemo_encode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->n_in <= 0 || p->n_q <= 0 || p->model == nullptr) {
         return false;
     }
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
-    lm_ggml_tensor * t_pcm = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_in, 1);
-    lm_ggml_set_name(t_pcm, "nemo.encode.pcm");
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_in, 1);
+    ggml_set_name(t_pcm, "nemo.encode.pcm");
 
-    lm_ggml_tensor * x = t_pcm;
+    ggml_tensor * x = t_pcm;
 
-    lm_ggml_tensor * t_pre_w = W("nemo.enc.pre.w");
-    lm_ggml_tensor * t_pre_b = W("nemo.enc.pre.b");
+    ggml_tensor * t_pre_w = W("nemo.enc.pre.w");
+    ggml_tensor * t_pre_b = W("nemo.enc.pre.b");
     if (t_pre_w == nullptr || t_pre_b == nullptr) {
         return false;
     }
@@ -128,48 +128,48 @@ static bool nemo_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_g
     if (x == nullptr) {
         return false;
     }
-    lm_ggml_set_name(x, "nemo.enc.pre.out");
+    ggml_set_name(x, "nemo.enc.pre.out");
 
     const int32_t down_rates[5] = { 2, 3, 6, 7, 7 };
     int32_t in_channels = 24;
 
     for (int32_t li = 0; li < 5; ++li) {
-        lm_ggml_tensor * res_sum = nullptr;
+        ggml_tensor * res_sum = nullptr;
         for (int32_t bi = 0; bi < 3; ++bi) {
-            lm_ggml_tensor * x_block = x;
+            ggml_tensor * x_block = x;
             const int32_t k = (bi == 1) ? 7 : (bi == 2 ? 11 : 3);
             const int32_t dilations[3] = { 1, 3, 5 };
             for (int32_t ri = 0; ri < 3; ++ri) {
-                lm_ggml_tensor * t_in_w = W(nemo_enc_res_in_w(li, bi, ri));
-                lm_ggml_tensor * t_in_b = W(nemo_enc_res_in_b(li, bi, ri));
-                lm_ggml_tensor * t_sk_w = W(nemo_enc_res_sk_w(li, bi, ri));
-                lm_ggml_tensor * t_sk_b = W(nemo_enc_res_sk_b(li, bi, ri));
+                ggml_tensor * t_in_w = W(nemo_enc_res_in_w(li, bi, ri));
+                ggml_tensor * t_in_b = W(nemo_enc_res_in_b(li, bi, ri));
+                ggml_tensor * t_sk_w = W(nemo_enc_res_sk_w(li, bi, ri));
+                ggml_tensor * t_sk_b = W(nemo_enc_res_sk_b(li, bi, ri));
                 if (t_in_w == nullptr || t_in_b == nullptr || t_sk_w == nullptr || t_sk_b == nullptr) {
                     return false;
                 }
 
-                lm_ggml_tensor * h = lm_ggml_leaky_relu(ctx_eval, x_block, 0.01f, false);
+                ggml_tensor * h = ggml_leaky_relu(ctx_eval, x_block, 0.01f, false);
                 const int32_t pad_in = (k * dilations[ri] - dilations[ri]) / 2;
                 const int32_t pad_sk = k / 2;
                 h = nemo_conv1d_replicate(ctx_eval, h, t_in_w, t_in_b, 1, dilations[ri], pad_in);
-                h = lm_ggml_leaky_relu(ctx_eval, h, 0.01f, false);
+                h = ggml_leaky_relu(ctx_eval, h, 0.01f, false);
                 h = nemo_conv1d_replicate(ctx_eval, h, t_sk_w, t_sk_b, 1, 1, pad_sk);
-                x_block = lm_ggml_add(ctx_eval, x_block, h);
-                lm_ggml_set_name(x_block, ("nemo.enc.l" + std::to_string(li) + ".b" + std::to_string(bi) + ".r" + std::to_string(ri) + ".out").c_str());
+                x_block = ggml_add(ctx_eval, x_block, h);
+                ggml_set_name(x_block, ("nemo.enc.l" + std::to_string(li) + ".b" + std::to_string(bi) + ".r" + std::to_string(ri) + ".out").c_str());
             }
-            res_sum = res_sum == nullptr ? x_block : lm_ggml_add(ctx_eval, res_sum, x_block);
+            res_sum = res_sum == nullptr ? x_block : ggml_add(ctx_eval, res_sum, x_block);
         }
 
-        x = lm_ggml_scale(ctx_eval, res_sum, 1.0f / 3.0f);
-        x = lm_ggml_leaky_relu(ctx_eval, x, 0.01f, false);
+        x = ggml_scale(ctx_eval, res_sum, 1.0f / 3.0f);
+        x = ggml_leaky_relu(ctx_eval, x, 0.01f, false);
 
         const int32_t out_channels = in_channels * 2;
         const int32_t stride = down_rates[li];
         const int32_t kernel = 2 * stride;
         const int32_t padding = (kernel - stride + 1) / 2;
 
-        lm_ggml_tensor * t_dw_w = W(nemo_enc_down_w_name(li));
-        lm_ggml_tensor * t_dw_b = W(nemo_enc_down_b_name(li));
+        ggml_tensor * t_dw_w = W(nemo_enc_down_w_name(li));
+        ggml_tensor * t_dw_b = W(nemo_enc_down_b_name(li));
         if (t_dw_w == nullptr || t_dw_b == nullptr) {
             return false;
         }
@@ -177,13 +177,13 @@ static bool nemo_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_g
         if (x == nullptr) {
             return false;
         }
-        lm_ggml_set_name(x, ("nemo.enc.down." + std::to_string(li) + ".out").c_str());
+        ggml_set_name(x, ("nemo.enc.down." + std::to_string(li) + ".out").c_str());
         in_channels = out_channels;
     }
 
-    x = lm_ggml_leaky_relu(ctx_eval, x, 0.01f, false);
-    lm_ggml_tensor * t_post_w = W("nemo.enc.post.w");
-    lm_ggml_tensor * t_post_b = W("nemo.enc.post.b");
+    x = ggml_leaky_relu(ctx_eval, x, 0.01f, false);
+    ggml_tensor * t_post_w = W("nemo.enc.post.w");
+    ggml_tensor * t_post_b = W("nemo.enc.post.b");
     if (t_post_w == nullptr || t_post_b == nullptr) {
         return false;
     }
@@ -191,79 +191,79 @@ static bool nemo_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_g
     if (x == nullptr) {
         return false;
     }
-    lm_ggml_set_name(x, "nemo.enc.post.out");
+    ggml_set_name(x, "nemo.enc.post.out");
 
     // FSQ encode per group
-    lm_ggml_tensor * t_scale = W(nemo_fsq_name("scale"));
-    lm_ggml_tensor * t_out_scale = W(nemo_fsq_name("out_scale"));
-    lm_ggml_tensor * t_out_offset = W(nemo_fsq_name("out_offset"));
-    lm_ggml_tensor * t_in_shift = W(nemo_fsq_name("in_shift"));
-    lm_ggml_tensor * t_dim_base = W(nemo_fsq_name("dim_base"));
+    ggml_tensor * t_scale = W(nemo_fsq_name("scale"));
+    ggml_tensor * t_out_scale = W(nemo_fsq_name("out_scale"));
+    ggml_tensor * t_out_offset = W(nemo_fsq_name("out_offset"));
+    ggml_tensor * t_in_shift = W(nemo_fsq_name("in_shift"));
+    ggml_tensor * t_dim_base = W(nemo_fsq_name("dim_base"));
     if (t_scale == nullptr || t_out_scale == nullptr || t_out_offset == nullptr || t_in_shift == nullptr || t_dim_base == nullptr) {
         return false;
     }
 
-    lm_ggml_tensor * tokens = nullptr;
+    ggml_tensor * tokens = nullptr;
     const int32_t t = (int32_t) x->ne[0];
     for (int32_t g = 0; g < p->n_q; ++g) {
         const size_t offset = (size_t) g * (size_t) p->codebook_dim * x->nb[1];
-        lm_ggml_tensor * x_g = lm_ggml_view_2d(ctx_eval, x, t, p->codebook_dim, x->nb[1], offset);
+        ggml_tensor * x_g = ggml_view_2d(ctx_eval, x, t, p->codebook_dim, x->nb[1], offset);
 
-        lm_ggml_tensor * x_add = lm_ggml_add(ctx_eval, x_g, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_in_shift, 1, p->codebook_dim), x_g));
-        lm_ggml_tensor * x_tanh = lm_ggml_tanh(ctx_eval, x_add);
-        lm_ggml_tensor * x_mul = lm_ggml_mul(ctx_eval, x_tanh, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_out_scale, 1, p->codebook_dim), x_g));
-        lm_ggml_tensor * x_comp = lm_ggml_sub(ctx_eval, x_mul, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_out_offset, 1, p->codebook_dim), x_g));
-        lm_ggml_tensor * x_round = lm_ggml_round(ctx_eval, x_comp);
-        lm_ggml_tensor * x_norm = lm_ggml_div(ctx_eval, x_round, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_add = ggml_add(ctx_eval, x_g, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_in_shift, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_tanh = ggml_tanh(ctx_eval, x_add);
+        ggml_tensor * x_mul = ggml_mul(ctx_eval, x_tanh, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_out_scale, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_comp = ggml_sub(ctx_eval, x_mul, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_out_offset, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_round = ggml_round(ctx_eval, x_comp);
+        ggml_tensor * x_norm = ggml_div(ctx_eval, x_round, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g));
 
-        lm_ggml_tensor * x_nonneg = lm_ggml_add(ctx_eval, lm_ggml_mul(ctx_eval, x_norm, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g)),
-                                          lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g));
-        lm_ggml_tensor * x_idx = lm_ggml_mul(ctx_eval, x_nonneg, lm_ggml_repeat(ctx_eval, lm_ggml_reshape_2d(ctx_eval, t_dim_base, 1, p->codebook_dim), x_g));
-        lm_ggml_tensor * x_idx_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_idx)); // [dim, t]
-        lm_ggml_tensor * idx_sum = lm_ggml_sum_rows(ctx_eval, x_idx_ct); // [1, t]
-        lm_ggml_tensor * idx_1d = lm_ggml_reshape_1d(ctx_eval, idx_sum, t);
-        lm_ggml_tensor * idx_i32 = lm_ggml_cast(ctx_eval, idx_1d, LM_GGML_TYPE_I32);
-        lm_ggml_tensor * idx_2d = lm_ggml_reshape_2d(ctx_eval, idx_i32, t, 1);
+        ggml_tensor * x_nonneg = ggml_add(ctx_eval, ggml_mul(ctx_eval, x_norm, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g)),
+                                          ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_scale, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_idx = ggml_mul(ctx_eval, x_nonneg, ggml_repeat(ctx_eval, ggml_reshape_2d(ctx_eval, t_dim_base, 1, p->codebook_dim), x_g));
+        ggml_tensor * x_idx_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_idx)); // [dim, t]
+        ggml_tensor * idx_sum = ggml_sum_rows(ctx_eval, x_idx_ct); // [1, t]
+        ggml_tensor * idx_1d = ggml_reshape_1d(ctx_eval, idx_sum, t);
+        ggml_tensor * idx_i32 = ggml_cast(ctx_eval, idx_1d, GGML_TYPE_I32);
+        ggml_tensor * idx_2d = ggml_reshape_2d(ctx_eval, idx_i32, t, 1);
 
-        tokens = tokens == nullptr ? idx_2d : lm_ggml_concat(ctx_eval, tokens, idx_2d, 1);
+        tokens = tokens == nullptr ? idx_2d : ggml_concat(ctx_eval, tokens, idx_2d, 1);
     }
 
-    lm_ggml_tensor * t_out = lm_ggml_cont(ctx_eval, tokens);
-    lm_ggml_set_name(t_out, "nemo.encode.out");
+    ggml_tensor * t_out = ggml_cont(ctx_eval, tokens);
+    ggml_set_name(t_out, "nemo.encode.out");
     *out = t_out;
     return true;
 }
 
-static bool nemo_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool nemo_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     nemo_decode_build * p = static_cast<nemo_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->t <= 0 || p->q <= 0 || p->model == nullptr) {
         return false;
     }
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
-    lm_ggml_tensor * t_tok = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_I32, p->t, p->q);
-    lm_ggml_set_name(t_tok, "nemo.decode.tok");
+    ggml_tensor * t_tok = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_I32, p->t, p->q);
+    ggml_set_name(t_tok, "nemo.decode.tok");
 
-    lm_ggml_tensor * x_ct = nullptr;
+    ggml_tensor * x_ct = nullptr;
     for (int32_t g = 0; g < p->q; ++g) {
-        lm_ggml_tensor * t_codebook = W("nemo.fsq.codebook." + std::to_string(g));
+        ggml_tensor * t_codebook = W("nemo.fsq.codebook." + std::to_string(g));
         if (t_codebook == nullptr) {
             return false;
         }
 
-        lm_ggml_tensor * t_idx = lm_ggml_view_1d(ctx_eval, t_tok, p->t, (size_t) g * t_tok->nb[1]);
-        lm_ggml_tensor * t_emb = lm_ggml_get_rows(ctx_eval, t_codebook, t_idx); // [codebook_dim, t]
-        x_ct = (x_ct == nullptr) ? t_emb : lm_ggml_concat(ctx_eval, x_ct, t_emb, 0);
+        ggml_tensor * t_idx = ggml_view_1d(ctx_eval, t_tok, p->t, (size_t) g * t_tok->nb[1]);
+        ggml_tensor * t_emb = ggml_get_rows(ctx_eval, t_codebook, t_idx); // [codebook_dim, t]
+        x_ct = (x_ct == nullptr) ? t_emb : ggml_concat(ctx_eval, x_ct, t_emb, 0);
     }
 
-    lm_ggml_tensor * x = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_ct)); // [t, c]
-    lm_ggml_set_name(x, "nemo.dec.embed.out");
+    ggml_tensor * x = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_ct)); // [t, c]
+    ggml_set_name(x, "nemo.dec.embed.out");
 
-    lm_ggml_tensor * t_pre_w = W("nemo.dec.pre.w");
-    lm_ggml_tensor * t_pre_b = W("nemo.dec.pre.b");
+    ggml_tensor * t_pre_w = W("nemo.dec.pre.w");
+    ggml_tensor * t_pre_b = W("nemo.dec.pre.b");
     if (t_pre_w == nullptr || t_pre_b == nullptr) {
         return false;
     }
@@ -271,27 +271,27 @@ static bool nemo_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_g
     if (x == nullptr) {
         return false;
     }
-    lm_ggml_set_name(x, "nemo.dec.pre.out");
+    ggml_set_name(x, "nemo.dec.pre.out");
 
     const int32_t up_rates[5] = { 7, 7, 6, 3, 2 };
     int32_t in_channels = 864;
 
     for (int32_t li = 0; li < 5; ++li) {
-        lm_ggml_tensor * t_act = W(nemo_dec_act_name(li));
+        ggml_tensor * t_act = W(nemo_dec_act_name(li));
         if (t_act == nullptr) {
             return false;
         }
-        lm_ggml_tensor * x_left = lm_ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels / 2, x->nb[1], 0);
-        lm_ggml_tensor * x_right = lm_ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels - in_channels / 2, x->nb[1], (size_t) (in_channels / 2) * x->nb[1]);
-        lm_ggml_tensor * x_snake = codec_op_snake(ctx_eval, x_left, t_act, 1e-9f);
-        lm_ggml_tensor * x_lr = lm_ggml_leaky_relu(ctx_eval, x_right, 0.01f, false);
-        lm_ggml_tensor * x_cat = lm_ggml_concat(ctx_eval, x_snake, x_lr, 1);
+        ggml_tensor * x_left = ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels / 2, x->nb[1], 0);
+        ggml_tensor * x_right = ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels - in_channels / 2, x->nb[1], (size_t) (in_channels / 2) * x->nb[1]);
+        ggml_tensor * x_snake = codec_op_snake(ctx_eval, x_left, t_act, 1e-9f);
+        ggml_tensor * x_lr = ggml_leaky_relu(ctx_eval, x_right, 0.01f, false);
+        ggml_tensor * x_cat = ggml_concat(ctx_eval, x_snake, x_lr, 1);
         x = x_cat;
 
         const int32_t out_channels = in_channels / 2;
         const int32_t stride = up_rates[li];
-        lm_ggml_tensor * t_up_w = W(nemo_dec_up_w_name(li));
-        lm_ggml_tensor * t_up_b = W(nemo_dec_up_b_name(li));
+        ggml_tensor * t_up_w = W(nemo_dec_up_w_name(li));
+        ggml_tensor * t_up_b = W(nemo_dec_up_b_name(li));
         if (t_up_w == nullptr || t_up_b == nullptr) {
             return false;
         }
@@ -299,79 +299,79 @@ static bool nemo_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_g
         if (x == nullptr) {
             return false;
         }
-        lm_ggml_set_name(x, ("nemo.dec.up." + std::to_string(li) + ".out").c_str());
+        ggml_set_name(x, ("nemo.dec.up." + std::to_string(li) + ".out").c_str());
         in_channels = out_channels;
 
-        lm_ggml_tensor * res_sum = nullptr;
+        ggml_tensor * res_sum = nullptr;
         for (int32_t bi = 0; bi < 3; ++bi) {
-            lm_ggml_tensor * x_block = x;
+            ggml_tensor * x_block = x;
             const int32_t k = (bi == 1) ? 7 : (bi == 2 ? 11 : 3);
             const int32_t dilations[3] = { 1, 3, 5 };
             for (int32_t ri = 0; ri < 3; ++ri) {
-                lm_ggml_tensor * t_in_a = W(nemo_dec_res_in_a(li, bi, ri));
-                lm_ggml_tensor * t_sk_a = W(nemo_dec_res_sk_a(li, bi, ri));
-                lm_ggml_tensor * t_in_w = W(nemo_dec_res_in_w(li, bi, ri));
-                lm_ggml_tensor * t_in_b = W(nemo_dec_res_in_b(li, bi, ri));
-                lm_ggml_tensor * t_sk_w = W(nemo_dec_res_sk_w(li, bi, ri));
-                lm_ggml_tensor * t_sk_b = W(nemo_dec_res_sk_b(li, bi, ri));
+                ggml_tensor * t_in_a = W(nemo_dec_res_in_a(li, bi, ri));
+                ggml_tensor * t_sk_a = W(nemo_dec_res_sk_a(li, bi, ri));
+                ggml_tensor * t_in_w = W(nemo_dec_res_in_w(li, bi, ri));
+                ggml_tensor * t_in_b = W(nemo_dec_res_in_b(li, bi, ri));
+                ggml_tensor * t_sk_w = W(nemo_dec_res_sk_w(li, bi, ri));
+                ggml_tensor * t_sk_b = W(nemo_dec_res_sk_b(li, bi, ri));
                 if (t_in_a == nullptr || t_sk_a == nullptr || t_in_w == nullptr || t_in_b == nullptr || t_sk_w == nullptr || t_sk_b == nullptr) {
                     return false;
                 }
 
-                lm_ggml_tensor * x_left_r = lm_ggml_view_2d(ctx_eval, x_block, (int32_t) x_block->ne[0], in_channels / 2, x_block->nb[1], 0);
-                lm_ggml_tensor * x_right_r = lm_ggml_view_2d(ctx_eval, x_block, (int32_t) x_block->ne[0], in_channels - in_channels / 2, x_block->nb[1], (size_t) (in_channels / 2) * x_block->nb[1]);
-                lm_ggml_tensor * x_snake_r = codec_op_snake(ctx_eval, x_left_r, t_in_a, 1e-9f);
-                lm_ggml_tensor * x_lr_r = lm_ggml_leaky_relu(ctx_eval, x_right_r, 0.01f, false);
-                lm_ggml_tensor * x_act = lm_ggml_concat(ctx_eval, x_snake_r, x_lr_r, 1);
+                ggml_tensor * x_left_r = ggml_view_2d(ctx_eval, x_block, (int32_t) x_block->ne[0], in_channels / 2, x_block->nb[1], 0);
+                ggml_tensor * x_right_r = ggml_view_2d(ctx_eval, x_block, (int32_t) x_block->ne[0], in_channels - in_channels / 2, x_block->nb[1], (size_t) (in_channels / 2) * x_block->nb[1]);
+                ggml_tensor * x_snake_r = codec_op_snake(ctx_eval, x_left_r, t_in_a, 1e-9f);
+                ggml_tensor * x_lr_r = ggml_leaky_relu(ctx_eval, x_right_r, 0.01f, false);
+                ggml_tensor * x_act = ggml_concat(ctx_eval, x_snake_r, x_lr_r, 1);
 
-                lm_ggml_tensor * h = codec_conv1d_causal(ctx_eval, x_act, t_in_w, t_in_b, 1, dilations[ri]);
+                ggml_tensor * h = codec_conv1d_causal(ctx_eval, x_act, t_in_w, t_in_b, 1, dilations[ri]);
                 if (h == nullptr) {
                     return false;
                 }
 
-                lm_ggml_tensor * h_left = lm_ggml_view_2d(ctx_eval, h, (int32_t) h->ne[0], in_channels / 2, h->nb[1], 0);
-                lm_ggml_tensor * h_right = lm_ggml_view_2d(ctx_eval, h, (int32_t) h->ne[0], in_channels - in_channels / 2, h->nb[1], (size_t) (in_channels / 2) * h->nb[1]);
-                lm_ggml_tensor * h_snake = codec_op_snake(ctx_eval, h_left, t_sk_a, 1e-9f);
-                lm_ggml_tensor * h_lr = lm_ggml_leaky_relu(ctx_eval, h_right, 0.01f, false);
-                lm_ggml_tensor * h_act = lm_ggml_concat(ctx_eval, h_snake, h_lr, 1);
+                ggml_tensor * h_left = ggml_view_2d(ctx_eval, h, (int32_t) h->ne[0], in_channels / 2, h->nb[1], 0);
+                ggml_tensor * h_right = ggml_view_2d(ctx_eval, h, (int32_t) h->ne[0], in_channels - in_channels / 2, h->nb[1], (size_t) (in_channels / 2) * h->nb[1]);
+                ggml_tensor * h_snake = codec_op_snake(ctx_eval, h_left, t_sk_a, 1e-9f);
+                ggml_tensor * h_lr = ggml_leaky_relu(ctx_eval, h_right, 0.01f, false);
+                ggml_tensor * h_act = ggml_concat(ctx_eval, h_snake, h_lr, 1);
 
                 h = codec_conv1d_causal(ctx_eval, h_act, t_sk_w, t_sk_b, 1, 1);
                 if (h == nullptr) {
                     return false;
                 }
-                x_block = lm_ggml_add(ctx_eval, x_block, h);
-                lm_ggml_set_name(x_block, ("nemo.dec.l" + std::to_string(li) + ".b" + std::to_string(bi) + ".r" + std::to_string(ri) + ".out").c_str());
+                x_block = ggml_add(ctx_eval, x_block, h);
+                ggml_set_name(x_block, ("nemo.dec.l" + std::to_string(li) + ".b" + std::to_string(bi) + ".r" + std::to_string(ri) + ".out").c_str());
             }
-            res_sum = res_sum == nullptr ? x_block : lm_ggml_add(ctx_eval, res_sum, x_block);
+            res_sum = res_sum == nullptr ? x_block : ggml_add(ctx_eval, res_sum, x_block);
         }
-        x = lm_ggml_scale(ctx_eval, res_sum, 1.0f / 3.0f);
+        x = ggml_scale(ctx_eval, res_sum, 1.0f / 3.0f);
     }
 
-    lm_ggml_tensor * t_post_a = W("nemo.dec.post.a");
+    ggml_tensor * t_post_a = W("nemo.dec.post.a");
     if (t_post_a == nullptr) {
         return false;
     }
-    lm_ggml_tensor * x_left_f = lm_ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels / 2, x->nb[1], 0);
-    lm_ggml_tensor * x_right_f = lm_ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels - in_channels / 2, x->nb[1], (size_t) (in_channels / 2) * x->nb[1]);
-    lm_ggml_tensor * x_snake_f = codec_op_snake(ctx_eval, x_left_f, t_post_a, 1e-9f);
-    lm_ggml_tensor * x_lr_f = lm_ggml_leaky_relu(ctx_eval, x_right_f, 0.01f, false);
-    lm_ggml_tensor * x_act_f = lm_ggml_concat(ctx_eval, x_snake_f, x_lr_f, 1);
+    ggml_tensor * x_left_f = ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels / 2, x->nb[1], 0);
+    ggml_tensor * x_right_f = ggml_view_2d(ctx_eval, x, (int32_t) x->ne[0], in_channels - in_channels / 2, x->nb[1], (size_t) (in_channels / 2) * x->nb[1]);
+    ggml_tensor * x_snake_f = codec_op_snake(ctx_eval, x_left_f, t_post_a, 1e-9f);
+    ggml_tensor * x_lr_f = ggml_leaky_relu(ctx_eval, x_right_f, 0.01f, false);
+    ggml_tensor * x_act_f = ggml_concat(ctx_eval, x_snake_f, x_lr_f, 1);
     x = x_act_f;
-    lm_ggml_set_name(x, "nemo.dec.post.act");
+    ggml_set_name(x, "nemo.dec.post.act");
 
-    lm_ggml_tensor * t_post_w = W("nemo.dec.post.w");
-    lm_ggml_tensor * t_post_b = W("nemo.dec.post.b");
+    ggml_tensor * t_post_w = W("nemo.dec.post.w");
+    ggml_tensor * t_post_b = W("nemo.dec.post.b");
     if (t_post_w == nullptr || t_post_b == nullptr) {
         return false;
     }
-    lm_ggml_tensor * t_pcm = codec_conv1d_causal(ctx_eval, x, t_post_w, t_post_b, 1, 1);
+    ggml_tensor * t_pcm = codec_conv1d_causal(ctx_eval, x, t_post_w, t_post_b, 1, 1);
     if (t_pcm == nullptr) {
         return false;
     }
 
-    lm_ggml_tensor * t_out = lm_ggml_clamp(ctx_eval, t_pcm, -1.0f, 1.0f);
-    lm_ggml_set_name(t_pcm, "nemo.dec.post.out");
-    lm_ggml_set_name(t_out, "nemo.decode.out");
+    ggml_tensor * t_out = ggml_clamp(ctx_eval, t_pcm, -1.0f, 1.0f);
+    ggml_set_name(t_pcm, "nemo.dec.post.out");
+    ggml_set_name(t_out, "nemo.decode.out");
     *out = t_out;
     return true;
 }
@@ -405,8 +405,8 @@ static enum codec_status nemo_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "nemo.encode.pcm");
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "nemo.encode.out");
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "nemo.encode.pcm");
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "nemo.encode.out");
     if (t_pcm == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached NeMo encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -489,8 +489,8 @@ static enum codec_status nemo_decode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_tok = codec_graph_get_tensor(ctx, entry, "nemo.decode.tok");
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "nemo.decode.out");
+    ggml_tensor * t_tok = codec_graph_get_tensor(ctx, entry, "nemo.decode.tok");
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "nemo.decode.out");
     if (t_tok == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached NeMo decode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;

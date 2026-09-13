@@ -10,14 +10,14 @@
 #include <map>
 
 // Reserve a new compute graph. It is valid until the next call to llama_graph_reserve.
-LLAMA_API struct lm_ggml_cgraph * llama_graph_reserve(
+LLAMA_API struct ggml_cgraph * llama_graph_reserve(
         struct llama_context * ctx,
         uint32_t n_tokens,
         uint32_t n_seqs,
         uint32_t n_outputs);
 
-// Get the default lm_ggml_type for a given ftype.
-LLAMA_API lm_ggml_type llama_ftype_get_default_type(llama_ftype ftype);
+// Get the default ggml_type for a given ftype.
+LLAMA_API ggml_type llama_ftype_get_default_type(llama_ftype ftype);
 
 struct quantize_state_impl;
 
@@ -47,7 +47,7 @@ LLAMA_API llama_model * llama_quant_model_from_metadata(const llama_quant_model_
 // Returns true if this tensor should be quantized (based on name, dims, params).
 LLAMA_API bool llama_quant_tensor_allows_quantization(
         const quantize_state_impl * qs,
-        const lm_ggml_tensor * tensor);
+        const ggml_tensor * tensor);
 
 // Compute quantization type assignments for a list of tensors.
 // All tensors should be quantizable (use llama_quant_tensor_allows_quantization to filter).
@@ -55,8 +55,8 @@ LLAMA_API bool llama_quant_tensor_allows_quantization(
 LLAMA_API void llama_quant_compute_types(
         quantize_state_impl * qs,
         llama_ftype ftype,
-        lm_ggml_tensor ** tensors,
-        lm_ggml_type * result_types,
+        ggml_tensor ** tensors,
+        ggml_type * result_types,
         size_t n_tensors);
 
 //
@@ -81,12 +81,12 @@ struct llama_device_memory_data {
 };
 
 // TODO: convert to C-style data structure
-using llama_memory_breakdown = std::map<lm_ggml_backend_buffer_type_t, llama_memory_breakdown_data>;
+using llama_memory_breakdown = std::map<ggml_backend_buffer_type_t, llama_memory_breakdown_data>;
 
 LLAMA_API int32_t llama_model_n_expert (const struct llama_model * model);
 LLAMA_API int32_t llama_model_n_devices(const struct llama_model * model);
 
-LLAMA_API lm_ggml_backend_dev_t llama_model_get_device(const struct llama_model * model, int i);
+LLAMA_API ggml_backend_dev_t llama_model_get_device(const struct llama_model * model, int i);
 
 LLAMA_API llama_memory_breakdown llama_get_memory_breakdown(const struct llama_context * ctx);
 

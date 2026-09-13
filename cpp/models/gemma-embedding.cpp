@@ -18,8 +18,8 @@ void llama_model_gemma_embedding::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_DENSE_3_FEAT_IN, hparams.dense_3_feat_in, false);
     ml.get_key(LLM_KV_DENSE_3_FEAT_OUT, hparams.dense_3_feat_out, false);
 
-    LM_GGML_ASSERT((hparams.dense_2_feat_in == 0 || hparams.dense_2_feat_in == hparams.n_embd) && "dense_2_feat_in must be equal to n_embd");
-    LM_GGML_ASSERT((hparams.dense_3_feat_out == 0 || hparams.dense_3_feat_out == hparams.n_embd) && "dense_3_feat_out must be equal to n_embd");
+    GGML_ASSERT((hparams.dense_2_feat_in == 0 || hparams.dense_2_feat_in == hparams.n_embd) && "dense_2_feat_in must be equal to n_embd");
+    GGML_ASSERT((hparams.dense_3_feat_out == 0 || hparams.dense_3_feat_out == hparams.n_embd) && "dense_3_feat_out must be equal to n_embd");
 
     switch (hparams.n_layer()) {
         case 24: type = LLM_TYPE_0_3B; break;
@@ -76,21 +76,21 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_k();
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // important: do not normalize weights for raw embeddings input (i.e. encoded image embeddings)
-    inpL = lm_ggml_scale(ctx0, inpL, ubatch.token ? sqrtf(n_embd) : 1.0f);
+    inpL = ggml_scale(ctx0, inpL, ubatch.token ? sqrtf(n_embd) : 1.0f);
     cb(inpL, "inp_scaled", -1);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_no_cache();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const float freq_base_l  = model.get_rope_freq_base(cparams, il);
@@ -109,13 +109,13 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             cb(Qcur, "Qcur", il);
@@ -123,7 +123,7 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
             cb(Vcur, "Vcur", il);
 
             // ref: https://github.com/google/gemma_pytorch/blob/014acb7ac4563a5f77c76d7ff98f31b568c16508/gemma/model.py#L315
-            Qcur = lm_ggml_scale(ctx0, Qcur, hparams.f_attention_scale);
+            Qcur = ggml_scale(ctx0, Qcur, hparams.f_attention_scale);
 
             cur =
                 build_attn(inp_attn,
@@ -132,14 +132,14 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         cur = build_norm(cur, model.layers[il].attn_post_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        lm_ggml_tensor * sa_out = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * sa_out = ggml_add(ctx0, cur, inpL);
         cb(sa_out, "sa_out", il);
 
         cur = build_norm(sa_out, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
@@ -158,7 +158,7 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
         cur = build_norm(cur, model.layers[il].ffn_post_norm, NULL, LLM_NORM_RMS, -1);
         cb(cur, "ffn_post_norm", -1);
 
-        cur = lm_ggml_add(ctx0, cur, sa_out);
+        cur = ggml_add(ctx0, cur, sa_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -174,5 +174,5 @@ llama_model_gemma_embedding::graph::graph(const llama_model & model, const llm_g
     cb(cur, "result_norm", -1);
     res->t_embd = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

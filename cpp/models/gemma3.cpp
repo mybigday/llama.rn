@@ -84,17 +84,17 @@ template <bool iswa>
 llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_k();
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // important: do not normalize weights for raw embeddings input (i.e. encoded image embeddings)
-    inpL = lm_ggml_scale(ctx0, inpL, ubatch.token ? sqrtf(n_embd) : 1.0f);
+    inpL = ggml_scale(ctx0, inpL, ubatch.token ? sqrtf(n_embd) : 1.0f);
     cb(inpL, "inp_scaled", -1);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     // TODO: is causal == true correct? might need some changes
     using inp_attn_type = std::conditional_t<iswa, llm_graph_input_attn_kv_iswa, llm_graph_input_attn_kv>;
@@ -106,7 +106,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
         inp_attn = build_attn_inp_kv();
     }
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         float freq_base_l  = 0.0f;
@@ -133,7 +133,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                     ext_factor, attn_factor, beta_fast, beta_slow);
@@ -141,7 +141,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                     ext_factor, attn_factor, beta_fast, beta_slow);
@@ -151,22 +151,22 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
             cb(Vcur, "Vcur", il);
 
             // ref: https://github.com/google/gemma_pytorch/blob/014acb7ac4563a5f77c76d7ff98f31b568c16508/gemma/model.py#L315
-            Qcur = lm_ggml_scale(ctx0, Qcur, hparams.f_attention_scale);
+            Qcur = ggml_scale(ctx0, Qcur, hparams.f_attention_scale);
 
             cur = build_attn(inp_attn,
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f, il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0,  cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
         cur = build_norm(cur,
                 model.layers[il].attn_post_norm, NULL,
                 LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        lm_ggml_tensor * sa_out = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * sa_out = ggml_add(ctx0, cur, inpL);
         cb(sa_out, "sa_out", il);
 
         cur = build_norm(sa_out,
@@ -189,7 +189,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
                 LLM_NORM_RMS, -1);
         cb(cur, "ffn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, sa_out);
+        cur = ggml_add(ctx0, cur, sa_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -210,15 +210,15 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
     cur = build_lora_mm(model.output, cur, model.output_s);
 
     if (hparams.f_final_logit_softcapping) {
-        cur = lm_ggml_scale(ctx0, cur, 1.0f / hparams.f_final_logit_softcapping);
-        cur = lm_ggml_tanh(ctx0, cur);
-        cur = lm_ggml_scale(ctx0, cur, hparams.f_final_logit_softcapping);
+        cur = ggml_scale(ctx0, cur, 1.0f / hparams.f_final_logit_softcapping);
+        cur = ggml_tanh(ctx0, cur);
+        cur = ggml_scale(ctx0, cur, hparams.f_final_logit_softcapping);
     }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 template struct llama_model_gemma3::graph<false>;

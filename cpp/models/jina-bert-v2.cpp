@@ -45,10 +45,10 @@ void llama_model_jina_bert_v2::load_arch_tensors(llama_model_loader & ml) {
         layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd, n_ff}, TENSOR_NOT_REQUIRED);
 
         const auto tn_ffn_up_weight = tn(LLM_TENSOR_FFN_UP, "weight", i);
-        lm_ggml_tensor * t_ffn_up = ml.get_tensor_meta(tn_ffn_up_weight.str().c_str());
+        ggml_tensor * t_ffn_up = ml.get_tensor_meta(tn_ffn_up_weight.str().c_str());
         const int64_t n_ffn_up = t_ffn_up ? t_ffn_up->ne[1] : n_ff;
 
-        LM_GGML_ASSERT(n_ffn_up == n_ff || n_ffn_up == n_ff * 2);
+        GGML_ASSERT(n_ffn_up == n_ff || n_ffn_up == n_ff * 2);
         layer.ffn_up   = create_tensor(tn_ffn_up_weight, {n_embd, n_ffn_up}, 0);
         layer.ffn_up_b = create_tensor(tn(LLM_TENSOR_FFN_UP, "bias", i), {n_ffn_up}, TENSOR_NOT_REQUIRED);
 

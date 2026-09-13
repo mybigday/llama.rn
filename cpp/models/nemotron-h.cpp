@@ -178,23 +178,23 @@ std::unique_ptr<llm_graph_context> llama_model_nemotron_h::build_arch_graph(cons
 llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_params & params) :
     llm_build_mamba_base(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
-    lm_ggml_build_forward_expand(gf, inpL);
+    ggml_build_forward_expand(gf, inpL);
 
     auto * inp = build_inp_mem_hybrid();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
     const bool extract_final_inp = (size_t) n_layer < cparams.embeddings_layer_inp.size() && cparams.embeddings_layer_inp[n_layer];
 
     for (int il = 0; il < n_layer; ++il) {
         res->t_layer_inp[il] = inpL;
 
-        struct lm_ggml_tensor * inpSA = inpL;
+        struct ggml_tensor * inpSA = inpL;
 
         // norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -211,12 +211,12 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
         }
 
         if (il == n_layer - 1 && inp_out_ids && cparams.embeddings_nextn_masked && !extract_final_inp) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
         // add residual
-        cur = lm_ggml_add(ctx0, cur, inpSA);
+        cur = ggml_add(ctx0, cur, inpSA);
         cb(cur, "nemotron_h_block_out", il);
 
         // input for next layer
@@ -228,7 +228,7 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
         res->t_layer_inp[n_layer] = cur;
 
         if (inp_out_ids && cparams.embeddings_nextn_masked) {
-            cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+            cur = ggml_get_rows(ctx0, cur, inp_out_ids);
         }
     }
 
@@ -239,7 +239,7 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
     res->t_h_nextn = cur;
 
     if (!cparams.embeddings_nextn_masked && inp_out_ids) {
-        cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     }
 
     cb(cur, "result_norm", -1);
@@ -250,10 +250,10 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
-lm_ggml_tensor * llama_model_nemotron_h::graph::build_attention_layer(lm_ggml_tensor *             cur,
+ggml_tensor * llama_model_nemotron_h::graph::build_attention_layer(ggml_tensor *             cur,
                                                           llm_graph_input_attn_kv * inp_attn,
                                                           const llama_model &       model,
                                                                 int64_t             n_embd_head,
@@ -269,7 +269,7 @@ lm_ggml_tensor * llama_model_nemotron_h::graph::build_attention_layer(lm_ggml_te
     return cur;
 }
 
-lm_ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(lm_ggml_tensor * cur, const llama_model & model, int il) {
+ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(ggml_tensor * cur, const llama_model & model, int il) {
     if (model.layers[il].ffn_gate_inp == nullptr) {
         cur = build_ffn(cur,
                 model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   model.layers[il].ffn_up_s,
@@ -279,17 +279,17 @@ lm_ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(lm_ggml_tensor *
                 LLM_FFN_RELU_SQR, LLM_FFN_PAR, il);
         cb(cur, "ffn_out", il);
     } else {
-        lm_ggml_tensor * inp_emb    = cur;
-        lm_ggml_tensor * inp_latent = cur;
+        ggml_tensor * inp_emb    = cur;
+        ggml_tensor * inp_latent = cur;
 
         if (model.layers[il].ffn_latent_down) {
-            inp_latent = lm_ggml_mul_mat(ctx0, model.layers[il].ffn_latent_down, cur);
+            inp_latent = ggml_mul_mat(ctx0, model.layers[il].ffn_latent_down, cur);
         }
 
-        lm_ggml_tensor * router_logits = build_lora_mm(model.layers[il].ffn_gate_inp, cur);
+        ggml_tensor * router_logits = build_lora_mm(model.layers[il].ffn_gate_inp, cur);
         cb(router_logits, "ffn_moe_logits", il);
 
-        lm_ggml_tensor * moe_out =
+        ggml_tensor * moe_out =
             build_moe_ffn(inp_latent,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
@@ -308,10 +308,10 @@ lm_ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(lm_ggml_tensor *
         cb(moe_out, "ffn_moe_out", il);
 
         if (model.layers[il].ffn_latent_up) {
-            moe_out = lm_ggml_mul_mat(ctx0, model.layers[il].ffn_latent_up, moe_out);
+            moe_out = ggml_mul_mat(ctx0, model.layers[il].ffn_latent_up, moe_out);
         }
 
-        lm_ggml_tensor * ffn_shexp = build_ffn(inp_emb,
+        ggml_tensor * ffn_shexp = build_ffn(inp_emb,
                     model.layers[il].ffn_up_shexp,   NULL, model.layers[il].ffn_up_shexp_s,
                     NULL /* no gate */           ,   NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, model.layers[il].ffn_down_shexp_s,
@@ -319,7 +319,7 @@ lm_ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(lm_ggml_tensor *
                     LLM_FFN_RELU_SQR, LLM_FFN_PAR, il);
         cb(ffn_shexp, "ffn_shexp", il);
 
-        cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+        cur = ggml_add(ctx0, moe_out, ffn_shexp);
         cb(cur, "ffn_out", il);
     }
 

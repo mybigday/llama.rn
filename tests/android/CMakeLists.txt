@@ -20,7 +20,7 @@ option(ENABLE_HEXAGON "Build with the Hexagon (HTP/NPU) backend" OFF)
 
 # GENERIC CPU kernels (top-level quants.c provides the vec_dot/quantize impls);
 # the heavy compute goes to the GPU via RNLLAMA_NGL anyway.
-add_definitions(-DNDEBUG -DO3 -DLM_GGML_USE_CPU -DLM_GGML_CPU_GENERIC -D_GNU_SOURCE)
+add_definitions(-DNDEBUG -DO3 -DGGML_USE_CPU -DGGML_CPU_GENERIC -D_GNU_SOURCE)
 
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(SOURCE_DIR ${REPO_ROOT}/cpp)
@@ -111,11 +111,11 @@ if(ENABLE_OPENCL)
         ${GGML_OPENCL_KERNEL_HEADERS})
     target_include_directories(kv_cache_reuse_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_reuse_test PRIVATE
-        LM_GGML_USE_OPENCL
-        LM_GGML_OPENCL_USE_ADRENO_KERNELS
-        LM_GGML_OPENCL_EMBED_KERNELS
-        LM_GGML_OPENCL_SOA_Q
-        LM_GGML_OPENCL_TARGET_VERSION=300)
+        GGML_USE_OPENCL
+        GGML_OPENCL_USE_ADRENO_KERNELS
+        GGML_OPENCL_EMBED_KERNELS
+        GGML_OPENCL_SOA_Q
+        GGML_OPENCL_TARGET_VERSION=300)
 
     set(OPENCL_STUB_DIR ${REPO_ROOT}/bin/${ANDROID_ABI})
     if(EXISTS ${OPENCL_STUB_DIR}/libOpenCL.so)
@@ -151,7 +151,7 @@ if(ENABLE_HEXAGON)
         ${SOURCE_DIR}/ggml-hexagon
         ${SOURCE_DIR}/ggml-hexagon/htp
         ${HTP_STUB_DIR})
-    target_compile_definitions(kv_cache_reuse_test PRIVATE LM_GGML_USE_HEXAGON)
+    target_compile_definitions(kv_cache_reuse_test PRIVATE GGML_USE_HEXAGON)
     target_link_libraries(kv_cache_reuse_test PRIVATE ${CDSPRPC_LIB})
     message(STATUS "Hexagon backend enabled for kv_cache_reuse_test")
 endif()
@@ -180,11 +180,11 @@ if(ENABLE_OPENCL)
     target_include_directories(kv_cache_bench PRIVATE
         ${REPO_ROOT}/third_party/OpenCL-Headers ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_bench PRIVATE
-        LM_GGML_USE_OPENCL
-        LM_GGML_OPENCL_USE_ADRENO_KERNELS
-        LM_GGML_OPENCL_EMBED_KERNELS
-        LM_GGML_OPENCL_SOA_Q
-        LM_GGML_OPENCL_TARGET_VERSION=300)
+        GGML_USE_OPENCL
+        GGML_OPENCL_USE_ADRENO_KERNELS
+        GGML_OPENCL_EMBED_KERNELS
+        GGML_OPENCL_SOA_Q
+        GGML_OPENCL_TARGET_VERSION=300)
     target_link_directories(kv_cache_bench PRIVATE ${OPENCL_STUB_DIR})
     target_link_libraries(kv_cache_bench PRIVATE OpenCL)
     add_dependencies(kv_cache_bench kv_cache_reuse_test)
@@ -202,7 +202,7 @@ if(ENABLE_HEXAGON)
         ${SOURCE_DIR}/ggml-hexagon
         ${SOURCE_DIR}/ggml-hexagon/htp
         ${HTP_STUB_DIR})
-    target_compile_definitions(kv_cache_bench PRIVATE LM_GGML_USE_HEXAGON)
+    target_compile_definitions(kv_cache_bench PRIVATE GGML_USE_HEXAGON)
     target_link_libraries(kv_cache_bench PRIVATE ${CDSPRPC_LIB})
     message(STATUS "Hexagon backend enabled for kv_cache_bench")
 endif()

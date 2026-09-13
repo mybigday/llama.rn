@@ -11,16 +11,16 @@
 llama_memory_hybrid::llama_memory_hybrid(
         const llama_model & model,
                             /* attn */
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                  uint32_t   kv_size,
                  uint32_t   n_pad,
                  uint32_t   n_swa,
            llama_swa_type   swa_type,
                             /* recurrent */
-                lm_ggml_type   type_r,
-                lm_ggml_type   type_s,
+                ggml_type   type_r,
+                ggml_type   type_s,
                  uint32_t   rs_size,
                             /* common */
                  uint32_t   n_seq_max,
@@ -179,8 +179,8 @@ llama_pos llama_memory_hybrid::seq_pos_max(llama_seq_id seq_id) const {
     return std::min(mem_attn->seq_pos_max(seq_id), mem_recr->seq_pos_max(seq_id));
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_memory_hybrid::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> mb = mem_attn->memory_breakdown();
+std::map<ggml_backend_buffer_type_t, size_t> llama_memory_hybrid::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> mb = mem_attn->memory_breakdown();
     for (const auto & buft_size : mem_recr->memory_breakdown()) {
         mb[buft_size.first] += buft_size.second;
     }

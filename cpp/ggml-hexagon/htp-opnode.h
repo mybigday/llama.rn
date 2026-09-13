@@ -1,7 +1,7 @@
 #ifndef HTP_OPNODE_H
 #define HTP_OPNODE_H
 
-#define LM_GGML_COMMON_IMPL_CPP
+#define GGML_COMMON_IMPL_CPP
 #include "ggml-backend-impl.h"
 #include "ggml-common.h"
 
@@ -17,20 +17,20 @@
 #include "htp/allreduce-ops.h"
 
 struct htp_opnode {
-    lm_ggml_tensor * node   { nullptr };
+    ggml_tensor * node   { nullptr };
     htp_op_code   opcode { HTP_OP_INVALID };
     int32_t       kernel_params[HTP_OP_MAX_KERN_PARAMS] {0};
 
-    std::vector<lm_ggml_tensor *>                fused;
-    std::vector<std::shared_ptr<lm_ggml_tensor>> dummy;
+    std::vector<ggml_tensor *>                fused;
+    std::vector<std::shared_ptr<ggml_tensor>> dummy;
 
-    std::vector<const lm_ggml_tensor *> inputs;
-    std::vector<const lm_ggml_tensor *> outputs;
+    std::vector<const ggml_tensor *> inputs;
+    std::vector<const ggml_tensor *> outputs;
     std::string                      name;
 
-    int n_active_src(const lm_ggml_tensor * t) const {
+    int n_active_src(const ggml_tensor * t) const {
         if (!t) return 0;
-        for (int i = LM_GGML_MAX_SRC - 1; i >= 0; i--) {
+        for (int i = GGML_MAX_SRC - 1; i >= 0; i--) {
             if (t->src[i]) {
                 return i + 1;
             }
@@ -38,10 +38,10 @@ struct htp_opnode {
         return 0;
     }
 
-    void init(lm_ggml_tensor * node) {
+    void init(ggml_tensor * node) {
         this->node = node;
         if (this->node) {
-            this->name = lm_ggml_op_desc(this->node);
+            this->name = ggml_op_desc(this->node);
 
             // Build inputs (preserving optional nullptrs)
             int n_inputs = n_active_src(this->node);
@@ -55,25 +55,25 @@ struct htp_opnode {
         }
     }
 
-    htp_opnode(htp_op_code opcode = HTP_OP_INVALID, lm_ggml_tensor * node = nullptr) : opcode(opcode) {
+    htp_opnode(htp_op_code opcode = HTP_OP_INVALID, ggml_tensor * node = nullptr) : opcode(opcode) {
         init(node);
     }
 
-    lm_ggml_op             op()   const { return node->op; }
-    const lm_ggml_tensor * src0() const { return node->src[0]; }
-    const lm_ggml_tensor * src1() const { return node->src[1]; }
-    const lm_ggml_tensor * dst()  const { return outputs.empty() ? node : outputs.back(); }
+    ggml_op             op()   const { return node->op; }
+    const ggml_tensor * src0() const { return node->src[0]; }
+    const ggml_tensor * src1() const { return node->src[1]; }
+    const ggml_tensor * dst()  const { return outputs.empty() ? node : outputs.back(); }
 
-    lm_ggml_tensor * add_dummy(const lm_ggml_tensor & t) {
-        dummy.push_back(std::make_shared<lm_ggml_tensor>(t));
+    ggml_tensor * add_dummy(const ggml_tensor & t) {
+        dummy.push_back(std::make_shared<ggml_tensor>(t));
         return dummy.back().get();
     }
 
-    void add_fused(lm_ggml_tensor * t, bool extra_dst = false) {
+    void add_fused(ggml_tensor * t, bool extra_dst = false) {
         fused.push_back(t);
 
         name += "+";
-        name += lm_ggml_op_desc(t);
+        name += ggml_op_desc(t);
 
         if (extra_dst) {
             outputs.push_back(t);
@@ -99,11 +99,11 @@ struct htp_opnode {
         }
     }
 
-    const std::vector<const lm_ggml_tensor *> & get_inputs() const {
+    const std::vector<const ggml_tensor *> & get_inputs() const {
         return inputs;
     }
 
-    const std::vector<const lm_ggml_tensor *> & get_outputs() const {
+    const std::vector<const ggml_tensor *> & get_outputs() const {
         return outputs;
     }
 
@@ -112,14 +112,14 @@ struct htp_opnode {
     }
 
     bool is_empty() const {
-        return lm_ggml_op_is_empty(node->op);
+        return ggml_op_is_empty(node->op);
     }
 
     bool stackable() const {
         switch (this->op()) {
-            case LM_GGML_OP_MUL_MAT:
-            case LM_GGML_OP_MUL_MAT_ID:
-                return lm_ggml_is_quantized(this->src0()->type);
+            case GGML_OP_MUL_MAT:
+            case GGML_OP_MUL_MAT_ID:
+                return ggml_is_quantized(this->src0()->type);
             default:
                 return false;
         }
@@ -131,14 +131,14 @@ struct htp_opnode {
 };
 
 struct htp_opformat {
-    char strides[64 * LM_GGML_MAX_SRC];
-    char dims[64 * LM_GGML_MAX_SRC];
-    char types[16 * LM_GGML_MAX_SRC];
-    char buffs[64 * LM_GGML_MAX_SRC];
-    char names[64 * LM_GGML_MAX_SRC];
+    char strides[64 * GGML_MAX_SRC];
+    char dims[64 * GGML_MAX_SRC];
+    char types[16 * GGML_MAX_SRC];
+    char buffs[64 * GGML_MAX_SRC];
+    char names[64 * GGML_MAX_SRC];
     char kparams[128];
 
-    int format_tensor_dims(char * str, size_t max_size, const struct lm_ggml_tensor * t) {
+    int format_tensor_dims(char * str, size_t max_size, const struct ggml_tensor * t) {
         if (!t) {
             return snprintf(str, max_size, "NONE");
         }
@@ -178,11 +178,11 @@ struct htp_opformat {
         }
     }
 
-    int format_tensor_strides(char * str, size_t max_size, const struct lm_ggml_tensor * t) {
+    int format_tensor_strides(char * str, size_t max_size, const struct ggml_tensor * t) {
         if (!t) {
             return snprintf(str, max_size, "NONE");
         }
-        const char * c = lm_ggml_is_contiguous(t) ? "" : "!";
+        const char * c = ggml_is_contiguous(t) ? "" : "!";
 
         if (t->ne[2] == 1 && t->ne[3] == 1) {
             return snprintf(str, max_size, "%zu:%zu%s", (size_t) t->nb[0], (size_t) t->nb[1], c);
@@ -227,7 +227,7 @@ struct htp_opformat {
 
         if (!inputs.empty()) {
             if (p < p_end) {
-                p += std::min((size_t)snprintf(p, p_end - p, "%s", inputs[0] ? lm_ggml_type_name(inputs[0]->type) : "NONE"), (size_t)(p_end - p));
+                p += std::min((size_t)snprintf(p, p_end - p, "%s", inputs[0] ? ggml_type_name(inputs[0]->type) : "NONE"), (size_t)(p_end - p));
             }
 
             for (size_t i = 1; i < inputs.size(); i++) {
@@ -235,7 +235,7 @@ struct htp_opformat {
                     p += std::min((size_t)snprintf(p, p_end - p, " x "), (size_t)(p_end - p));
                 }
                 if (p < p_end) {
-                    p += std::min((size_t)snprintf(p, p_end - p, "%s", inputs[i] ? lm_ggml_type_name(inputs[i]->type) : "NONE"), (size_t)(p_end - p));
+                    p += std::min((size_t)snprintf(p, p_end - p, "%s", inputs[i] ? ggml_type_name(inputs[i]->type) : "NONE"), (size_t)(p_end - p));
                 }
             }
 
@@ -245,13 +245,13 @@ struct htp_opformat {
         }
 
         if (p < p_end) {
-            p += std::min((size_t)snprintf(p, p_end - p, "%s", lm_ggml_type_name(node.dst()->type)), (size_t)(p_end - p));
+            p += std::min((size_t)snprintf(p, p_end - p, "%s", ggml_type_name(node.dst()->type)), (size_t)(p_end - p));
         }
     }
 
-    const char * tensor_buff_name(const struct lm_ggml_tensor * t) {
+    const char * tensor_buff_name(const struct ggml_tensor * t) {
         if (t && t->buffer) {
-            return lm_ggml_backend_buffer_name(t->buffer);
+            return ggml_backend_buffer_name(t->buffer);
         }
         return "NONE";
     }

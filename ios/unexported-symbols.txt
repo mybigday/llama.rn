@@ -1,0 +1,53 @@
+# Symbols that rnllama.framework must not export.
+#
+# ggml/gguf keep their upstream names (no LM_ prefix). Another ggml-based
+# framework in the same app (e.g. whisper.rn) exports the same names, and the
+# app-level link binds any reference to whichever framework comes first, so
+# nothing outside this framework may resolve ggml through it. Everything the
+# JSI glue needs goes through rnllama:: wrappers (see rn-llama.h).
+#
+# ld64 glob syntax: * ? [abc]. Mangled C++ names encode the identifier length
+# before the identifier, hence the one/two/three-digit variants.
+
+# ggml / gguf C API and C internals
+_ggml_*
+_gguf_*
+_quantize_*
+_dequantize_*
+_iq2xs_*
+_iq3xs_*
+
+# ggml C++ namespaces (ggml::cpu::*, ...)
+__ZN4ggml*
+__ZNK4ggml*
+__ZTVN4ggml*
+__ZTIN4ggml*
+__ZTSN4ggml*
+__ZZN4ggml*
+
+# ggml_* / gguf_* C++ free functions, classes, templates, vtables, typeinfo
+__Z[0-9]ggml_*
+__Z[0-9][0-9]ggml_*
+__Z[0-9][0-9][0-9]ggml_*
+__ZN[0-9]ggml_*
+__ZN[0-9][0-9]ggml_*
+__ZNK[0-9]ggml_*
+__ZNK[0-9][0-9]ggml_*
+__ZZ[0-9]ggml_*
+__ZZ[0-9][0-9]ggml_*
+__ZTV[0-9]ggml_*
+__ZTV[0-9][0-9]ggml_*
+__ZTI[0-9]ggml_*
+__ZTI[0-9][0-9]ggml_*
+__ZTS[0-9]ggml_*
+__ZTS[0-9][0-9]ggml_*
+__Z[0-9]gguf_*
+__Z[0-9][0-9]gguf_*
+__ZN[0-9]gguf_*
+__ZN[0-9][0-9]gguf_*
+__ZNK[0-9]gguf_*
+__ZNK[0-9][0-9]gguf_*
+
+# ggml-backend-dl.cpp helpers
+__Z[0-9]dl_*
+__Z[0-9][0-9]dl_*

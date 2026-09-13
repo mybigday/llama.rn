@@ -7,7 +7,7 @@
 #include <memory>
 #include <type_traits>
 
-#if defined(LM_GGML_USE_OPENMP)
+#if defined(GGML_USE_OPENMP)
 #include <omp.h>
 #else
 #include <thread>
@@ -62,7 +62,7 @@ inline void parallel_for(int n, const func_t & f) {
     if (n <= 0) {
         return;
     }
-#if defined(LM_GGML_USE_OPENMP)
+#if defined(GGML_USE_OPENMP)
     #pragma omp parallel
     {
         int nth = omp_get_num_threads();
@@ -96,20 +96,20 @@ inline void parallel_for(int n, const func_t & f) {
 }
 
 template <typename func_t>
-inline void parallel_for_ggml(const lm_ggml_compute_params * params, int n, const func_t & f) {
+inline void parallel_for_ggml(const ggml_compute_params * params, int n, const func_t & f) {
     int tbegin, tend;
     balance211(n, params->nth, params->ith, tbegin, tend);
     f(tbegin, tend);
 }
 
 // quantized types that have AMX support
-inline bool qtype_has_amx_kernels(const enum lm_ggml_type type) {
+inline bool qtype_has_amx_kernels(const enum ggml_type type) {
     // TODO: fix padding for vnni format
-    return (type == LM_GGML_TYPE_Q4_0) ||
-        (type == LM_GGML_TYPE_Q4_1) ||
-        (type == LM_GGML_TYPE_Q8_0) ||
-        (type == LM_GGML_TYPE_Q4_K) ||
-        (type == LM_GGML_TYPE_Q5_K) ||
-        (type == LM_GGML_TYPE_Q6_K) ||
-        (type == LM_GGML_TYPE_IQ4_XS);
+    return (type == GGML_TYPE_Q4_0) ||
+        (type == GGML_TYPE_Q4_1) ||
+        (type == GGML_TYPE_Q8_0) ||
+        (type == GGML_TYPE_Q4_K) ||
+        (type == GGML_TYPE_Q5_K) ||
+        (type == GGML_TYPE_Q6_K) ||
+        (type == GGML_TYPE_IQ4_XS);
 }

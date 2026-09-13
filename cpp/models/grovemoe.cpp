@@ -26,9 +26,9 @@ void llama_model_grovemoe::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    LM_GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for GROVEMOE");
-    LM_GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for GROVEMOE");
-    LM_GGML_ASSERT(hparams.n_group_experts > 0 && "n_group_experts must be > 0 for GROVEMOE");
+    GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for GROVEMOE");
+    GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for GROVEMOE");
+    GGML_ASSERT(hparams.n_group_experts > 0 && "n_group_experts must be > 0 for GROVEMOE");
 
     for (int i = 0; i < n_layer; ++i) {
         auto & layer = layers[i];
@@ -69,23 +69,23 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
     const int64_t n_embd_head    = hparams.n_embd_head_v();
     const int64_t n_chunk_expert = n_expert / hparams.n_group_experts;
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -100,13 +100,13 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             cb(Qcur, "Qcur", il);
@@ -119,21 +119,21 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // MoE branch
         cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "ffn_norm", il);
 
-        lm_ggml_tensor * probs = build_lora_mm(model.layers[il].ffn_gate_inp, cur);  // [n_expert, n_tokens]
+        ggml_tensor * probs = build_lora_mm(model.layers[il].ffn_gate_inp, cur);  // [n_expert, n_tokens]
         cb(probs, "ffn_moe_logits", il);
 
-        lm_ggml_tensor * moe_out =
+        ggml_tensor * moe_out =
             build_moe_ffn(cur,
                 nullptr,
                 model.layers[il].ffn_up_exps,
@@ -164,10 +164,10 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
                     probs);
         cb(moe_out, "ffn_adj_moe_out", il);
 
-        cur = lm_ggml_add(ctx0, cur, lm_ggml_scale(ctx0, moe_out, hparams.expert_group_scale));
+        cur = ggml_add(ctx0, cur, ggml_scale(ctx0, moe_out, hparams.expert_group_scale));
         cb(cur, "ffn_final_moe_out", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -189,5 +189,5 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

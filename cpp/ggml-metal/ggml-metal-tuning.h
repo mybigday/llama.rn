@@ -1,12 +1,12 @@
 #pragma once
 
-#include "ggml-metal-device.h"  // enum lm_ggml_metal_device_id
+#include "ggml-metal-device.h"  // enum ggml_metal_device_id
 #include "ggml.h"
 
 #include <cstdint>
 #include <vector>
 
-namespace lm_ggml_metal_tuning {
+namespace ggml_metal_tuning {
 
 // FA vec selection buckets. ne01 (query rows) splits decode (==1) from batch (>=2), the
 // batch side refined into {2,3,4,5}: Q>1 reuses one K/V load across rows, so it only pays
@@ -72,6 +72,6 @@ fa_vec_cfg_t fa_vec_baseline_cfg(int dk, int dv);
 
 // device_id selects a per-SKU row; on a miss, gpu_family (0 if unknown) maps to a representative
 // SKU and the table is retried. No match -> baseline.
-fa_vec_cfg_t fa_vec_pick(enum lm_ggml_metal_device_id device_id, int gpu_family, int dtype, int dk, int dv, int64_t ne11, int64_t ne01);
+fa_vec_cfg_t fa_vec_pick(enum ggml_metal_device_id device_id, int gpu_family, int dtype, int dk, int dv, int64_t ne11, int64_t ne01);
 
-}  // namespace lm_ggml_metal_tuning
+}  // namespace ggml_metal_tuning

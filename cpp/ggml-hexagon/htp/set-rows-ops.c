@@ -15,7 +15,7 @@
 #include "hvx-copy.h"
 #include "hvx-quant.h"
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 
 #include "htp-ctx.h"

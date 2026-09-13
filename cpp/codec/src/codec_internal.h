@@ -12,13 +12,13 @@
 #include <vector>
 
 struct codec_model {
-    struct lm_gguf_context * gguf;
-    struct lm_ggml_context * weights;
-    lm_ggml_backend_t backend = nullptr;
-    lm_ggml_backend_buffer_type_t buffer_type = nullptr;
-    lm_ggml_backend_buffer_t weights_buffer = nullptr;
+    struct gguf_context * gguf;
+    struct ggml_context * weights;
+    ggml_backend_t backend = nullptr;
+    ggml_backend_buffer_type_t buffer_type = nullptr;
+    ggml_backend_buffer_t weights_buffer = nullptr;
 
-    struct codec_lm_gguf_metadata metadata;
+    struct codec_gguf_metadata metadata;
 
     enum codec_arch arch;
     std::string name;
@@ -62,7 +62,7 @@ struct codec_graph_cache_key {
     int32_t latent_dim = 0; // DAC latent dimension
 };
 
-typedef bool (*codec_graph_build_fn)(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out);
+typedef bool (*codec_graph_build_fn)(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out);
 
 struct codec_graph_cache_entry {
     codec_graph_cache_key key;
@@ -75,17 +75,17 @@ struct codec_graph_cache_entry {
 
 struct codec_context {
     struct codec_model * model;
-    lm_ggml_backend_t backend = nullptr;
-    lm_ggml_backend_t cpu_backend = nullptr;
-    lm_ggml_backend_sched_t sched = nullptr;
+    ggml_backend_t backend = nullptr;
+    ggml_backend_t cpu_backend = nullptr;
+    ggml_backend_sched_t sched = nullptr;
     struct codec_context_params params;
     std::string last_error;
     std::vector<codec_graph_cache_entry> graph_cache;
     void * eval_arena_buf = nullptr;
     size_t eval_arena_size = 0;
-    lm_ggml_context * eval_ctx = nullptr;
-    lm_ggml_cgraph * eval_graph = nullptr;
-    lm_ggml_tensor * eval_output = nullptr;
+    ggml_context * eval_ctx = nullptr;
+    ggml_cgraph * eval_graph = nullptr;
+    ggml_tensor * eval_output = nullptr;
     codec_graph_cache_entry * eval_entry = nullptr;
     bool eval_graph_allocated = false; // sched_alloc_graph done for current eval_ctx
     int32_t sched_reserved_graph_size = 0;
@@ -101,7 +101,7 @@ struct codec_model_vtable {
         const struct codec_model * model,
         const struct codec_graph_cache_key * key,
         const void * user_data,
-        struct lm_ggml_tensor * out);
+        struct ggml_tensor * out);
     enum codec_status (*encode)(
         struct codec_context * ctx,
         const std::vector<float> & pcm,
@@ -132,22 +132,22 @@ void codec_token_buffer_reset(codec_token_buffer * tokens);
 void codec_pcm_buffer_reset(codec_pcm_buffer * pcm);
 void codec_latent_buffer_reset(codec_latent_buffer * latent);
 
-const float * codec_tensor_data_f32(const lm_ggml_tensor * t);
-int64_t codec_ne(const lm_ggml_tensor * t, int dim);
-bool codec_tensor_as_vec_f32(const lm_ggml_tensor * t, std::vector<float> * out);
+const float * codec_tensor_data_f32(const ggml_tensor * t);
+int64_t codec_ne(const ggml_tensor * t, int dim);
+bool codec_tensor_as_vec_f32(const ggml_tensor * t, std::vector<float> * out);
 
 char * codec_strdup(const char * s);
-void codec_metadata_add(codec_lm_gguf_metadata * meta, const char * key, const std::string & value);
-std::string codec_lm_gguf_value_to_string(lm_gguf_context * gf, int key_id);
-void codec_collect_lm_gguf_metadata(codec_model * model);
-int32_t codec_read_i32_kv(lm_gguf_context * gf, const char * key, int32_t fallback);
-int32_t codec_read_i32_kv_any(lm_gguf_context * gf, const char * const * keys, size_t n_keys, int32_t fallback);
-void codec_read_i32_array_kv(lm_gguf_context * gf, const char * key, int32_t * dst, int32_t dst_n);
-void codec_read_i32_array_kv_vec(lm_gguf_context * gf, const char * key, std::vector<int32_t> * dst);
-void codec_read_f32_array_kv(lm_gguf_context * gf, const char * key, float * dst, int32_t dst_n);
-float codec_read_f32_kv(lm_gguf_context * gf, const char * key, float fallback);
-bool codec_read_bool_kv(lm_gguf_context * gf, const char * key, bool fallback);
-std::string codec_read_str_kv(lm_gguf_context * gf, const char * key, const char * fallback);
+void codec_metadata_add(codec_gguf_metadata * meta, const char * key, const std::string & value);
+std::string codec_gguf_value_to_string(gguf_context * gf, int key_id);
+void codec_collect_gguf_metadata(codec_model * model);
+int32_t codec_read_i32_kv(gguf_context * gf, const char * key, int32_t fallback);
+int32_t codec_read_i32_kv_any(gguf_context * gf, const char * const * keys, size_t n_keys, int32_t fallback);
+void codec_read_i32_array_kv(gguf_context * gf, const char * key, int32_t * dst, int32_t dst_n);
+void codec_read_i32_array_kv_vec(gguf_context * gf, const char * key, std::vector<int32_t> * dst);
+void codec_read_f32_array_kv(gguf_context * gf, const char * key, float * dst, int32_t dst_n);
+float codec_read_f32_kv(gguf_context * gf, const char * key, float fallback);
+bool codec_read_bool_kv(gguf_context * gf, const char * key, bool fallback);
+std::string codec_read_str_kv(gguf_context * gf, const char * key, const char * fallback);
 int codec_count_tensors_with_prefix(const codec_model * model, const char * prefix);
 int32_t codec_infer_n_q_from_tensor_names(const codec_model * model);
 
@@ -157,6 +157,6 @@ size_t codec_graph_size_exact(
     const struct codec_model * model,
     const struct codec_graph_cache_key * key,
     const void * user_data,
-    struct lm_ggml_tensor * out);
+    struct ggml_tensor * out);
 
 #endif

@@ -1,11 +1,11 @@
 #include "xcodec2.h"
 
 #include "../ops/conv1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
 #include "../runtime/audio_dsp.h"
 #include "../runtime/graph.h"
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 
 #include <algorithm>
@@ -56,7 +56,7 @@ struct xcodec2_decode_build {
     const codec_model * model = nullptr;
 };
 
-static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool codec_x2_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     xcodec2_decode_build * p = static_cast<xcodec2_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) {
         return false;
@@ -67,23 +67,23 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
         return false;
     }
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
     // 1) tokens [t, q] — q is currently always 1.
-    lm_ggml_tensor * t_tok = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_I32, p->t, p->q);
-    lm_ggml_set_name(t_tok, codec_x2_name_tok());
+    ggml_tensor * t_tok = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_I32, p->t, p->q);
+    ggml_set_name(t_tok, codec_x2_name_tok());
 
-    lm_ggml_tensor * t_codebook = W(codec_x2_name_codebook());
+    ggml_tensor * t_codebook = W(codec_x2_name_codebook());
     if (t_codebook == nullptr) return false;
 
     // codebook layout: ne=[codebook_dim=8, codebook_size=65536]; gather rows.
-    lm_ggml_tensor * t_idx = lm_ggml_view_1d(ctx_eval, t_tok, p->t, 0);
-    lm_ggml_tensor * t_q = lm_ggml_get_rows(ctx_eval, t_codebook, t_idx);              // [codebook_dim, t]
+    ggml_tensor * t_idx = ggml_view_1d(ctx_eval, t_tok, p->t, 0);
+    ggml_tensor * t_q = ggml_get_rows(ctx_eval, t_codebook, t_idx);              // [codebook_dim, t]
 
     // 2) FSQ.project_out: codebook_dim → vq_dim
-    lm_ggml_tensor * x_ct = codec_op_linear(ctx_eval, t_q,
+    ggml_tensor * x_ct = codec_op_linear(ctx_eval, t_q,
                                          W(codec_x2_name_quant_w()),
                                          W(codec_x2_name_quant_b()));            // [vq_dim, t]
     if (x_ct == nullptr) return false;
@@ -96,7 +96,7 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
 
     // ---- Vocos backbone ----
     // embed Conv1d(k=7, p=3) operates on [t, c] layout in this codebase.
-    lm_ggml_tensor * x_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_ct));     // [t, hidden]
+    ggml_tensor * x_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_ct));     // [t, hidden]
     x_tc = codec_conv1d(ctx_eval, x_tc,
                         W(codec_x2_name_embed_w()),
                         W(codec_x2_name_embed_b()),
@@ -114,7 +114,7 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
         if (x_tc == nullptr) return false;
     }
 
-    x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_tc));                   // [hidden, t]
+    x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_tc));                   // [hidden, t]
 
     // 12 RoFormer transformer blocks (RMSNorm, RoPE q/k, MLP fc1→SiLU→fc2 no bias)
     for (int32_t li = 0; li < p->num_layers; ++li) {
@@ -130,7 +130,7 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
         if (x_ct == nullptr) return false;
     }
 
-    x_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_ct));                   // [t, hidden]
+    x_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_ct));                   // [t, hidden]
 
     // post_net: 2 ResnetBlocks
     for (int32_t li = 0; li < 2; ++li) {
@@ -143,7 +143,7 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
         if (x_tc == nullptr) return false;
     }
 
-    x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_tc));                   // [hidden, t]
+    x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_tc));                   // [hidden, t]
 
     // final_layer_norm (LayerNorm along channels)
     x_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-6f,
@@ -154,11 +154,11 @@ static bool codec_x2_build_decode(lm_ggml_context * ctx_eval, void * user_data, 
     // 4) ISTFT head: Linear(hidden, n_fft+2) → produces (mag,phase) per frame.
     //    Actual iSTFT (mag/phase → complex → OLA) runs on the host so we can
     //    reuse the shared HiFi-GAN-style helper with the periodic Hann window.
-    lm_ggml_tensor * t_out = codec_op_linear(ctx_eval, x_ct,
+    ggml_tensor * t_out = codec_op_linear(ctx_eval, x_ct,
                                           W(codec_x2_name_head_w()),
                                           W(codec_x2_name_head_b()));             // [out, t]
     if (t_out == nullptr) return false;
-    lm_ggml_set_name(t_out, codec_x2_name_head_out());
+    ggml_set_name(t_out, codec_x2_name_head_out());
     *out = t_out;
     return true;
 }
@@ -213,8 +213,8 @@ static enum codec_status codec_x2_decode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_tok = codec_graph_get_tensor(ctx, entry, codec_x2_name_tok());
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_x2_name_head_out());
+    ggml_tensor * t_tok = codec_graph_get_tensor(ctx, entry, codec_x2_name_tok());
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_x2_name_head_out());
     if (t_tok == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached xcodec2 decode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -255,7 +255,7 @@ static enum codec_status codec_x2_decode_graph(
     // symmetric Hann (the registered buffer from `torch.hann_window` matches
     // codec_runtime_istft_from_head's default symmetric window).
     std::vector<float> window;
-    lm_ggml_tensor * w_tensor = codec_model_get_tensor(ctx->model, codec_x2_name_istft_window());
+    ggml_tensor * w_tensor = codec_model_get_tensor(ctx->model, codec_x2_name_istft_window());
     if (w_tensor != nullptr) {
         codec_tensor_as_vec_f32(w_tensor, &window);
     }
@@ -353,18 +353,18 @@ static const char * codec_x2_name_alias()    { return "xcodec2.enc.alias.filter"
 
 // ----- BigCodec acoustic encoder helpers -------------------------------
 
-static lm_ggml_tensor * codec_x2_residual_unit(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
-    lm_ggml_tensor * a1_alpha, lm_ggml_tensor * a1_inv_beta,
-    lm_ggml_tensor * c1_w,     lm_ggml_tensor * c1_b,
-    lm_ggml_tensor * a2_alpha, lm_ggml_tensor * a2_inv_beta,
-    lm_ggml_tensor * c2_w,     lm_ggml_tensor * c2_b,
-    lm_ggml_tensor * alias_kernel,
+static ggml_tensor * codec_x2_residual_unit(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
+    ggml_tensor * a1_alpha, ggml_tensor * a1_inv_beta,
+    ggml_tensor * c1_w,     ggml_tensor * c1_b,
+    ggml_tensor * a2_alpha, ggml_tensor * a2_inv_beta,
+    ggml_tensor * c2_w,     ggml_tensor * c2_b,
+    ggml_tensor * alias_kernel,
     int32_t dilation) {
 
     if (ctx == nullptr || x_tc == nullptr) return nullptr;
-    lm_ggml_tensor * h = codec_op_alias_free_snake_beta_tc(ctx, x_tc, a1_alpha, a1_inv_beta, alias_kernel);
+    ggml_tensor * h = codec_op_alias_free_snake_beta_tc(ctx, x_tc, a1_alpha, a1_inv_beta, alias_kernel);
     if (h == nullptr) return nullptr;
     // First conv: kernel 7, dilation `d`, padding ((7-1)*d)/2 = 3*d.
     h = codec_conv1d(ctx, h, c1_w, c1_b, /*stride=*/1, /*dilation=*/dilation, /*padding=*/3 * dilation);
@@ -374,18 +374,18 @@ static lm_ggml_tensor * codec_x2_residual_unit(
     // Second conv: kernel 1.
     h = codec_conv1d(ctx, h, c2_w, c2_b, /*stride=*/1, /*dilation=*/1, /*padding=*/0);
     if (h == nullptr) return nullptr;
-    return lm_ggml_add(ctx, x_tc, h);
+    return ggml_add(ctx, x_tc, h);
 }
 
-static lm_ggml_tensor * codec_x2_encoder_block(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+static ggml_tensor * codec_x2_encoder_block(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     int32_t bi,
     int32_t stride,
     const codec_model * model,
-    lm_ggml_tensor * alias_kernel) {
+    ggml_tensor * alias_kernel) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, name);
     };
 
@@ -417,68 +417,68 @@ static lm_ggml_tensor * codec_x2_encoder_block(
 
 // ----- Wav2Vec2-Bert conformer layer ----------------------------------
 
-static lm_ggml_tensor * codec_x2_w2v_attn(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
-    lm_ggml_tensor * q_w, lm_ggml_tensor * q_b,
-    lm_ggml_tensor * k_w, lm_ggml_tensor * k_b,
-    lm_ggml_tensor * v_w, lm_ggml_tensor * v_b,
-    lm_ggml_tensor * o_w, lm_ggml_tensor * o_b,
-    lm_ggml_tensor * dist_emb_dn,
-    lm_ggml_tensor * bucket_idx_1d,
+static ggml_tensor * codec_x2_w2v_attn(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
+    ggml_tensor * q_w, ggml_tensor * q_b,
+    ggml_tensor * k_w, ggml_tensor * k_b,
+    ggml_tensor * v_w, ggml_tensor * v_b,
+    ggml_tensor * o_w, ggml_tensor * o_b,
+    ggml_tensor * dist_emb_dn,
+    ggml_tensor * bucket_idx_1d,
     int32_t head_dim,
     int32_t n_heads) {
 
     if (ctx == nullptr || x_tc == nullptr) return nullptr;
     const int64_t t = x_tc->ne[0];
 
-    lm_ggml_tensor * Q = codec_op_linear_tc(ctx, x_tc, q_w, q_b);   // [t, c]
-    lm_ggml_tensor * K = codec_op_linear_tc(ctx, x_tc, k_w, k_b);
-    lm_ggml_tensor * V = codec_op_linear_tc(ctx, x_tc, v_w, v_b);
+    ggml_tensor * Q = codec_op_linear_tc(ctx, x_tc, q_w, q_b);   // [t, c]
+    ggml_tensor * K = codec_op_linear_tc(ctx, x_tc, k_w, k_b);
+    ggml_tensor * V = codec_op_linear_tc(ctx, x_tc, v_w, v_b);
     if (Q == nullptr || K == nullptr || V == nullptr) return nullptr;
 
-    auto to_dth = [&](lm_ggml_tensor * x_tc_in) {
+    auto to_dth = [&](ggml_tensor * x_tc_in) {
         // x_tc has ne=(t, c=h*d).
-        lm_ggml_tensor * x_ct = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, x_tc_in));        // [c, t]
-        lm_ggml_tensor * x_dht = lm_ggml_reshape_3d(ctx, x_ct, head_dim, n_heads, t);   // [d, h, t]
-        return lm_ggml_cont(ctx, lm_ggml_permute(ctx, x_dht, 0, 2, 1, 3));              // [d, t, h]
+        ggml_tensor * x_ct = ggml_cont(ctx, ggml_transpose(ctx, x_tc_in));        // [c, t]
+        ggml_tensor * x_dht = ggml_reshape_3d(ctx, x_ct, head_dim, n_heads, t);   // [d, h, t]
+        return ggml_cont(ctx, ggml_permute(ctx, x_dht, 0, 2, 1, 3));              // [d, t, h]
     };
 
-    lm_ggml_tensor * q_dth = to_dth(Q);
-    lm_ggml_tensor * k_dth = to_dth(K);
-    lm_ggml_tensor * v_dth = to_dth(V);
+    ggml_tensor * q_dth = to_dth(Q);
+    ggml_tensor * k_dth = to_dth(K);
+    ggml_tensor * v_dth = to_dth(V);
     if (q_dth == nullptr || k_dth == nullptr || v_dth == nullptr) return nullptr;
 
     codec_lm_attn_params attn_p = {};
     attn_p.scale = 1.0f / std::sqrt((float) head_dim);
     attn_p.causal = false;
 
-    lm_ggml_tensor * ctx_dth = codec_op_lm_attn_rel_key_dth(ctx, q_dth, k_dth, v_dth,
+    ggml_tensor * ctx_dth = codec_op_lm_attn_rel_key_dth(ctx, q_dth, k_dth, v_dth,
                                                          dist_emb_dn, bucket_idx_1d, &attn_p);
     if (ctx_dth == nullptr) return nullptr;
 
     // Permute back to (t, c) for linear_out.
-    lm_ggml_tensor * dht = lm_ggml_cont(ctx, lm_ggml_permute(ctx, ctx_dth, 0, 2, 1, 3));  // [d, h, t]
-    lm_ggml_tensor * c_t = lm_ggml_reshape_2d(ctx, dht, head_dim * n_heads, t);        // [c, t]
-    lm_ggml_tensor * tc = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, c_t));                  // [t, c]
+    ggml_tensor * dht = ggml_cont(ctx, ggml_permute(ctx, ctx_dth, 0, 2, 1, 3));  // [d, h, t]
+    ggml_tensor * c_t = ggml_reshape_2d(ctx, dht, head_dim * n_heads, t);        // [c, t]
+    ggml_tensor * tc = ggml_cont(ctx, ggml_transpose(ctx, c_t));                  // [t, c]
     return codec_op_linear_tc(ctx, tc, o_w, o_b);
 }
 
-static lm_ggml_tensor * codec_x2_w2v_conv_module(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+static ggml_tensor * codec_x2_w2v_conv_module(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     const codec_model * model,
     int32_t li,
     int32_t hidden,
     int32_t dw_kernel) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, name);
     };
     const std::string base = "xcodec2.w2v.l" + std::to_string(li) + ".conv";
 
     // pre-LN
-    lm_ggml_tensor * h = codec_op_layer_norm_tc(ctx, x_tc, 1e-5f, W(base + ".ln.w"), W(base + ".ln.b"));
+    ggml_tensor * h = codec_op_layer_norm_tc(ctx, x_tc, 1e-5f, W(base + ".ln.w"), W(base + ".ln.b"));
     if (h == nullptr) return nullptr;
 
     // Pointwise conv1: 1024 → 2048 (no bias).  Run as conv1d k=1.
@@ -490,10 +490,10 @@ static lm_ggml_tensor * codec_x2_w2v_conv_module(
     const int64_t t = h->ne[0];
     const int64_t two_c = h->ne[1];
     if (two_c != 2 * hidden) return nullptr;
-    lm_ggml_tensor * a = lm_ggml_cont(ctx, lm_ggml_view_2d(ctx, h, t, hidden, h->nb[1], 0));
-    lm_ggml_tensor * b = lm_ggml_cont(ctx, lm_ggml_view_2d(ctx, h, t, hidden, h->nb[1], (size_t) hidden * h->nb[1]));
-    lm_ggml_tensor * sig_b = codec_op_unary(ctx, b, CODEC_UNARY_SIGMOID);
-    h = lm_ggml_mul(ctx, a, sig_b);   // [t, hidden]
+    ggml_tensor * a = ggml_cont(ctx, ggml_view_2d(ctx, h, t, hidden, h->nb[1], 0));
+    ggml_tensor * b = ggml_cont(ctx, ggml_view_2d(ctx, h, t, hidden, h->nb[1], (size_t) hidden * h->nb[1]));
+    ggml_tensor * sig_b = codec_op_unary(ctx, b, CODEC_UNARY_SIGMOID);
+    h = ggml_mul(ctx, a, sig_b);   // [t, hidden]
 
     // Causal pad: prepend (k-1) zeros along time, then depthwise conv k=31 stride 1 no pad.
     h = codec_op_pad_1d(ctx, h, dw_kernel - 1, 0);
@@ -503,40 +503,40 @@ static lm_ggml_tensor * codec_x2_w2v_conv_module(
     // depthwise_layer_norm operates on [t, c] (LayerNorm over channels) and
     // then SiLU.
     h = codec_op_layer_norm_tc(ctx, h, 1e-5f, W(base + ".dw_ln.w"), W(base + ".dw_ln.b"));
-    h = lm_ggml_silu(ctx, h);
+    h = ggml_silu(ctx, h);
 
     // Pointwise conv2: 1024 → 1024 (no bias) — same pattern.
     h = codec_conv1d(ctx, h, W(base + ".pw2.w"), nullptr, 1, 1, 0);
     return h;
 }
 
-static lm_ggml_tensor * codec_x2_w2v_layer(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+static ggml_tensor * codec_x2_w2v_layer(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     const codec_model * model,
     int32_t li,
     const xcodec2_encode_build * p,
-    lm_ggml_tensor * dist_emb_dn,
-    lm_ggml_tensor * bucket_idx_1d) {
+    ggml_tensor * dist_emb_dn,
+    ggml_tensor * bucket_idx_1d) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, name);
     };
     const std::string base = "xcodec2.w2v.l" + std::to_string(li);
 
-    auto ln = [&](lm_ggml_tensor * x, const std::string & name) {
+    auto ln = [&](ggml_tensor * x, const std::string & name) {
         return codec_op_layer_norm_tc(ctx, x, p->w2v_eps, W(name + ".w"), W(name + ".b"));
     };
 
     // ffn1: pre-LN -> fc1 -> SiLU -> fc2 -> *0.5 + residual
-    lm_ggml_tensor * res = x_tc;
-    lm_ggml_tensor * h = ln(x_tc, base + ".ffn1_ln");
+    ggml_tensor * res = x_tc;
+    ggml_tensor * h = ln(x_tc, base + ".ffn1_ln");
     h = codec_op_linear_tc(ctx, h, W(base + ".ffn1.fc1.w"), W(base + ".ffn1.fc1.b"));
-    h = lm_ggml_silu(ctx, h);
+    h = ggml_silu(ctx, h);
     h = codec_op_linear_tc(ctx, h, W(base + ".ffn1.fc2.w"), W(base + ".ffn1.fc2.b"));
     if (h == nullptr) return nullptr;
-    h = lm_ggml_scale(ctx, h, 0.5f);
-    x_tc = lm_ggml_add(ctx, res, h);
+    h = ggml_scale(ctx, h, 0.5f);
+    x_tc = ggml_add(ctx, res, h);
 
     // self_attn: pre-LN, rel-key attention, residual.
     res = x_tc;
@@ -550,49 +550,49 @@ static lm_ggml_tensor * codec_x2_w2v_layer(
         dist_emb_dn, bucket_idx_1d,
         p->w2v_head_dim, p->w2v_heads);
     if (h == nullptr) return nullptr;
-    x_tc = lm_ggml_add(ctx, res, h);
+    x_tc = ggml_add(ctx, res, h);
 
     // conv module: residual + module(x).
     res = x_tc;
     h = codec_x2_w2v_conv_module(ctx, x_tc, model, li, p->w2v_hidden, p->w2v_dw_kernel);
     if (h == nullptr) return nullptr;
-    x_tc = lm_ggml_add(ctx, res, h);
+    x_tc = ggml_add(ctx, res, h);
 
     // ffn2 (same as ffn1): pre-LN -> fc1 -> SiLU -> fc2 -> *0.5 + residual.
     res = x_tc;
     h = ln(x_tc, base + ".ffn2_ln");
     h = codec_op_linear_tc(ctx, h, W(base + ".ffn2.fc1.w"), W(base + ".ffn2.fc1.b"));
-    h = lm_ggml_silu(ctx, h);
+    h = ggml_silu(ctx, h);
     h = codec_op_linear_tc(ctx, h, W(base + ".ffn2.fc2.w"), W(base + ".ffn2.fc2.b"));
-    h = lm_ggml_scale(ctx, h, 0.5f);
-    x_tc = lm_ggml_add(ctx, res, h);
+    h = ggml_scale(ctx, h, 0.5f);
+    x_tc = ggml_add(ctx, res, h);
 
     // final LN.
     return ln(x_tc, base + ".final_ln");
 }
 
-static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool codec_x2_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     xcodec2_encode_build * p = static_cast<xcodec2_encode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) {
         return false;
     }
     if (p->n_pcm <= 0 || p->n_sem_frames <= 0 || p->n_codes <= 0) return false;
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
     // ----- Inputs -----
-    lm_ggml_tensor * t_pcm = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_pcm, 1);
-    lm_ggml_set_name(t_pcm, codec_x2_name_pcm());
-    lm_ggml_tensor * t_mel = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->w2v_input_dim, p->n_sem_frames);
-    lm_ggml_set_name(t_mel, codec_x2_name_mel_in());
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_pcm, 1);
+    ggml_set_name(t_pcm, codec_x2_name_pcm());
+    ggml_tensor * t_mel = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->w2v_input_dim, p->n_sem_frames);
+    ggml_set_name(t_mel, codec_x2_name_mel_in());
 
-    lm_ggml_tensor * alias = W(codec_x2_name_alias());
+    ggml_tensor * alias = W(codec_x2_name_alias());
     if (alias == nullptr) return false;
 
     // ===== Acoustic path: BigCodec encoder =====
-    lm_ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_pcm,
+    ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_pcm,
                                       W("xcodec2.enc.codec.conv0.w"),
                                       W("xcodec2.enc.codec.conv0.b"),
                                       /*stride=*/1, /*dilation=*/1, /*padding=*/3);
@@ -620,12 +620,12 @@ static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, 
     if (t_ac > p->n_codes) {
         x_tc = codec_op_crop_1d(ctx_eval, x_tc, 0, (int32_t) (t_ac - p->n_codes));
     }
-    lm_ggml_tensor * acoustic_tc = x_tc;  // [n_codes, 1024]
+    ggml_tensor * acoustic_tc = x_tc;  // [n_codes, 1024]
 
     // ===== Semantic path: Wav2Vec2-Bert feature_projection + 16 conformer layers =====
     // mel input has ne=(input_dim=160, n_sem_frames). Transpose to (n_sem, 160).
-    lm_ggml_tensor * mel_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, t_mel));   // [n_sem, 160]
-    lm_ggml_tensor * h = codec_op_layer_norm_tc(
+    ggml_tensor * mel_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, t_mel));   // [n_sem, 160]
+    ggml_tensor * h = codec_op_layer_norm_tc(
         ctx_eval, mel_tc, p->w2v_eps,
         W("xcodec2.w2v.feat_ln.w"), W("xcodec2.w2v.feat_ln.b"));
     if (h == nullptr) return false;
@@ -636,21 +636,21 @@ static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, 
     // Build the bucket index tensor used by every conformer layer's rel-key
     // attention.  `bucket(t_q, t_k) = clamp(t_k - t_q, -L, R) + L`.
     const int64_t t_sem = h->ne[0];
-    lm_ggml_tensor * t_arange = lm_ggml_arange(ctx_eval, 0.0f, (float) t_sem, 1.0f);              // [t_sem]
-    lm_ggml_tensor * tk_2d = lm_ggml_reshape_2d(ctx_eval, t_arange, t_sem, 1);
-    lm_ggml_tensor * tq_2d = lm_ggml_reshape_2d(ctx_eval, t_arange, 1, t_sem);
-    lm_ggml_tensor * full = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, t_sem, t_sem);
-    lm_ggml_tensor * tk_rep = lm_ggml_repeat(ctx_eval, tk_2d, full);
-    lm_ggml_tensor * tq_rep = lm_ggml_repeat(ctx_eval, tq_2d, full);
-    lm_ggml_tensor * dist = lm_ggml_sub(ctx_eval, tk_rep, tq_rep);
-    dist = lm_ggml_clamp(ctx_eval, dist, (float) -p->w2v_left_max, (float) p->w2v_right_max);
-    lm_ggml_tensor * bucket_f = lm_ggml_scale_bias(ctx_eval, dist, 1.0f, (float) p->w2v_left_max);
-    lm_ggml_tensor * bucket_i32 = lm_ggml_cast(ctx_eval, bucket_f, LM_GGML_TYPE_I32);
-    lm_ggml_tensor * bucket_1d = lm_ggml_reshape_1d(ctx_eval, bucket_i32, t_sem * t_sem);
+    ggml_tensor * t_arange = ggml_arange(ctx_eval, 0.0f, (float) t_sem, 1.0f);              // [t_sem]
+    ggml_tensor * tk_2d = ggml_reshape_2d(ctx_eval, t_arange, t_sem, 1);
+    ggml_tensor * tq_2d = ggml_reshape_2d(ctx_eval, t_arange, 1, t_sem);
+    ggml_tensor * full = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, t_sem, t_sem);
+    ggml_tensor * tk_rep = ggml_repeat(ctx_eval, tk_2d, full);
+    ggml_tensor * tq_rep = ggml_repeat(ctx_eval, tq_2d, full);
+    ggml_tensor * dist = ggml_sub(ctx_eval, tk_rep, tq_rep);
+    dist = ggml_clamp(ctx_eval, dist, (float) -p->w2v_left_max, (float) p->w2v_right_max);
+    ggml_tensor * bucket_f = ggml_scale_bias(ctx_eval, dist, 1.0f, (float) p->w2v_left_max);
+    ggml_tensor * bucket_i32 = ggml_cast(ctx_eval, bucket_f, GGML_TYPE_I32);
+    ggml_tensor * bucket_1d = ggml_reshape_1d(ctx_eval, bucket_i32, t_sem * t_sem);
 
     // 16 conformer layers.
     for (int32_t li = 0; li < p->w2v_layers; ++li) {
-        lm_ggml_tensor * dist_emb = W("xcodec2.w2v.l" + std::to_string(li) + ".attn.dist.w");
+        ggml_tensor * dist_emb = W("xcodec2.w2v.l" + std::to_string(li) + ".attn.dist.w");
         if (dist_emb == nullptr) return false;
         h = codec_x2_w2v_layer(ctx_eval, h, p->model, li, p, dist_emb, bucket_1d);
         if (h == nullptr) return false;
@@ -665,12 +665,12 @@ static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, 
                      W("xcodec2.sem.initial.w"), nullptr,
                      /*stride=*/1, /*dilation=*/1, /*padding=*/1);
     if (h == nullptr) return false;
-    h = lm_ggml_relu(ctx_eval, h);
-    lm_ggml_tensor * sem_res = h;
+    h = ggml_relu(ctx_eval, h);
+    ggml_tensor * sem_res = h;
     h = codec_conv1d(ctx_eval, h, W("xcodec2.sem.r1.w"), W("xcodec2.sem.r1.b"), 1, 1, 1);
-    h = lm_ggml_relu(ctx_eval, h);
+    h = ggml_relu(ctx_eval, h);
     h = codec_conv1d(ctx_eval, h, W("xcodec2.sem.r3.w"), W("xcodec2.sem.r3.b"), 1, 1, 1);
-    h = lm_ggml_add(ctx_eval, h, sem_res);
+    h = ggml_add(ctx_eval, h, sem_res);
     h = codec_conv1d(ctx_eval, h, W("xcodec2.sem.final.w"), nullptr, 1, 1, 1);
     if (h == nullptr) return false;
 
@@ -686,14 +686,14 @@ static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, 
 
     // ===== Concat + fc_prior + FSQ encode =====
     // Both `h` and `acoustic_tc` are [t, 1024].  Concat along channel = ne[1].
-    lm_ggml_tensor * concat = lm_ggml_concat(ctx_eval, h, acoustic_tc, /*dim=*/1);  // [t, 2048]
-    lm_ggml_tensor * prior = codec_op_linear_tc(
+    ggml_tensor * concat = ggml_concat(ctx_eval, h, acoustic_tc, /*dim=*/1);  // [t, 2048]
+    ggml_tensor * prior = codec_op_linear_tc(
         ctx_eval, concat,
         W("xcodec2.enc.fc_prior.w"), W("xcodec2.enc.fc_prior.b"));            // [t, 2048]
     if (prior == nullptr) return false;
 
     // FSQ.project_in: 2048 → 8 (== codebook_dim).
-    lm_ggml_tensor * z = codec_op_linear_tc(
+    ggml_tensor * z = codec_op_linear_tc(
         ctx_eval, prior,
         W("xcodec2.enc.quant.project_in.w"),
         W("xcodec2.enc.quant.project_in.b"));                                 // [t, 8]
@@ -706,30 +706,30 @@ static bool codec_x2_build_encode(lm_ggml_context * ctx_eval, void * user_data, 
     const float shift = std::atanh(offset / half_l);
     const float half_width = 2.0f;
 
-    auto fsq_bound = [&](lm_ggml_tensor * x) {
-        lm_ggml_tensor * y = lm_ggml_tanh(ctx_eval, lm_ggml_scale_bias(ctx_eval, x, 1.0f, shift));
-        return lm_ggml_scale_bias(ctx_eval, y, half_l, -offset);
+    auto fsq_bound = [&](ggml_tensor * x) {
+        ggml_tensor * y = ggml_tanh(ctx_eval, ggml_scale_bias(ctx_eval, x, 1.0f, shift));
+        return ggml_scale_bias(ctx_eval, y, half_l, -offset);
     };
     z = fsq_bound(z);
     z = fsq_bound(z);
-    lm_ggml_tensor * zq = lm_ggml_scale(ctx_eval, lm_ggml_round(ctx_eval, z), 1.0f / half_width);
+    ggml_tensor * zq = ggml_scale(ctx_eval, ggml_round(ctx_eval, z), 1.0f / half_width);
 
     // Codebook indices: sum over feature axis (ne[1]) of zq_scaled * basis[k].
     // basis[k] = product(levels[:k]) = (1, 4, 16, 64, 256, 1024, 4096, 16384) for levels=[4]^8.
     const int32_t cb_dim = p->cb_dim;
-    lm_ggml_tensor * basis = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_F32, cb_dim);
-    lm_ggml_set_name(basis, "xcodec2.enc.fsq.basis");
+    ggml_tensor * basis = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, cb_dim);
+    ggml_set_name(basis, "xcodec2.enc.fsq.basis");
 
-    lm_ggml_tensor * z_scaled = lm_ggml_scale_bias(ctx_eval, zq, half_width, half_width);  // [t, cb_dim]
-    lm_ggml_tensor * basis_2d = lm_ggml_reshape_2d(ctx_eval, basis, 1, cb_dim);
-    lm_ggml_tensor * basis_rep = lm_ggml_repeat(ctx_eval, basis_2d, z_scaled);
-    lm_ggml_tensor * z_mul = lm_ggml_mul(ctx_eval, z_scaled, basis_rep);                    // [t, cb_dim]
-    lm_ggml_tensor * z_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, z_mul));        // [cb_dim, t]
-    lm_ggml_tensor * idx_sum = lm_ggml_sum_rows(ctx_eval, z_ct);                            // [1, t]
-    lm_ggml_tensor * idx_1d = lm_ggml_reshape_1d(ctx_eval, idx_sum, z_mul->ne[0]);          // [t]
-    lm_ggml_tensor * idx_2d = lm_ggml_reshape_2d(ctx_eval, idx_1d, (int32_t) z_mul->ne[0], 1);
-    lm_ggml_tensor * out_t = lm_ggml_cont(ctx_eval, idx_2d);
-    lm_ggml_set_name(out_t, codec_x2_name_codes());
+    ggml_tensor * z_scaled = ggml_scale_bias(ctx_eval, zq, half_width, half_width);  // [t, cb_dim]
+    ggml_tensor * basis_2d = ggml_reshape_2d(ctx_eval, basis, 1, cb_dim);
+    ggml_tensor * basis_rep = ggml_repeat(ctx_eval, basis_2d, z_scaled);
+    ggml_tensor * z_mul = ggml_mul(ctx_eval, z_scaled, basis_rep);                    // [t, cb_dim]
+    ggml_tensor * z_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_mul));        // [cb_dim, t]
+    ggml_tensor * idx_sum = ggml_sum_rows(ctx_eval, z_ct);                            // [1, t]
+    ggml_tensor * idx_1d = ggml_reshape_1d(ctx_eval, idx_sum, z_mul->ne[0]);          // [t]
+    ggml_tensor * idx_2d = ggml_reshape_2d(ctx_eval, idx_1d, (int32_t) z_mul->ne[0], 1);
+    ggml_tensor * out_t = ggml_cont(ctx_eval, idx_2d);
+    ggml_set_name(out_t, codec_x2_name_codes());
     *out = out_t;
     return true;
 }
@@ -748,7 +748,7 @@ static enum codec_status codec_x2_encode_graph(
     // ----- Step 1: CPU mel-fbank features (matches SeamlessM4TFeatureExtractor) -----
     std::vector<float> mel_filters;
     {
-        lm_ggml_tensor * t_mf = codec_model_get_tensor(ctx->model, "xcodec2.enc.mel.filters");
+        ggml_tensor * t_mf = codec_model_get_tensor(ctx->model, "xcodec2.enc.mel.filters");
         if (t_mf == nullptr || !codec_tensor_as_vec_f32(t_mf, &mel_filters)) {
             codec_context_set_error(ctx, "missing or invalid xcodec2.enc.mel.filters");
             return CODEC_STATUS_INTERNAL_ERROR;
@@ -756,7 +756,7 @@ static enum codec_status codec_x2_encode_graph(
     }
     std::vector<float> mel_window;
     {
-        lm_ggml_tensor * t_mw = codec_model_get_tensor(ctx->model, "xcodec2.enc.mel.window");
+        ggml_tensor * t_mw = codec_model_get_tensor(ctx->model, "xcodec2.enc.mel.window");
         if (t_mw == nullptr || !codec_tensor_as_vec_f32(t_mw, &mel_window)) {
             codec_context_set_error(ctx, "missing or invalid xcodec2.enc.mel.window");
             return CODEC_STATUS_INTERNAL_ERROR;
@@ -832,10 +832,10 @@ static enum codec_status codec_x2_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, codec_x2_name_pcm());
-    lm_ggml_tensor * t_mel = codec_graph_get_tensor(ctx, entry, codec_x2_name_mel_in());
-    lm_ggml_tensor * t_basis = codec_graph_get_tensor(ctx, entry, "xcodec2.enc.fsq.basis");
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_x2_name_codes());
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, codec_x2_name_pcm());
+    ggml_tensor * t_mel = codec_graph_get_tensor(ctx, entry, codec_x2_name_mel_in());
+    ggml_tensor * t_basis = codec_graph_get_tensor(ctx, entry, "xcodec2.enc.fsq.basis");
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_x2_name_codes());
     if (t_pcm == nullptr || t_mel == nullptr || t_basis == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached xcodec2 encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -866,7 +866,7 @@ static enum codec_status codec_x2_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (t_out->type != LM_GGML_TYPE_F32 || t_out->ne[1] != 1) {
+    if (t_out->type != GGML_TYPE_F32 || t_out->ne[1] != 1) {
         codec_context_set_error(ctx, "unexpected xcodec2 token tensor shape/type");
         return CODEC_STATUS_INTERNAL_ERROR;
     }

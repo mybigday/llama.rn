@@ -2,7 +2,7 @@
 
 #include "ggml.h"
 
-#define JSON_ASSERT LM_GGML_ASSERT
+#define JSON_ASSERT GGML_ASSERT
 #include "nlohmann/json.hpp"
 
 #include <iterator>

@@ -26,7 +26,7 @@
 #include "../runtime/audio_dsp.h"
 #include "../runtime/graph.h"
 #include "../runtime/tensor_utils.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
@@ -41,7 +41,7 @@
 #include <vector>
 
 // (Whisper-style transformer layer + sliced-pos-emb-add helpers live in
-// `src/ops/lm_ggml_ops.{cpp,h}` as `codec_op_whisper_encoder_layer_tc` and
+// `src/ops/ggml_ops.{cpp,h}` as `codec_op_whisper_encoder_layer_tc` and
 // `codec_op_add_sliced_pos_emb_tc`.)
 
 // (Whisper-style mel-fbank lives in `src/runtime/audio_dsp.{cpp,h}` as
@@ -91,10 +91,10 @@ enum codec_status codec_xy_tokenizer_init(struct codec_model * model) {
     xy.vocos_head_out_dim = xy.vocos_n_fft + 2;
 
     // Infer per-encoder d_model and n_heads from the q_proj weight shape.
-    lm_ggml_tensor * sem_q = nullptr;
-    for (struct lm_ggml_tensor * t = lm_ggml_get_first_tensor(model->weights);
-         t != nullptr; t = lm_ggml_get_next_tensor(model->weights, t)) {
-        if (std::string(lm_ggml_get_name(t)) == "xy.sem_enc.l0.attn.q.w") { sem_q = t; break; }
+    ggml_tensor * sem_q = nullptr;
+    for (struct ggml_tensor * t = ggml_get_first_tensor(model->weights);
+         t != nullptr; t = ggml_get_next_tensor(model->weights, t)) {
+        if (std::string(ggml_get_name(t)) == "xy.sem_enc.l0.attn.q.w") { sem_q = t; break; }
     }
     if (sem_q != nullptr) {
         // ggml ne[0] = in_dim = d_model, ne[1] = out_dim = d_model.  Vocos
@@ -132,9 +132,9 @@ namespace {
 // `valid_k`/`valid_q` SDPA bias path).
 // Whisper-style encoder block: pos_emb add + N transformer layers + final LN.
 // Inputs come in as `x_tc = [t, hidden]`; pos_emb is `[max_pos, hidden]`.
-lm_ggml_tensor * xy_op_whisper_module_tc(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+ggml_tensor * xy_op_whisper_module_tc(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     const codec_model * model,
     const std::string & base,
     int32_t n_layers,
@@ -142,7 +142,7 @@ lm_ggml_tensor * xy_op_whisper_module_tc(
     int32_t n_heads,
     int32_t n_valid) {
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
 
@@ -201,18 +201,18 @@ lm_ggml_tensor * xy_op_whisper_module_tc(
 namespace {
 
 // PyTorch ConvTranspose1d-style deconv with kernel k, stride s, no padding.
-// We don't use lm_ggml_conv_transpose_1d directly here because XY's deconv uses
+// We don't use ggml_conv_transpose_1d directly here because XY's deconv uses
 // kernel_size==stride==4 (UpConv) and kernel_size==stride_size==2 (deconv1)
 // which cleanly decomposes into a per-step matmul: each input frame writes a
 // `k`-long contiguous block to the output, so the output length is `T_in * k`
-// (equivalent to lm_ggml_conv_transpose_1d(stride=k, p=0, d=1)).  That's exactly
-// what `lm_ggml_conv_transpose_1d` returns when `s0 == kernel`.
+// (equivalent to ggml_conv_transpose_1d(stride=k, p=0, d=1)).  That's exactly
+// what `ggml_conv_transpose_1d` returns when `s0 == kernel`.
 
 // Run an OmniAudioEncoder body: input (mel, n_frames) → conv1+conv2 stride=2
 // → pos_emb add → 12 transformer layers → final LN → output (T_mel, d_model).
-lm_ggml_tensor * xy_omni_encoder_module_tc(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * mel_ct,      // (n_mels, n_frames) — channels-first
+ggml_tensor * xy_omni_encoder_module_tc(
+    ggml_context * ctx,
+    ggml_tensor * mel_ct,      // (n_mels, n_frames) — channels-first
     const codec_model * model,
     const std::string & base,
     int32_t n_layers,
@@ -220,26 +220,26 @@ lm_ggml_tensor * xy_omni_encoder_module_tc(
     int32_t n_heads,
     int32_t n_valid) {
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
 
     // PyTorch Conv1d expects (B, C_in, T).  ggml conv1d wants tc input (t, c).
     // mel_ct is already in TC layout (ne[0]=t inner, ne[1]=mel outer) —
     // matches PyTorch's (B=1, C=mel, T) row-major memory.  No transpose.
-    lm_ggml_tensor * x_tc_in = mel_ct;
-    lm_ggml_tensor * x = codec_conv1d(ctx, x_tc_in,
+    ggml_tensor * x_tc_in = mel_ct;
+    ggml_tensor * x = codec_conv1d(ctx, x_tc_in,
                                    W(base + ".conv1.w"), W(base + ".conv1.b"),
                                    /*stride=*/1, /*dilation=*/1, /*padding=*/1);
     if (x == nullptr) return nullptr;
 // codec_conv1d returns ne=(t, c_out, 1) (im2col path keeps a batch dim).
     // Squeeze to 2D so pos_emb adds element-wise.
-x = lm_ggml_gelu_erf(ctx, x);
+x = ggml_gelu_erf(ctx, x);
     x = codec_conv1d(ctx, x,
                      W(base + ".conv2.w"), W(base + ".conv2.b"),
                      /*stride=*/2, /*dilation=*/1, /*padding=*/1);
     if (x == nullptr) return nullptr;
-    x = lm_ggml_gelu_erf(ctx, x);                                   // (T_mel, d_model)
+    x = ggml_gelu_erf(ctx, x);                                   // (T_mel, d_model)
 // The transformer module helper adds pos_emb internally — don't add again.
     x = xy_op_whisper_module_tc(ctx, x, model, base, n_layers,
                                 d_model / n_heads, n_heads, n_valid);
@@ -248,9 +248,9 @@ x = lm_ggml_gelu_erf(ctx, x);
 
 // Adapter Transformer: optional `proj` Linear in, pos_emb add, N layers, final
 // LN, optional `out_proj` Linear out.  All in/out shapes are (t, c).
-lm_ggml_tensor * xy_adapter_module_tc(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+ggml_tensor * xy_adapter_module_tc(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     const codec_model * model,
     const std::string & base,
     int32_t n_layers,
@@ -258,11 +258,11 @@ lm_ggml_tensor * xy_adapter_module_tc(
     int32_t n_heads,
     int32_t n_valid) {
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
 
-    lm_ggml_tensor * proj_w = W(base + ".proj.w");
+    ggml_tensor * proj_w = W(base + ".proj.w");
     if (proj_w != nullptr) {
         x_tc = codec_op_linear_tc(ctx, x_tc, proj_w, W(base + ".proj.b"));
         if (x_tc == nullptr) return nullptr;
@@ -271,7 +271,7 @@ lm_ggml_tensor * xy_adapter_module_tc(
     x_tc = xy_op_whisper_module_tc(ctx, x_tc, model, base, n_layers,
                                     d_model / n_heads, n_heads, n_valid);
     if (x_tc == nullptr) return nullptr;
-    lm_ggml_tensor * out_w = W(base + ".out_proj.w");
+    ggml_tensor * out_w = W(base + ".out_proj.w");
     if (out_w != nullptr) {
         x_tc = codec_op_linear_tc(ctx, x_tc, out_w, W(base + ".out_proj.b"));
     }
@@ -284,13 +284,13 @@ lm_ggml_tensor * xy_adapter_module_tc(
 //   x_fold = x.reshape(T/4, intermediate)            [no learnable params]
 //   y = down_proj(silu(gate) * up) + x_fold          [down_proj = Linear no bias]
 //   y = LayerNorm(y)
-lm_ggml_tensor * xy_residual_down_conv(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,                        // (T, d_model=768)
+ggml_tensor * xy_residual_down_conv(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,                        // (T, d_model=768)
     const codec_model * model,
     int32_t avg_pooler) {
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
 
@@ -299,84 +299,84 @@ lm_ggml_tensor * xy_residual_down_conv(
     const int64_t t_out = t / avg_pooler;
     const int64_t inter = d * avg_pooler;
 
-    lm_ggml_tensor * gate_w = W("xy.downsample.gate.w");
-lm_ggml_tensor * gate = codec_conv1d(ctx, x_tc, gate_w, nullptr,
+    ggml_tensor * gate_w = W("xy.downsample.gate.w");
+ggml_tensor * gate = codec_conv1d(ctx, x_tc, gate_w, nullptr,
                                       /*stride=*/avg_pooler, /*dilation=*/1, /*padding=*/0);
-    lm_ggml_tensor * up   = codec_conv1d(ctx, x_tc, W("xy.downsample.up.w"),   nullptr,
+    ggml_tensor * up   = codec_conv1d(ctx, x_tc, W("xy.downsample.up.w"),   nullptr,
                                       /*stride=*/avg_pooler, /*dilation=*/1, /*padding=*/0);
     if (gate == nullptr || up == nullptr) return nullptr;
     // gate / up have ggml ne=(T/4, intermediate) which is *channel-first* in
     // PyTorch terms (the inner stride is the time index).  Move to CT layout
     // (ne=(intermediate, T/4)) so the upcoming reshape of x_tc to
     // (intermediate, T/4) and the layernorm-along-channel both line up.
-    lm_ggml_tensor * gate_ct = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, gate));     // (intermediate, T/4)
-    lm_ggml_tensor * up_ct   = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, up));
+    ggml_tensor * gate_ct = ggml_cont(ctx, ggml_transpose(ctx, gate));     // (intermediate, T/4)
+    ggml_tensor * up_ct   = ggml_cont(ctx, ggml_transpose(ctx, up));
 
     // PyTorch fold: x.reshape(T/4, 4*D).  In ggml the input x_tc has ne=(T, D)
     // which is PyTorch's channel-first (D, T) row-major; after a contiguous
     // transpose to (D, T) ggml-ne we get PyTorch's (T, D) row-major and a
     // straight reshape produces ne=(intermediate=4*D, T/4) which in PyTorch
     // terms is (T/4, intermediate) row-major.
-    lm_ggml_tensor * x_pt = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, x_tc));        // ne=(D, T)
-    lm_ggml_tensor * x_fold_ct = lm_ggml_reshape_2d(ctx, x_pt, inter, t_out);    // (intermediate, T/4)
+    ggml_tensor * x_pt = ggml_cont(ctx, ggml_transpose(ctx, x_tc));        // ne=(D, T)
+    ggml_tensor * x_fold_ct = ggml_reshape_2d(ctx, x_pt, inter, t_out);    // (intermediate, T/4)
 
-    lm_ggml_tensor * gate_silu = lm_ggml_silu(ctx, gate_ct);
-    lm_ggml_tensor * mul = lm_ggml_mul(ctx, gate_silu, up_ct);                   // (intermediate, T/4)
+    ggml_tensor * gate_silu = ggml_silu(ctx, gate_ct);
+    ggml_tensor * mul = ggml_mul(ctx, gate_silu, up_ct);                   // (intermediate, T/4)
 
     // down_proj = nn.Linear(intermediate, intermediate, bias=False).  In
     // ggml ne=(in=intermediate, out=intermediate); codec_op_linear contracts
     // on ne[0].  Apply on the CT input directly.
-    lm_ggml_tensor * down_ct = codec_op_linear(ctx, mul, W("xy.downsample.down.w"), nullptr);
+    ggml_tensor * down_ct = codec_op_linear(ctx, mul, W("xy.downsample.down.w"), nullptr);
     if (down_ct == nullptr) return nullptr;
 
-    lm_ggml_tensor * sum_ct = lm_ggml_add(ctx, down_ct, x_fold_ct);
-    lm_ggml_tensor * ln_ct = codec_op_layer_norm_ct(ctx, sum_ct, 1e-5f,
+    ggml_tensor * sum_ct = ggml_add(ctx, down_ct, x_fold_ct);
+    ggml_tensor * ln_ct = codec_op_layer_norm_ct(ctx, sum_ct, 1e-5f,
                                                   W("xy.downsample.layer_norm.w"),
                                                   W("xy.downsample.layer_norm.b"));
     if (ln_ct == nullptr) return nullptr;
-    return lm_ggml_cont(ctx, lm_ggml_transpose(ctx, ln_ct));                     // back to (T/4, intermediate) TC
+    return ggml_cont(ctx, ggml_transpose(ctx, ln_ct));                     // back to (T/4, intermediate) TC
 }
 
 // One residual VQ level: argmin_i ||z[t] - codebook[i]||^2.
 // Returns the codebook indices (i32, length t) and the residual (z - z_q).
 struct xy_vq_step {
-    lm_ggml_tensor * indices;   // i32 (t,)
-    lm_ggml_tensor * residual;  // f32 (t, codebook_dim)
+    ggml_tensor * indices;   // i32 (t,)
+    ggml_tensor * residual;  // f32 (t, codebook_dim)
 };
 xy_vq_step xy_rvq_one_level(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * z_tc,                 // (t, codebook_dim)
+    ggml_context * ctx,
+    ggml_tensor * z_tc,                 // (t, codebook_dim)
     const codec_model * model,
     int32_t qi) {
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
     const std::string base = "xy.q." + std::to_string(qi);
 
-    lm_ggml_tensor * cb     = W(base + ".codebook");          // ggml ne=(d, V)
-    lm_ggml_tensor * cb_sq  = W(base + ".codebook_sq_norm");  // ggml ne=(V,)
+    ggml_tensor * cb     = W(base + ".codebook");          // ggml ne=(d, V)
+    ggml_tensor * cb_sq  = W(base + ".codebook_sq_norm");  // ggml ne=(V,)
 
     // Compute scores(t, V) = 2 * (z @ cb.T) - sq_norm.
     // mul_mat contracts on ne[0]: z_tc has ne=(d, t)  (after transpose), cb is
     // ne=(d, V) — output (V, t).  Then we add bias (-sq_norm) along V.
-    lm_ggml_tensor * z_ct = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, z_tc));   // (d, t)
-    lm_ggml_tensor * dots = lm_ggml_mul_mat(ctx, cb, z_ct);                 // (V, t)
-    dots = lm_ggml_scale(ctx, dots, 2.0f);
+    ggml_tensor * z_ct = ggml_cont(ctx, ggml_transpose(ctx, z_tc));   // (d, t)
+    ggml_tensor * dots = ggml_mul_mat(ctx, cb, z_ct);                 // (V, t)
+    dots = ggml_scale(ctx, dots, 2.0f);
     // Subtract sq_norm[V] from every column of (V, t).  Broadcasting: reshape
-    // sq_norm as (V, 1) then lm_ggml_repeat to (V, t).
-    lm_ggml_tensor * sq2 = lm_ggml_reshape_2d(ctx, cb_sq, cb_sq->ne[0], 1);
-    lm_ggml_tensor * sq_b = lm_ggml_repeat(ctx, sq2, dots);
-    dots = lm_ggml_sub(ctx, dots, sq_b);
+    // sq_norm as (V, 1) then ggml_repeat to (V, t).
+    ggml_tensor * sq2 = ggml_reshape_2d(ctx, cb_sq, cb_sq->ne[0], 1);
+    ggml_tensor * sq_b = ggml_repeat(ctx, sq2, dots);
+    dots = ggml_sub(ctx, dots, sq_b);
 
-    lm_ggml_tensor * idx = lm_ggml_argmax(ctx, dots);   // (t,) i32
+    ggml_tensor * idx = ggml_argmax(ctx, dots);   // (t,) i32
 
     // Reconstruct z_q[t] = codebook[idx[t]].
-    // lm_ggml_get_rows expects rows of a 2D tensor along ne[1]; codebook ne=(d,V)
+    // ggml_get_rows expects rows of a 2D tensor along ne[1]; codebook ne=(d,V)
     // fits — get_rows(cb, idx) → ne=(d, t).
-    lm_ggml_tensor * z_q_ct = lm_ggml_get_rows(ctx, cb, idx);
-    lm_ggml_tensor * z_q_tc = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, z_q_ct));  // (t, d)
+    ggml_tensor * z_q_ct = ggml_get_rows(ctx, cb, idx);
+    ggml_tensor * z_q_tc = ggml_cont(ctx, ggml_transpose(ctx, z_q_ct));  // (t, d)
 
-    lm_ggml_tensor * residual = lm_ggml_sub(ctx, z_tc, z_q_tc);
+    ggml_tensor * residual = ggml_sub(ctx, z_tc, z_q_tc);
     xy_vq_step out{idx, residual};
     return out;
 }
@@ -385,26 +385,26 @@ xy_vq_step xy_rvq_one_level(
 // path.  Codes are int32 ggml ne=(n_codes, n_q), so each "row" along ne[1]
 // is one quantiser's per-time indices and we can pull it via a strided
 // view_1d.
-lm_ggml_tensor * xy_rvq_decode_sum(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * codes_tq,                  // i32 ne=(n_codes, n_q)
+ggml_tensor * xy_rvq_decode_sum(
+    ggml_context * ctx,
+    ggml_tensor * codes_tq,                  // i32 ne=(n_codes, n_q)
     const codec_model * model,
     int32_t n_q) {
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, model, nm);
     };
 
-    lm_ggml_tensor * acc_tc = nullptr;
+    ggml_tensor * acc_tc = nullptr;
     const int64_t n_codes = codes_tq->ne[0];
     for (int32_t qi = 0; qi < n_q; ++qi) {
         const std::string base = "xy.q." + std::to_string(qi);
-        lm_ggml_tensor * cb = W(base + ".codebook");
-        lm_ggml_tensor * idx = lm_ggml_view_1d(ctx, codes_tq, n_codes,
+        ggml_tensor * cb = W(base + ".codebook");
+        ggml_tensor * idx = ggml_view_1d(ctx, codes_tq, n_codes,
                                          qi * codes_tq->nb[1]);
-        lm_ggml_tensor * z_ct = lm_ggml_get_rows(ctx, cb, idx);                // (d, t)
-        lm_ggml_tensor * z_tc = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, z_ct));  // (t, d)
-        acc_tc = (acc_tc == nullptr) ? z_tc : lm_ggml_add(ctx, acc_tc, z_tc);
+        ggml_tensor * z_ct = ggml_get_rows(ctx, cb, idx);                // (d, t)
+        ggml_tensor * z_tc = ggml_cont(ctx, ggml_transpose(ctx, z_ct));  // (t, d)
+        acc_tc = (acc_tc == nullptr) ? z_tc : ggml_add(ctx, acc_tc, z_tc);
     }
     return acc_tc;
 }
@@ -424,12 +424,12 @@ struct xy_encode_build {
 static const char * xy_name_mel()    { return "xy.encode.mel_in"; }
 static const char * xy_name_codes()  { return "xy.encode.codes"; }
 
-static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_tensor ** out) {
+static bool xy_build_encode(ggml_context * ctx, void * user_data, ggml_tensor ** out) {
     auto * p = static_cast<xy_encode_build *>(user_data);
     if (ctx == nullptr || p == nullptr || out == nullptr) return false;
     const codec_xy_tokenizer & cfg = *p->cfg;
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, p->model, nm);
     };
 
@@ -437,9 +437,9 @@ static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
     // (matching PyTorch's (B=1, C=80, T) row-major memory layout that the
     // HF feature extractor produces).  This is also already the TC layout
     // that codec_conv1d expects.
-    lm_ggml_tensor * t_mel = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32,
+    ggml_tensor * t_mel = ggml_new_tensor_2d(ctx, GGML_TYPE_F32,
                                              p->n_mel_frames, cfg.mel_n_mels);
-    lm_ggml_set_name(t_mel, xy_name_mel());
+    ggml_set_name(t_mel, xy_name_mel());
 
     // The HF encoder pipeline runs over a chunk-padded mel and masks
     // attention to `mel_valid` valid frames; the valid count drops by
@@ -448,11 +448,11 @@ static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
     const int32_t n_valid_conv = n_valid_mel / 2;          // OmniAudioEncoder.conv2 stride=2
 
     // Two parallel encoders, then semantic_encoder_adapter, then concat.
-    lm_ggml_tensor * sem = xy_omni_encoder_module_tc(
+    ggml_tensor * sem = xy_omni_encoder_module_tc(
         ctx, t_mel, p->model, "xy.sem_enc",
         cfg.sem_enc_n_layers, cfg.sem_enc_d_model, cfg.sem_enc_n_heads,
         /*n_valid=*/n_valid_conv);
-    lm_ggml_tensor * acoust = xy_omni_encoder_module_tc(
+    ggml_tensor * acoust = xy_omni_encoder_module_tc(
         ctx, t_mel, p->model, "xy.acoust_enc",
         cfg.sem_enc_n_layers, cfg.sem_enc_d_model, cfg.sem_enc_n_heads,
         /*n_valid=*/n_valid_conv);
@@ -464,19 +464,19 @@ static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
                                /*n_valid=*/n_valid_conv);
     if (sem == nullptr) return false;
 
-    // Concat along channel: (t, 2*d_model).  lm_ggml_concat along ne[1] (since
+    // Concat along channel: (t, 2*d_model).  ggml_concat along ne[1] (since
     // both have ne=(t, d) and we want ne=(t, 2d) which is ne[1] axis).
-    lm_ggml_tensor * cat = lm_ggml_concat(ctx, sem, acoust, /*dim=*/1);
+    ggml_tensor * cat = ggml_concat(ctx, sem, acoust, /*dim=*/1);
     cat = xy_adapter_module_tc(ctx, cat, p->model, "xy.pre_rvq_adapter",
                                cfg.pre_rvq_adapter_n_layers,
                                cfg.sem_enc_d_model, cfg.sem_enc_n_heads,
                                /*n_valid=*/n_valid_conv);
     if (cat == nullptr) return false;
-    lm_ggml_tensor * down = xy_residual_down_conv(ctx, cat, p->model, cfg.downsample_avg_pooler);
+    ggml_tensor * down = xy_residual_down_conv(ctx, cat, p->model, cfg.downsample_avg_pooler);
     if (down == nullptr) return false;
     // input_proj is a 1×1 conv (3072→512).  Use codec_conv1d with k=1
     // (pointwise path: returns 2D).
-    lm_ggml_tensor * z = codec_conv1d(ctx, down,
+    ggml_tensor * z = codec_conv1d(ctx, down,
                                    W("xy.q.in_proj.w"),
                                    W("xy.q.in_proj.b"),
                                    /*stride=*/1, /*dilation=*/1, /*padding=*/0);
@@ -484,8 +484,8 @@ static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
 
     // 8-level RVQ.  Build per-level argmax + accumulate residuals.
     const int32_t n_q = cfg.n_q;
-    std::vector<lm_ggml_tensor *> codes_per_level(n_q, nullptr);
-    lm_ggml_tensor * residual = z;
+    std::vector<ggml_tensor *> codes_per_level(n_q, nullptr);
+    ggml_tensor * residual = z;
     for (int32_t qi = 0; qi < n_q; ++qi) {
         xy_vq_step step = xy_rvq_one_level(ctx, residual, p->model, qi);
         if (step.indices == nullptr) return false;
@@ -496,20 +496,20 @@ static bool xy_build_encode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
     // Pack into (t, n_q) interleaved.  Each codes_per_level[qi] has ne=(t,) i32.
     // Reshape each to (1, t) and concat along ne[0] → (n_q, t).
     const int64_t t_codes = down->ne[0];
-    std::vector<lm_ggml_tensor *> rows;
+    std::vector<ggml_tensor *> rows;
     rows.reserve((size_t) n_q);
     for (int32_t qi = 0; qi < n_q; ++qi) {
-        lm_ggml_tensor * r = lm_ggml_reshape_2d(ctx, codes_per_level[qi], 1, t_codes);
+        ggml_tensor * r = ggml_reshape_2d(ctx, codes_per_level[qi], 1, t_codes);
         rows.push_back(r);
     }
-    lm_ggml_tensor * codes_packed = rows[0];
+    ggml_tensor * codes_packed = rows[0];
     for (int32_t qi = 1; qi < n_q; ++qi) {
-        codes_packed = lm_ggml_concat(ctx, codes_packed, rows[(size_t) qi], /*dim=*/0);
+        codes_packed = ggml_concat(ctx, codes_packed, rows[(size_t) qi], /*dim=*/0);
     }
     // codes_packed has ne=(n_q, t_codes) i32.  Match encoder convention used by
     // the public API: `codec_token_buffer.data[t * n_q + q]`.  We transpose to
     // (t, n_q) at marshalling time on CPU side.
-    lm_ggml_set_name(codes_packed, xy_name_codes());
+    ggml_set_name(codes_packed, xy_name_codes());
     *out = codes_packed;
     return true;
 }
@@ -526,24 +526,24 @@ struct xy_decode_build {
 static const char * xy_name_dec_codes() { return "xy.decode.codes"; }
 static const char * xy_name_dec_head()  { return "xy.decode.head_out"; }
 
-static bool xy_build_decode(lm_ggml_context * ctx, void * user_data, lm_ggml_tensor ** out) {
+static bool xy_build_decode(ggml_context * ctx, void * user_data, ggml_tensor ** out) {
     auto * p = static_cast<xy_decode_build *>(user_data);
     if (ctx == nullptr || p == nullptr || out == nullptr) return false;
     const codec_xy_tokenizer & cfg = *p->cfg;
 
-    auto W = [&](const std::string & nm) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & nm) -> ggml_tensor * {
         return codec_graph_weight(ctx, p->model, nm);
     };
 
     // Codes input: ggml ne=(n_codes, n_q) so each "row" along ne[1] is one
     // quantiser's per-time indices, viewable via a contiguous view_1d.
-    lm_ggml_tensor * t_codes = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_I32, p->n_codes, cfg.n_q);
-    lm_ggml_set_name(t_codes, xy_name_dec_codes());
+    ggml_tensor * t_codes = ggml_new_tensor_2d(ctx, GGML_TYPE_I32, p->n_codes, cfg.n_q);
+    ggml_set_name(t_codes, xy_name_dec_codes());
 
     // Sum codebook lookups across the 8 levels.
-    lm_ggml_tensor * z = xy_rvq_decode_sum(ctx, t_codes, p->model, cfg.n_q);  // (t, codebook_dim=512)
+    ggml_tensor * z = xy_rvq_decode_sum(ctx, t_codes, p->model, cfg.n_q);  // (t, codebook_dim=512)
 // output_proj 1×1 conv (512 → 3072).
-    lm_ggml_tensor * x = codec_conv1d(ctx, z,
+    ggml_tensor * x = codec_conv1d(ctx, z,
                                    W("xy.q.out_proj.w"),
                                    W("xy.q.out_proj.b"),
                                    /*stride=*/1, /*dilation=*/1, /*padding=*/0);
@@ -557,10 +557,10 @@ static bool xy_build_decode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
     if (x == nullptr) return false;
 // UpConv: ConvTranspose1d 3072→768, k=4, s=4, no bias.  PyTorch weight
     // shape (in=3072, out=768, k=4) lands in ggml as ne=(k, out, in).
-    // lm_ggml_conv_transpose_1d expects input ne=(t, in_c, batch) — exactly what
+    // ggml_conv_transpose_1d expects input ne=(t, in_c, batch) — exactly what
     // x already has (ne=(t, 3072)) — so no transpose.  Output ne=(t*s0, out=768, 1).
     {
-        lm_ggml_tensor * up = lm_ggml_conv_transpose_1d(
+        ggml_tensor * up = ggml_conv_transpose_1d(
             ctx, W("xy.upsample.up_conv.w"), x,
             /*s0=*/cfg.upsample_stride, /*p0=*/0, /*d0=*/1);
         if (up == nullptr) return false;
@@ -579,29 +579,29 @@ static bool xy_build_decode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
         // deconv1: 768→768, k=3, stride=2, padding=0, output_padding=0.
         // x already has ggml ne=(t, 768) which is what conv_transpose_1d
         // expects ((t, in_c, batch=1)).
-        lm_ggml_tensor * d1 = lm_ggml_conv_transpose_1d(
+        ggml_tensor * d1 = ggml_conv_transpose_1d(
             ctx, W("xy.acoust_dec.deconv1.w"), x,
             /*s0=*/2, /*p0=*/0, /*d0=*/1);
         if (d1 == nullptr) return false;
-        // lm_ggml_conv_transpose_1d doesn't add bias automatically.
-        lm_ggml_tensor * d1_b = W("xy.acoust_dec.deconv1.b");
+        // ggml_conv_transpose_1d doesn't add bias automatically.
+        ggml_tensor * d1_b = W("xy.acoust_dec.deconv1.b");
         if (d1_b != nullptr) {
-            lm_ggml_tensor * d1_b_2d = lm_ggml_reshape_2d(ctx, d1_b, 1, d1_b->ne[0]);
-            lm_ggml_tensor * d1_b_rep = lm_ggml_repeat(ctx, d1_b_2d, d1);
-            d1 = lm_ggml_add(ctx, d1, d1_b_rep);
+            ggml_tensor * d1_b_2d = ggml_reshape_2d(ctx, d1_b, 1, d1_b->ne[0]);
+            ggml_tensor * d1_b_rep = ggml_repeat(ctx, d1_b_2d, d1);
+            d1 = ggml_add(ctx, d1, d1_b_rep);
         }
-        d1 = lm_ggml_gelu_erf(ctx, d1);
-        lm_ggml_tensor * d2 = lm_ggml_conv_transpose_1d(
+        d1 = ggml_gelu_erf(ctx, d1);
+        ggml_tensor * d2 = ggml_conv_transpose_1d(
             ctx, W("xy.acoust_dec.deconv2.w"), d1,
             /*s0=*/1, /*p0=*/0, /*d0=*/1);
         if (d2 == nullptr) return false;
-        lm_ggml_tensor * d2_b = W("xy.acoust_dec.deconv2.b");
+        ggml_tensor * d2_b = W("xy.acoust_dec.deconv2.b");
         if (d2_b != nullptr) {
-            lm_ggml_tensor * d2_b_2d = lm_ggml_reshape_2d(ctx, d2_b, 1, d2_b->ne[0]);
-            lm_ggml_tensor * d2_b_rep = lm_ggml_repeat(ctx, d2_b_2d, d2);
-            d2 = lm_ggml_add(ctx, d2, d2_b_rep);
+            ggml_tensor * d2_b_2d = ggml_reshape_2d(ctx, d2_b, 1, d2_b->ne[0]);
+            ggml_tensor * d2_b_rep = ggml_repeat(ctx, d2_b_2d, d2);
+            d2 = ggml_add(ctx, d2, d2_b_rep);
         }
-        d2 = lm_ggml_gelu_erf(ctx, d2);
+        d2 = ggml_gelu_erf(ctx, d2);
         // d2 has ggml ne=(t_audio, 80) — already TC.
         x = d2;
 }
@@ -613,13 +613,13 @@ static bool xy_build_decode(lm_ggml_context * ctx, void * user_data, lm_ggml_ten
     //   4. final LayerNorm.
     //   5. head: Linear 512→962 (mag-and-phase head, n_fft+2 = 962).
     {
-        lm_ggml_tensor * embed = codec_conv1d(ctx, x,
+        ggml_tensor * embed = codec_conv1d(ctx, x,
                                            W("xy.vocos.embed.w"),
                                            W("xy.vocos.embed.b"),
                                            /*stride=*/1, /*dilation=*/1, /*padding=*/3);
         if (embed == nullptr) return false;
 // Initial LayerNorm in CT layout to match ConvNeXt block convention.
-        lm_ggml_tensor * h_ct = lm_ggml_cont(ctx, lm_ggml_transpose(ctx, embed));
+        ggml_tensor * h_ct = ggml_cont(ctx, ggml_transpose(ctx, embed));
         h_ct = codec_op_layer_norm_ct(ctx, h_ct, 1e-6f,
                                       W("xy.vocos.norm.w"),
                                       W("xy.vocos.norm.b"));
@@ -639,11 +639,11 @@ for (int32_t bi = 0; bi < cfg.vocos_n_blocks; ++bi) {
                                       W("xy.vocos.final_layer_norm.w"),
                                       W("xy.vocos.final_layer_norm.b"));
         // Head: Linear 512→962 producing a (962, t_audio) tensor.  CPU iSTFT.
-        lm_ggml_tensor * head_out = codec_op_linear(ctx, h_ct,
+        ggml_tensor * head_out = codec_op_linear(ctx, h_ct,
                                                  W("xy.vocos.head.out.w"),
                                                  W("xy.vocos.head.out.b"));
         if (head_out == nullptr) return false;
-        lm_ggml_set_name(head_out, xy_name_dec_head());
+        ggml_set_name(head_out, xy_name_dec_head());
         *out = head_out;
     }
     return true;
@@ -718,8 +718,8 @@ static enum codec_status codec_xy_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_mel = codec_graph_get_tensor(ctx, entry, xy_name_mel());
-    lm_ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_codes());
+    ggml_tensor * t_mel = codec_graph_get_tensor(ctx, entry, xy_name_mel());
+    ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_codes());
     if (t_mel == nullptr || t_codes == nullptr) {
         codec_context_set_error(ctx, "XY-Tokenizer encode graph invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -781,7 +781,7 @@ static enum codec_status codec_xy_encode(
 // The decode pipeline's transformer pos_emb tables are sized for a fixed
 // maximum window (post_rvq_adapter.pos_emb has 375 rows == chunk_code_length),
 // so a window longer than that slices past the table and asserts in
-// lm_ggml_view_2d.  Chunking (mirroring HF `XYTokenizerModel.decode`) is therefore
+// ggml_view_2d.  Chunking (mirroring HF `XYTokenizerModel.decode`) is therefore
 // required, not merely an optimisation.
 static enum codec_status codec_xy_decode_chunk(
     struct codec_context * ctx,
@@ -804,8 +804,8 @@ static enum codec_status codec_xy_decode_chunk(
               /*n_in=*/0, /*latent_dim=*/cfg.latent_dim }, xy_build_decode, &build, sizeof(build), &entry, err)) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_dec_codes());
-    lm_ggml_tensor * t_head  = codec_graph_get_tensor(ctx, entry, xy_name_dec_head());
+    ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_dec_codes());
+    ggml_tensor * t_head  = codec_graph_get_tensor(ctx, entry, xy_name_dec_head());
     if (t_codes == nullptr || t_head == nullptr) {
         if (err != nullptr) *err = "XY-Tokenizer decode graph invalid";
         return CODEC_STATUS_INTERNAL_ERROR;

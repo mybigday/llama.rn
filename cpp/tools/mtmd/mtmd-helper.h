@@ -43,7 +43,7 @@ MTMD_API struct mtmd_helper_init_opt mtmd_helper_init_opt_default(void);
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
 // Note: this also call mtmd_log_set() internally
-MTMD_API void mtmd_helper_log_set(lm_ggml_log_callback log_callback, void * user_data);
+MTMD_API void mtmd_helper_log_set(ggml_log_callback log_callback, void * user_data);
 
 // Returns true if this build includes video support (MTMD_VIDEO was ON at compile time).
 MTMD_API bool mtmd_helper_support_video(const mtmd_context * ctx);

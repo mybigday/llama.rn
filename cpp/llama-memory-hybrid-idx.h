@@ -17,16 +17,16 @@ public:
     llama_memory_hybrid_idx(
         const llama_model & model,
                             /* attn */
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                  uint32_t   kv_size,
                  uint32_t   n_pad,
                  uint32_t   n_swa,
            llama_swa_type   swa_type,
                             /* recurrent */
-                lm_ggml_type   type_r,
-                lm_ggml_type   type_s,
+                ggml_type   type_r,
+                ggml_type   type_s,
                  uint32_t   rs_size,
                             /* common */
                  uint32_t   n_seq_max,
@@ -62,7 +62,7 @@ public:
     void seq_add (llama_seq_id seq_id,                              llama_pos p0, llama_pos p1, llama_pos shift) override;
     void seq_div (llama_seq_id seq_id,                              llama_pos p0, llama_pos p1, int d) override;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
 
     // state write/load
 
@@ -83,8 +83,8 @@ public:
     //   bias      F32 [n_kv, n_tokens/ns, ns] -inf where invisible, large where always visible
     // blk_bias asks for the bias per block instead: [n_blocks, n_tokens/ns, ns]
     // the caller then adds the attention mask, the only part of the bias that varies within a block
-    void set_input_qsa(lm_ggml_tensor * cell_blk, lm_ggml_tensor * blk_cells, lm_ggml_tensor * blk_pos,
-                       lm_ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio,
+    void set_input_qsa(ggml_tensor * cell_blk, ggml_tensor * blk_cells, ggml_tensor * blk_pos,
+                       ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio,
                        bool blk_bias) const;
 
 private:
@@ -141,8 +141,8 @@ public:
     // streams in the current slot info, the `ns` of get_k/get_v; 1 if unified
     uint32_t get_n_stream() const;
 
-    void set_input_qsa(lm_ggml_tensor * cell_blk, lm_ggml_tensor * blk_cells, lm_ggml_tensor * blk_pos,
-                       lm_ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio,
+    void set_input_qsa(ggml_tensor * cell_blk, ggml_tensor * blk_cells, ggml_tensor * blk_pos,
+                       ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio,
                        bool blk_bias) const;
 
 private:

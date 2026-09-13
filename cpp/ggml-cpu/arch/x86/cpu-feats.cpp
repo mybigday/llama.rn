@@ -260,41 +260,41 @@ void test_x86_is() {
 }
 #endif
 
-static int lm_ggml_backend_cpu_x86_score() {
+static int ggml_backend_cpu_x86_score() {
     // FIXME: this does not check for OS support
 
     int score = 1;
     cpuid_x86 is;
 
-#ifdef LM_GGML_FMA
+#ifdef GGML_FMA
     if (!is.FMA()) { return 0; }
     score += 1;
 #endif
-#ifdef LM_GGML_F16C
+#ifdef GGML_F16C
     if (!is.F16C()) { return 0; }
     score += 1<<1;
 #endif
-#ifdef LM_GGML_SSE42
+#ifdef GGML_SSE42
     if (!is.SSE42()) { return 0; }
     score += 1<<2;
 #endif
-#ifdef LM_GGML_BMI2
+#ifdef GGML_BMI2
     if (!is.BMI2()) { return 0; }
     score += 1<<3;
 #endif
-#ifdef LM_GGML_AVX
+#ifdef GGML_AVX
     if (!is.AVX()) { return 0; }
     score += 1<<4;
 #endif
-#ifdef LM_GGML_AVX2
+#ifdef GGML_AVX2
     if (!is.AVX2()) { return 0; }
     score += 1<<5;
 #endif
-#ifdef LM_GGML_AVX_VNNI
+#ifdef GGML_AVX_VNNI
     if (!is.AVX_VNNI()) { return 0; }
     score += 1<<6;
 #endif
-#ifdef LM_GGML_AVX512
+#ifdef GGML_AVX512
     if (!is.AVX512F()) { return 0; }
     if (!is.AVX512CD()) { return 0; }
     if (!is.AVX512VL()) { return 0; }
@@ -302,19 +302,19 @@ static int lm_ggml_backend_cpu_x86_score() {
     if (!is.AVX512BW()) { return 0; }
     score += 1<<7;
 #endif
-#ifdef LM_GGML_AVX512_VBMI
+#ifdef GGML_AVX512_VBMI
     if (!is.AVX512_VBMI()) { return 0; }
     score += 1<<8;
 #endif
-#ifdef LM_GGML_AVX512_BF16
+#ifdef GGML_AVX512_BF16
     if (!is.AVX512_BF16()) { return 0; }
     score += 1<<9;
 #endif
-#ifdef LM_GGML_AVX512_VNNI
+#ifdef GGML_AVX512_VNNI
     if (!is.AVX512_VNNI()) { return 0; }
     score += 1<<10;
 #endif
-#ifdef LM_GGML_AMX_INT8
+#ifdef GGML_AMX_INT8
     if (!is.AMX_INT8()) { return 0; }
     score += 1<<11;
 #endif
@@ -322,6 +322,6 @@ static int lm_ggml_backend_cpu_x86_score() {
     return score;
 }
 
-LM_GGML_BACKEND_DL_SCORE_IMPL(lm_ggml_backend_cpu_x86_score)
+GGML_BACKEND_DL_SCORE_IMPL(ggml_backend_cpu_x86_score)
 
 #endif // defined(__x86_64__) || (defined(_MSC_VER) && defined(_M_AMD64))
