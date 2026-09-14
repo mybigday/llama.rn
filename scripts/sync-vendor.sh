@@ -5,7 +5,9 @@
 # For each dependency:
 #   1. clone (once) or fetch the upstream repo into $LLAMA_RN_CACHE_DIR
 #   2. export the subset llama.rn builds, keeping the upstream directory layout
-#      and file contents untouched
+#      and file contents untouched. vendor/llama.cpp is also consumed by
+#      llama.node through upstream's own CMake project, so it additionally
+#      carries the build files and the desktop backends that project needs.
 #   3. apply scripts/patches/<dep>/*.patch (-p1, paths relative to the tree)
 #   4. regenerate the version files upstream normally produces at build time
 #
@@ -32,13 +34,21 @@ source "$VENDOR_DIR/VERSIONS"
 LLAMA_CPP_PATHS=(
   LICENSE
 
-  include
+  # Upstream CMake project. llama.rn's builds list sources themselves
+  # (cmake/rnllama-sources.cmake, llama-rn.podspec); llama.node builds this
+  # tree with add_subdirectory(), so the project files are part of the subset.
+  CMakeLists.txt
+  cmake
 
-  # src/ minus llama-quant.* (see LLAMA_CPP_PRUNE)
+  include
   src
 
+  ggml/CMakeLists.txt
+  ggml/cmake
   ggml/include
+  ggml/src/CMakeLists.txt
   ggml/src/ggml.c
+  ggml/src/ggml.cpp
   ggml/src/ggml-alloc.c
   ggml/src/ggml-backend.cpp
   ggml/src/ggml-backend-dl.cpp
@@ -57,6 +67,10 @@ LLAMA_CPP_PATHS=(
   ggml/src/ggml-version.h.in
   ggml/src/gguf.cpp
 
+  # ggml-cpu minus the arch dirs llama.rn/llama.node never target
+  # (loongarch, powerpc, riscv, s390 and spacemit)
+  ggml/src/ggml-cpu/CMakeLists.txt
+  ggml/src/ggml-cpu/cmake
   ggml/src/ggml-cpu/arch-fallback.h
   ggml/src/ggml-cpu/binary-ops.cpp
   ggml/src/ggml-cpu/binary-ops.h
@@ -64,6 +78,8 @@ LLAMA_CPP_PATHS=(
   ggml/src/ggml-cpu/ggml-cpu-impl.h
   ggml/src/ggml-cpu/ggml-cpu.c
   ggml/src/ggml-cpu/ggml-cpu.cpp
+  ggml/src/ggml-cpu/hbm.cpp
+  ggml/src/ggml-cpu/hbm.h
   ggml/src/ggml-cpu/iqp.cpp
   ggml/src/ggml-cpu/iqp.h
   ggml/src/ggml-cpu/ops.cpp
@@ -81,55 +97,28 @@ LLAMA_CPP_PATHS=(
   ggml/src/ggml-cpu/vec.cpp
   ggml/src/ggml-cpu/vec.h
   ggml/src/ggml-cpu/amx
+  ggml/src/ggml-cpu/kleidiai
+  ggml/src/ggml-cpu/llamafile
   ggml/src/ggml-cpu/arch/arm
+  ggml/src/ggml-cpu/arch/wasm
   ggml/src/ggml-cpu/arch/x86
 
+  # Backends. llama.rn builds Metal, BLAS, OpenCL and Hexagon; llama.node
+  # additionally builds CUDA, Vulkan and WebGPU (its WASM package).
   ggml/src/ggml-blas
+  ggml/src/ggml-cuda
+  ggml/src/ggml-hexagon
   ggml/src/ggml-metal
   ggml/src/ggml-opencl
-  ggml/src/ggml-hexagon
+  ggml/src/ggml-vulkan
+  ggml/src/ggml-webgpu
 
-  common/build-info.cpp.in
-  common/build-info.h
-  common/chat-auto-parser-generator.cpp
-  common/chat-auto-parser-helpers.cpp
-  common/chat-auto-parser-helpers.h
-  common/chat-auto-parser.h
-  common/chat-diff-analyzer.cpp
-  common/chat-peg-parser.cpp
-  common/chat-peg-parser.h
-  common/chat.cpp
-  common/chat.h
-  common/common.cpp
-  common/common.h
-  common/fit.cpp
-  common/fit.h
-  common/jinja
-  common/json-schema-to-grammar.cpp
-  common/json-schema-to-grammar.h
-  common/json.cpp
-  common/json.h
-  common/log.cpp
-  common/log.h
-  common/ngram-cache.cpp
-  common/ngram-cache.h
-  common/ngram-map.cpp
-  common/ngram-map.h
-  common/ngram-mod.cpp
-  common/ngram-mod.h
-  common/peg-parser.cpp
-  common/peg-parser.h
-  common/reasoning-budget.cpp
-  common/reasoning-budget.h
-  common/sampling.cpp
-  common/sampling.h
-  common/speculative.cpp
-  common/speculative.h
-  common/trie.cpp
-  common/trie.h
-  common/unicode.cpp
-  common/unicode.h
+  # All of common/: upstream's common/CMakeLists.txt lists every file, so the
+  # CLI-only ones (arg, console, download, preset, ...) come along even though
+  # llama.rn's own source lists leave them out.
+  common
 
+  tools/mtmd/CMakeLists.txt
   tools/mtmd/clip-graph.h
   tools/mtmd/clip-impl.h
   tools/mtmd/clip-model.h
@@ -149,30 +138,19 @@ LLAMA_CPP_PATHS=(
   tools/mtmd/mtmd.cpp
   tools/mtmd/mtmd.h
 
-  vendor/nlohmann
+  # vendor/CMakeLists.txt adds every one of these; cpp-httplib and sheredom
+  # are only reached through common/ (download.cpp, subproc.cpp).
+  vendor/CMakeLists.txt
+  vendor/cpp-httplib
+  vendor/hash
   vendor/miniaudio
+  vendor/nlohmann
+  vendor/sheredom
   vendor/stb
-  # mtmd hashes media with SHA-256 only; skip the unused hash engines
-  vendor/hash/hash.cpp
-  vendor/hash/hash.h
-  vendor/hash/rotate-bits
-  vendor/hash/sha256
 )
 
-# Exported by a directory pathspec above but not wanted. Upstream build files
-# make no sense for a partial tree; ggml-hexagon keeps its own because it
-# builds the DSP libraries (scripts/build-hexagon-htp.sh).
-LLAMA_CPP_PRUNE=(
-  src/llama-quant.cpp
-  src/llama-quant.h
-  src/CMakeLists.txt
-  ggml/src/ggml-blas/CMakeLists.txt
-  ggml/src/ggml-metal/CMakeLists.txt
-  ggml/src/ggml-opencl/CMakeLists.txt
-  vendor/miniaudio/CMakeLists.txt
-  vendor/nlohmann/CMakeLists.txt
-  vendor/stb/CMakeLists.txt
-)
+# Exported by a directory pathspec above but not wanted.
+LLAMA_CPP_PRUNE=()
 
 # Files that live inside the tree but are not upstream content: generated by
 # this script (version files) or by builds (Metal embeds, HTP stubs). They are

@@ -48,6 +48,8 @@ file(GLOB RNLLAMA_GGML_CPU_SOURCES CONFIGURE_DEPENDS
     ${_ggml}/ggml-cpu/*.cpp
     ${_ggml}/ggml-cpu/amx/*.cpp
 )
+# Intel HBM allocator (GGML_USE_CPU_HBM); never enabled here.
+list(FILTER RNLLAMA_GGML_CPU_SOURCES EXCLUDE REGEX "/hbm\\.cpp$")
 set(RNLLAMA_GGML_SOURCES
     ${_ggml}/ggml.c
     ${_ggml}/ggml-alloc.c
@@ -79,9 +81,18 @@ set(RNLLAMA_GGML_OPENCL_DIR  "${_ggml}/ggml-opencl")
 set(RNLLAMA_GGML_HEXAGON_DIR "${_ggml}/ggml-hexagon")
 
 # --- llama, common, mtmd ------------------------------------------------------
+# vendor/llama.cpp also carries what upstream's CMake project needs for
+# llama.node (see vendor/README.md); the filters below leave out the parts
+# no llama.rn build uses. Keep them in sync with llama-rn.podspec.
 file(GLOB RNLLAMA_LLAMA_SOURCES  CONFIGURE_DEPENDS ${_llama}/*.cpp ${_llama}/models/*.cpp)
+# Model quantization is not exposed by llama.rn.
+list(FILTER RNLLAMA_LLAMA_SOURCES EXCLUDE REGEX "/llama-quant\\.cpp$")
 file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS ${_common}/*.cpp ${_common}/jinja/*.cpp)
-# tools/mtmd/debug is the mtmd debug CLI; it needs common/arg.h which is not vendored.
+# CLI argument parsing, model download (cpp-httplib), console and subprocess
+# helpers are only used by upstream's tools.
+list(FILTER RNLLAMA_COMMON_SOURCES EXCLUDE REGEX
+    "/(arg|console|debug|download|hf-cache|imatrix-loader|llguidance|preset|subproc)\\.cpp$")
+# tools/mtmd/debug is the mtmd debug CLI.
 file(GLOB RNLLAMA_MTMD_SOURCES   CONFIGURE_DEPENDS ${_mtmd}/*.cpp ${_mtmd}/models/*.cpp)
 # mtmd hashes media inputs with the vendored SHA-256 helper.
 set(RNLLAMA_VENDOR_SOURCES
