@@ -27,7 +27,11 @@ file list lives in `scripts/sync-vendor.sh`.
 3. Fix any patch that no longer applies (see below), then commit the result.
 
 The daily `sync-llama-cpp` workflow does exactly this for the newest llama.cpp
-`bNNNNN` release via `scripts/update-llama-cpp.sh`.
+`bNNNNN` release via `scripts/update-llama-cpp.sh`, on the `auto/sync-llama.cpp`
+branch. The branch and its PR are pushed even when the sync or a build fails
+(the PR description says which step broke), and while that PR is open later
+runs commit on top of the branch instead of resetting it, so fixes pushed there
+by hand survive.
 
 ## Patching upstream code
 

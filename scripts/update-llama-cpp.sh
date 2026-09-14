@@ -2,20 +2,15 @@
 #
 # CI entry point of .github/workflows/sync-llama-cpp.yml: bump LLAMA_CPP_REF in
 # vendor/VERSIONS to the latest llama.cpp bNNNNN release, re-vendor with
-# scripts/sync-vendor.sh, run bootstrap, and commit to the staging branch.
+# scripts/sync-vendor.sh, and commit the result on the current branch.
+#
+# The workflow owns the branch: it checks out auto/sync-llama.cpp (on top of
+# the open sync PR, or fresh from main) before running this, and pushes after.
+# When the vendor sync fails, whatever it produced is still committed so the
+# branch can be pushed and fixed by hand; the script then exits non-zero.
 set -euo pipefail
 
-STAGING_BRANCH="auto/sync-llama.cpp-staging"
 VERSIONS_FILE="vendor/VERSIONS"
-
-echo "🌱 Preparing staging branch: $STAGING_BRANCH"
-git fetch origin main
-
-# Clean up any existing staging branch to ensure fresh start
-git push origin --delete "$STAGING_BRANCH" 2>/dev/null || echo "No existing staging branch to delete"
-git branch -D "$STAGING_BRANCH" 2>/dev/null || echo "No local staging branch to delete"
-
-git checkout -B "$STAGING_BRANCH" origin/main
 
 echo "🔍 Checking latest llama.cpp build release..."
 RELEASES_URL="https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=100"
@@ -57,24 +52,24 @@ commit_if_changed() {
 if [[ "$LATEST_TAG" == "$CURRENT_TAG" ]]; then
   echo "✅ Already at $LATEST_TAG"
   echo "🛠 Re-running the vendor sync to make sure vendor/ matches the pins..."
-  ./scripts/sync-vendor.sh
-  npm run bootstrap
-  commit_if_changed "chore(sync): re-vendor llama.cpp $CURRENT_TAG (no version change)"
+  COMMIT_MESSAGE="chore(sync): re-vendor llama.cpp $CURRENT_TAG (no version change)"
 else
   echo "📥 Updating llama.cpp to $LATEST_TAG..."
   tmp=$(mktemp)
   sed "s/^LLAMA_CPP_REF=.*/LLAMA_CPP_REF=$LATEST_TAG/" "$VERSIONS_FILE" > "$tmp"
   mv "$tmp" "$VERSIONS_FILE"
-
   echo "🛠 Vendoring sources and applying patches..."
-  ./scripts/sync-vendor.sh
-  npm run bootstrap
-  commit_if_changed "chore: update llama.cpp to $LATEST_TAG"
+  COMMIT_MESSAGE="chore: update llama.cpp to $LATEST_TAG"
 fi
 
-if [[ -z "${IGNORE_PUSH:-}" ]]; then
-  git push origin "$STAGING_BRANCH"
-  echo "🚀 Sync committed and pushed to staging branch"
-else
-  echo "Ignoring push due to IGNORE_PUSH flag"
+SYNC_STATUS=0
+./scripts/sync-vendor.sh || SYNC_STATUS=$?
+
+if [[ $SYNC_STATUS -ne 0 ]]; then
+  echo "❌ Vendor sync failed (exit $SYNC_STATUS); committing the partial result so it can be fixed on the branch"
+  commit_if_changed "$COMMIT_MESSAGE [sync failed, needs fixing]"
+  exit $SYNC_STATUS
 fi
+
+commit_if_changed "$COMMIT_MESSAGE"
+echo "🚀 Sync committed"

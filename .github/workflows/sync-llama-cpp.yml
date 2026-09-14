@@ -5,8 +5,136 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual triggering
 
+# Every run pushes to the same branch; never let two overlap.
+concurrency:
+  group: sync-llama-cpp
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  SYNC_BRANCH: auto/sync-llama.cpp
+
 jobs:
+  # Bump vendor/VERSIONS, re-vendor, commit and push. The branch is pushed even
+  # when the sync fails so the result can be fixed by hand on the PR.
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.push.outputs.head_sha }}
+      has_changes: ${{ steps.push.outputs.has_changes }}
+      sync_result: ${{ steps.sync.outcome }}
+      previous_tag: ${{ steps.info.outputs.previous_tag }}
+      current_tag: ${{ steps.info.outputs.current_tag }}
+      changelog: ${{ steps.info.outputs.changelog }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history: the sync branch is rebuilt from main or extended from
+          # its own remote-tracking ref below
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare sync branch
+        id: base
+        run: |
+          # While the previous sync PR is still open, stack today's sync on top
+          # of its branch so fixes pushed there survive (no force push). Once it
+          # is merged or closed, start over from main.
+          OPEN_PR=$(gh pr list --head "$SYNC_BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$OPEN_PR" ]] && git rev-parse --verify --quiet "origin/$SYNC_BRANCH" >/dev/null; then
+            echo "📦 PR #$OPEN_PR is still open, continuing on origin/$SYNC_BRANCH"
+            BASE_REF="origin/$SYNC_BRANCH"
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "🆕 No open sync PR, starting from origin/main"
+            BASE_REF="origin/main"
+            echo "force=true" >> "$GITHUB_OUTPUT"
+          fi
+          git checkout -B "$SYNC_BRANCH" "$BASE_REF"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync llama.cpp
+        id: sync
+        # Keep going so the branch is pushed and the PR reports the failure
+        continue-on-error: true
+        run: ./scripts/update-llama-cpp.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push sync branch
+        id: push
+        run: |
+          if [[ "$FORCE" == "true" ]]; then
+            git push --force-with-lease origin "$SYNC_BRANCH"
+          else
+            git push origin "$SYNC_BRANCH"
+          fi
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ Branch matches main, nothing to build or open a PR for"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          FORCE: ${{ steps.base.outputs.force }}
+
+      - name: Collect llama.cpp version info
+        id: info
+        run: |
+          # llama.cpp pins on main vs. on the sync branch, from vendor/VERSIONS
+          PREVIOUS_TAG=$(git show origin/main:vendor/VERSIONS | sed -n 's/^LLAMA_CPP_REF=//p')
+          CURRENT_TAG=$(sed -n 's/^LLAMA_CPP_REF=//p' vendor/VERSIONS)
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+          echo "current_tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+
+          # Upstream clone left behind by scripts/sync-vendor.sh
+          LLAMA_CPP_REPO="${LLAMA_RN_CACHE_DIR:-$HOME/.cache/llama.rn}/llama.cpp"
+
+          # Generate llama.cpp changelog if versions differ
+          LLAMA_CHANGELOG=""
+          if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && -d "$LLAMA_CPP_REPO" ]]; then
+            echo "📝 Generating llama.cpp changelog from $PREVIOUS_TAG to $CURRENT_TAG..."
+            git -C "$LLAMA_CPP_REPO" fetch --quiet --tags origin || true
+            while IFS= read -r line; do
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
+            done < <(git -C "$LLAMA_CPP_REPO" log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges 2>/dev/null | head -50)
+
+            if [[ -z "$LLAMA_CHANGELOG" ]]; then
+              LLAMA_CHANGELOG="- No commits found between $PREVIOUS_TAG and $CURRENT_TAG"
+            fi
+          else
+            LLAMA_CHANGELOG="- Version unchanged: $CURRENT_TAG"
+          fi
+
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            echo "$LLAMA_CHANGELOG"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fail if the sync failed
+        if: steps.sync.outcome == 'failure'
+        run: |
+          echo "❌ Vendor sync failed; the partial result was pushed to $SYNC_BRANCH for fixing."
+          exit 1
+
   build-android:
+    needs: sync
+    # Implicit success(): skipped when the sync itself failed
+    if: needs.sync.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Maximize build space
@@ -20,17 +148,11 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
 
-      - name: Checkout repository
+      - name: Checkout sync branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.sync.outputs.head_sha }}
           lfs: true
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -41,32 +163,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run complete sync
-        run: ./scripts/update-llama-cpp.sh
-        env:
-          IGNORE_PUSH: '1'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bootstrap
+        run: npm run bootstrap
 
       - name: Build Android libraries
         run: npm run build:android-libs
 
-  sync:
-    needs: build-android
+  build-ios:
+    needs: sync
+    if: needs.sync.outputs.has_changes == 'true'
     runs-on: macos-26
-
+    outputs:
+      ios_result: ${{ steps.ios.outcome }}
+      tests_result: ${{ steps.tests.outcome }}
+      ts_result: ${{ steps.ts.outcome }}
     steps:
-      - name: Checkout repository
+      - name: Checkout sync branch
         uses: actions/checkout@v4
         with:
-          # Fetch full history for branch operations
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.sync.outputs.head_sha }}
           lfs: true
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -77,54 +193,69 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run complete sync
-        run: |
-          chmod +x scripts/update-llama-cpp.sh scripts/finalize-sync.sh
-          ./scripts/update-llama-cpp.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bootstrap
+        run: npm run bootstrap
 
+      # The three checks are independent; run them all so the PR lists every
+      # failure, then fail the job below.
       - name: Build iOS frameworks
+        id: ios
+        continue-on-error: true
         run: npm run build:ios-frameworks
 
       - name: Run c++ unit tests
+        id: tests
+        continue-on-error: true
         run: |
           cd tests
           mkdir -p build && cd build
           cmake .. && make && ./rnllama_tests
 
       - name: Build TypeScript library
+        id: ts
+        continue-on-error: true
         run: npm run build
 
-      - name: Finalize sync
-        run: ./scripts/finalize-sync.sh
-
-      - name: Create Pull Request
-        if: success()
+      - name: Fail if any check failed
+        if: steps.ios.outcome == 'failure' || steps.tests.outcome == 'failure' || steps.ts.outcome == 'failure'
         run: |
-          # llama.cpp pins before/after the sync, from vendor/VERSIONS
-          CURRENT_TAG=$(git show HEAD:vendor/VERSIONS | sed -n 's/^LLAMA_CPP_REF=//p')
-          PREVIOUS_TAG=$(git show main:vendor/VERSIONS | sed -n 's/^LLAMA_CPP_REF=//p')
+          echo "iOS frameworks: ${{ steps.ios.outcome }}"
+          echo "C++ unit tests: ${{ steps.tests.outcome }}"
+          echo "TypeScript build: ${{ steps.ts.outcome }}"
+          exit 1
 
-          # Upstream clone left behind by scripts/sync-vendor.sh
-          LLAMA_CPP_REPO="${LLAMA_RN_CACHE_DIR:-$HOME/.cache/llama.rn}/llama.cpp"
+  # Always runs once there is something on the branch, so a failed sync or
+  # build still ends up as a PR whose description says what broke.
+  pull-request:
+    needs: [sync, build-android, build-ios]
+    if: always() && needs.sync.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-          # Generate llama.cpp changelog if versions differ
-          LLAMA_CHANGELOG=""
-          if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && -d "$LLAMA_CPP_REPO" ]]; then
-            echo "📝 Generating llama.cpp changelog from $PREVIOUS_TAG to $CURRENT_TAG..."
-            git -C "$LLAMA_CPP_REPO" fetch --quiet --tags origin
-            while IFS= read -r line; do
-              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
-              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
-              LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
-            done < <(git -C "$LLAMA_CPP_REPO" log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -50)
+      - name: Create or update Pull Request
+        run: |
+          # Step outcomes are success/failure; job results add cancelled/skipped.
+          # An empty value means the job never ran (skipped or cancelled).
+          check() {
+            case "$1" in
+              success) echo "- ✅ $2" ;;
+              failure) echo "- ❌ $2 (failed)" ;;
+              cancelled) echo "- 🚫 $2 (cancelled)" ;;
+              *) echo "- ⏭️ $2 (skipped)" ;;
+            esac
+          }
 
-            if [[ -z "$LLAMA_CHANGELOG" ]]; then
-              LLAMA_CHANGELOG="- No commits found between $PREVIOUS_TAG and $CURRENT_TAG"
-            fi
+          FAILED=false
+          for result in "$SYNC_RESULT" "$ANDROID_RESULT" "$IOS_RESULT" "$TESTS_RESULT" "$TS_RESULT"; do
+            [[ "$result" == "success" ]] || FAILED=true
+          done
+
+          if [[ "$FAILED" == "true" ]]; then
+            STATUS_NOTE="⚠️ **Some steps failed.** Check the [workflow run]($RUN_URL) for logs. Fixes can be pushed to \`$SYNC_BRANCH\` directly: while this PR stays open, later sync runs build on top of the branch instead of resetting it."
           else
-            LLAMA_CHANGELOG="- Version unchanged: $CURRENT_TAG"
+            STATUS_NOTE="All checks passed ([workflow run]($RUN_URL))."
           fi
 
           # Prepare PR body with llama.cpp changes
@@ -137,11 +268,13 @@ jobs:
           - Re-applied scripts/patches and regenerated version files
 
           **Verification:**
-          - ✅ Vendor sync and bootstrap completed successfully
-          - ✅ iOS frameworks build completed successfully (macOS job)
-          - ✅ Android libraries build completed successfully (Ubuntu job)
-          - ✅ C++ unit tests passed
-          - ✅ TypeScript build completed successfully
+          $(check "$SYNC_RESULT" "Vendor sync, scripts/update-llama-cpp.sh")
+          $(check "$ANDROID_RESULT" "Android libraries build")
+          $(check "$IOS_RESULT" "iOS frameworks build")
+          $(check "$TESTS_RESULT" "C++ unit tests")
+          $(check "$TS_RESULT" "TypeScript build")
+
+          $STATUS_NOTE
 
           <details>
           <summary>📋 llama.cpp changes ($PREVIOUS_TAG → $CURRENT_TAG)</summary>
@@ -151,25 +284,30 @@ jobs:
 
           Please review and merge if all checks pass."
 
-          # Check if PR already exists
-          EXISTING_PR=$(gh pr list --head auto/sync-llama.cpp --base main --json number --jq '.[0].number' || echo "")
+          PR_TITLE="feat: sync llama.cpp to $CURRENT_TAG"
 
-          if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$SYNC_BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+
+          if [[ -n "$EXISTING_PR" ]]; then
             echo "✅ PR #$EXISTING_PR already exists, updating it..."
-            gh pr edit "$EXISTING_PR" --title "feat: sync llama.cpp to $CURRENT_TAG" --body "$PR_BODY"
+            gh pr edit "$EXISTING_PR" --title "$PR_TITLE" --body "$PR_BODY"
           else
             echo "🆕 Creating new PR..."
             gh pr create \
-              --head auto/sync-llama.cpp \
+              --head "$SYNC_BRANCH" \
               --base main \
-              --title "feat: sync llama.cpp to $CURRENT_TAG" \
+              --title "$PR_TITLE" \
               --body "$PR_BODY"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "❌ Sync failed. Check the workflow logs for details."
-          echo "The persistent sync branch was not updated due to build failure."
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PREVIOUS_TAG: ${{ needs.sync.outputs.previous_tag }}
+          CURRENT_TAG: ${{ needs.sync.outputs.current_tag }}
+          LLAMA_CHANGELOG: ${{ needs.sync.outputs.changelog }}
+          SYNC_RESULT: ${{ needs.sync.outputs.sync_result }}
+          ANDROID_RESULT: ${{ needs.build-android.result }}
+          IOS_RESULT: ${{ needs.build-ios.outputs.ios_result }}
+          TESTS_RESULT: ${{ needs.build-ios.outputs.tests_result }}
+          TS_RESULT: ${{ needs.build-ios.outputs.ts_result }}
