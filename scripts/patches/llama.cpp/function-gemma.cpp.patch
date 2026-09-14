@@ -1,12 +1,12 @@
---- common/chat.cpp
-+++ common/chat.cpp
-@@ -1779,6 +1790,73 @@
-     return data;
- }
- 
-+static common_chat_params common_chat_params_init_function_gemma(
-+    const common_chat_template &          tmpl,
-+    const autoparser::generation_params & inputs) {
+llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<end_function_call>), content-part extra fields, and template caps/variant queries used by the JSI bridge.
+--- /dev/null
++++ b/common/parsers/function-gemma.cpp
+@@ -0,0 +1,64 @@
++#include "parsers.h"
++
++// FunctionGemma - uses <start_function_call>call:name{...}<end_function_call>
++common_chat_params common_chat_params_init_function_gemma(const common_chat_template &          tmpl,
++                                                          const autoparser::generation_params & inputs) {
 +    common_chat_params data;
 +
 +    data.prompt            = common_chat_template_direct_apply_impl(tmpl, inputs);
@@ -33,7 +33,7 @@
 +        foreach_function(inputs.tools, [&](const json & tool) {
 +            const auto & function = tool.at("function");
 +            std::string  name     = function.at("name");
-+            const auto & schema   = function.at("parameters");
++            const auto   schema   = common_chat_tool_parameters(function);
 +
 +            auto tool_parser = p.tool(
 +                p.tool_open(
@@ -56,10 +56,6 @@
 +    if (include_grammar) {
 +        data.grammar_lazy = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_AUTO;
 +        data.grammar      = build_grammar([&](const common_grammar_builder & builder) {
-+            foreach_function(inputs.tools, [&](const json & tool) {
-+                auto schema = tool.at("function").at("parameters");
-+                builder.resolve_refs(schema);
-+            });
 +            parser.build_grammar(builder, data.grammar_lazy);
 +        });
 +
@@ -70,7 +66,3 @@
 +
 +    return data;
 +}
-+
- // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
- // The ID contains both the function name and an incrementing counter
- static common_chat_params common_chat_params_init_kimi_k2(const common_chat_template &    tmpl,

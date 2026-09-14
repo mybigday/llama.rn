@@ -6446,6 +6446,24 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
         devices[i].context = new ggml_backend_hexagon_device_context(i, opt_device_configs[i], &devices[i]);
     }
 
+    // llama.rn: sessions are created on demand upstream, so a configured device count
+    // that exceeds what the SoC allows only fails at first use. Probe the sessions here
+    // and truncate the device list at the first failure so callers see the real count.
+    for (size_t i = 0; i < opt_ndev; i++) {
+        auto dev_ctx = static_cast<ggml_backend_hexagon_device_context *>(devices[i].context);
+        try {
+            dev_ctx->session();
+        } catch (const std::exception & exc) {
+            GGML_LOG_WARN("ggml-hex: failed to create session for %s: %s; using %zu device(s)\n",
+                          dev_ctx->c_name(), exc.what(), i);
+            for (size_t j = i; j < opt_ndev; j++) {
+                delete static_cast<ggml_backend_hexagon_device_context *>(devices[j].context);
+                devices[j].context = nullptr;
+            }
+            opt_ndev = i;
+            break;
+        }
+    }
 }
 
 ggml_hexagon_registry::~ggml_hexagon_registry() {

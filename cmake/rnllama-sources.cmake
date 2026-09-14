@@ -80,7 +80,11 @@ set(RNLLAMA_GGML_HEXAGON_DIR "${_ggml}/ggml-hexagon")
 
 # --- llama, common, mtmd ------------------------------------------------------
 file(GLOB RNLLAMA_LLAMA_SOURCES  CONFIGURE_DEPENDS ${_llama}/*.cpp ${_llama}/models/*.cpp)
-file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS ${_common}/*.cpp ${_common}/jinja/*.cpp)
+file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS
+    ${_common}/*.cpp
+    ${_common}/jinja/*.cpp
+    ${_common}/parsers/*.cpp
+)
 # tools/mtmd/debug is the mtmd debug CLI; it needs common/arg.h which is not vendored.
 file(GLOB RNLLAMA_MTMD_SOURCES   CONFIGURE_DEPENDS ${_mtmd}/*.cpp ${_mtmd}/models/*.cpp)
 # mtmd hashes media inputs with the vendored SHA-256 helper.

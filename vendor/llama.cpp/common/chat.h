@@ -37,6 +37,9 @@ struct common_chat_tool_call {
 struct common_chat_msg_content_part {
     std::string type;
     std::string text;
+    // Preserves non-standard fields from the original JSON (e.g. source_lang_code,
+    // target_lang_code for TranslateGemma) so they survive the parse/serialize round-trip.
+    common_json extra_fields;
 
     // TODO @ngxson : no known chat templates support reasoning_content in content parts yet
     //                this can be useful for models with interleaved thinking (like Kimi-K2)
@@ -44,7 +47,7 @@ struct common_chat_msg_content_part {
     // std::string reasoning_content;
 
     bool operator==(const common_chat_msg_content_part & other) const {
-        return type == other.type && text == other.text;
+        return type == other.type && text == other.text && extra_fields == other.extra_fields;
     }
 };
 
@@ -347,6 +350,20 @@ common_reasoning_format common_reasoning_format_from_name(const std::string & fo
 common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::string & tool_choice);
 
 bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
+
+// Template capabilities structure (for exposing capabilities to external code)
+struct common_chat_template_caps {
+    bool supports_tools = true;
+    bool supports_tool_calls = true;
+    bool supports_system_role = true;
+    bool supports_parallel_tool_calls = true;
+};
+
+// Get template capabilities for a specific variant ("" for default, "tool_use" for tool_use template)
+common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant);
+
+// Check if a template variant exists
+bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant);
 
 // Parses a JSON array of messages in OpenAI's chat completion API format.
 std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const common_json & messages);

@@ -1683,6 +1683,7 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
         mparams.devices = params.devices.data();
     }
 
+    mparams.vocab_only      = params.vocab_only;
     mparams.n_gpu_layers    = params.n_gpu_layers;
     mparams.main_gpu        = params.main_gpu;
     mparams.split_mode      = params.split_mode;
@@ -1711,6 +1712,11 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.progress_callback_user_data = params.load_progress_callback_user_data;
     mparams.no_alloc                    = params.no_alloc;
     mparams.load_mtp                    = std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
+
+    if (params.progress_callback != nullptr) {
+        mparams.progress_callback = params.progress_callback;
+        mparams.progress_callback_user_data = params.progress_callback_user_data;
+    }
 
     return mparams;
 }

@@ -107,6 +107,8 @@ LLAMA_CPP_PATHS=(
   common/jinja
   common/json-schema-to-grammar.cpp
   common/json-schema-to-grammar.h
+  common/json-schema.cpp
+  common/json-schema.h
   common/json.cpp
   common/json.h
   common/log.cpp
@@ -117,6 +119,8 @@ LLAMA_CPP_PATHS=(
   common/ngram-map.h
   common/ngram-mod.cpp
   common/ngram-mod.h
+  # specialized chat template parsers, one file each (see parsers/parsers.h)
+  common/parsers
   common/peg-parser.cpp
   common/peg-parser.h
   common/reasoning-budget.cpp
@@ -166,6 +170,7 @@ LLAMA_CPP_PRUNE=(
   src/llama-quant.cpp
   src/llama-quant.h
   src/CMakeLists.txt
+  common/parsers/sources.cmake
   ggml/src/ggml-blas/CMakeLists.txt
   ggml/src/ggml-metal/CMakeLists.txt
   ggml/src/ggml-opencl/CMakeLists.txt
@@ -289,13 +294,17 @@ apply_patches() {
   local dir="$PATCHES_DIR/$name"
   [ -d "$dir" ] || return 0
 
-  local patch_file
+  # A failing patch is reported (the rejected hunks are in the output) but
+  # never leaves .orig/.rej files behind, so a partial sync that gets
+  # committed for fixing does not carry them.
+  local patch_file status=0
   for patch_file in "$dir"/*.patch; do
     [ -e "$patch_file" ] || continue
     echo "  patch: $(basename "$patch_file")"
-    patch -p1 -d "$dest" < "$patch_file"
+    patch -p1 -d "$dest" < "$patch_file" || { status=$?; break; }
   done
   find "$dest" \( -name '*.orig' -o -name '*.rej' \) -delete
+  return "$status"
 }
 
 # Rewrite <PREFIX>_COMMIT in VERSIONS so the pin is reproducible even if the
@@ -316,8 +325,10 @@ sync_dep() {
   ensure_repo "$name" "${!repo_var}" "${!ref_var}"
   echo "  commit: $RESOLVED_COMMIT"
   export_subset "$name" "$RESOLVED_COMMIT" "$prefix"
-  apply_patches "$name"
+  # Pin before patching: if a patch fails, update-patch.sh must still diff
+  # against the commit the tree was exported from.
   record_commit "$prefix" "$RESOLVED_COMMIT"
+  apply_patches "$name"
 }
 
 # llama.cpp derives these from its own CMake project and git history; llama.rn
