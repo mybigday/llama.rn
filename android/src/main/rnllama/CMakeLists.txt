@@ -263,6 +263,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             gemv_noshuffle_q4_0_f32
             gemv_noshuffle_q4_0_f32_spec
             gemm_noshuffle_q4_0_f32
+            gemv_noshuffle_q4_0_f32_32b_trans
             gemv_noshuffle_q4_1_f32
             gemm_noshuffle_q4_1_f32
             gemv_noshuffle_iq4_nl_f32
@@ -277,6 +278,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             gemm_noshuffle_q1_0_f32
             gemv_noshuffle_q4_k_f32
             gemm_noshuffle_q4_k_f32
+            gemv_noshuffle_q4_k_f32_32b_trans
             gemv_noshuffle_q6_k_f32
             gemm_noshuffle_q6_k_f32
             gemv_noshuffle_q5_k_f32
