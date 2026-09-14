@@ -2,8 +2,8 @@
 #import <jsi/jsi.h>
 
 #if RNLLAMA_BUILD_FROM_SOURCE
-#import "../cpp/llama-impl.h"
-#import "../cpp/llama.h"
+#import "llama-impl.h"
+#import "llama.h"
 #else
 #import <rnllama/llama-impl.h>
 #import <rnllama/llama.h>

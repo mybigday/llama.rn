@@ -1,0 +1,18 @@
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -153,6 +153,7 @@
+     { LLM_ARCH_KIMI_K3,          "kimi-k3"          },
+     { LLM_ARCH_TALKIE,           "talkie"           },
+     { LLM_ARCH_MELLUM,           "mellum"           },
++    { LLM_ARCH_BARBET,           "barbet"           },
+     { LLM_ARCH_NANBEIGE,         "nanbeige"         },
+     { LLM_ARCH_QWEN3TTS,         "qwen3tts"         },
+     { LLM_ARCH_POCKETTTS,        "pockettts"        },
+@@ -1083,6 +1084,7 @@
+         case LLM_ARCH_QWEN4EXP:
+         case LLM_ARCH_DEEPSEEK4:
+         case LLM_ARCH_MINIMAX_01:
++        case LLM_ARCH_BARBET:
+             return true;
+         default:
+             return false;

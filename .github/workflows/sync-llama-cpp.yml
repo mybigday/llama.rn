@@ -24,7 +24,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
 
@@ -43,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Run complete sync
-        run: ./scripts/sync-llama-cpp-submodule.sh
+        run: ./scripts/update-llama-cpp.sh
         env:
           IGNORE_PUSH: '1'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -59,9 +58,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Fetch full history for submodules and branch operations
+          # Fetch full history for branch operations
           fetch-depth: 0
-          submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
 
@@ -81,8 +79,8 @@ jobs:
 
       - name: Run complete sync
         run: |
-          chmod +x scripts/sync-llama-cpp-submodule.sh scripts/finalize-sync.sh
-          ./scripts/sync-llama-cpp-submodule.sh
+          chmod +x scripts/update-llama-cpp.sh scripts/finalize-sync.sh
+          ./scripts/update-llama-cpp.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -104,30 +102,23 @@ jobs:
       - name: Create Pull Request
         if: success()
         run: |
-          # Get current llama.cpp commit and tag from sync branch
-          CURRENT_COMMIT=$(git rev-parse HEAD:third_party/llama.cpp)
-          cd third_party/llama.cpp
-          git fetch --tags
-          CURRENT_TAG=$(git describe --tags --exact-match "$CURRENT_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$CURRENT_COMMIT" 2>/dev/null || echo "${CURRENT_COMMIT:0:7}")
-          cd -
+          # llama.cpp pins before/after the sync, from vendor/VERSIONS
+          CURRENT_TAG=$(git show HEAD:vendor/VERSIONS | sed -n 's/^LLAMA_CPP_REF=//p')
+          PREVIOUS_TAG=$(git show main:vendor/VERSIONS | sed -n 's/^LLAMA_CPP_REF=//p')
 
-          # Get previous llama.cpp commit and tag from main branch
-          PREVIOUS_COMMIT=$(git rev-parse main:third_party/llama.cpp)
-          cd third_party/llama.cpp
-          PREVIOUS_TAG=$(git describe --tags --exact-match "$PREVIOUS_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$PREVIOUS_COMMIT" 2>/dev/null || echo "${PREVIOUS_COMMIT:0:7}")
-          cd -
+          # Upstream clone left behind by scripts/sync-vendor.sh
+          LLAMA_CPP_REPO="${LLAMA_RN_CACHE_DIR:-$HOME/.cache/llama.rn}/llama.cpp"
 
           # Generate llama.cpp changelog if versions differ
           LLAMA_CHANGELOG=""
-          if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && "$CURRENT_TAG" != "unknown" && "$PREVIOUS_TAG" != "unknown" ]]; then
+          if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && -d "$LLAMA_CPP_REPO" ]]; then
             echo "📝 Generating llama.cpp changelog from $PREVIOUS_TAG to $CURRENT_TAG..."
-            cd third_party/llama.cpp
+            git -C "$LLAMA_CPP_REPO" fetch --quiet --tags origin
             while IFS= read -r line; do
               COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
               COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
               LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
-            done < <(git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -50)
-            cd -
+            done < <(git -C "$LLAMA_CPP_REPO" log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -50)
 
             if [[ -z "$LLAMA_CHANGELOG" ]]; then
               LLAMA_CHANGELOG="- No commits found between $PREVIOUS_TAG and $CURRENT_TAG"
@@ -142,11 +133,11 @@ jobs:
           This PR was automatically created/updated by the daily sync workflow.
 
           **Changes:**
-          - Updated llama.cpp submodule from \`$PREVIOUS_TAG\` to \`$CURRENT_TAG\`
-          - Regenerated bindings and build files
+          - Updated the vendored llama.cpp (vendor/llama.cpp) from \`$PREVIOUS_TAG\` to \`$CURRENT_TAG\`
+          - Re-applied scripts/patches and regenerated version files
 
           **Verification:**
-          - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
+          - ✅ Vendor sync and bootstrap completed successfully
           - ✅ iOS frameworks build completed successfully (macOS job)
           - ✅ Android libraries build completed successfully (Ubuntu job)
           - ✅ C++ unit tests passed

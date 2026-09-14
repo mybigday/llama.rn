@@ -7,13 +7,10 @@ def rnllamaBuildFromSource = project.findProperty("rnllamaBuildFromSource")?.toS
 
 if (rnllamaBuildFromSource) {
     def openCLScript = new File(repoRootDir, "scripts/build-opencl.sh")
-    // build-opencl.sh also checks out the OpenCL-Headers submodule, which the
-    // opencl variant needs to compile against. Gate on the header too, or a tree
-    // that has libOpenCL.so without the submodule (a restored CI cache, a manual
-    // copy) skips the task and then fails on a missing CL/cl.h.
+    // The opencl variant links the libOpenCL.so stub that build-opencl.sh
+    // produces from the vendored OpenCL-ICD-Loader.
     def openCLArtifacts = [
         new File(repoRootDir, "bin/arm64-v8a/libOpenCL.so"),
-        new File(repoRootDir, "third_party/OpenCL-Headers/CL/cl.h"),
     ]
 
     tasks.register("prepareOpenCL", Exec) {
@@ -27,18 +24,19 @@ if (rnllamaBuildFromSource) {
     }
 
     def htpScript = new File(repoRootDir, "scripts/build-hexagon-htp.sh")
+    def htpSourceDir = new File(repoRootDir, "vendor/llama.cpp/ggml/src/ggml-hexagon/htp")
     def htpInputs = files(
         htpScript,
-        new File(repoRootDir, "cpp/ggml-hexagon/htp/CMakeLists.txt"),
-        new File(repoRootDir, "cpp/ggml-hexagon/htp/htp_iface.idl"),
+        new File(htpSourceDir, "CMakeLists.txt"),
+        new File(htpSourceDir, "htp_iface.idl"),
     )
     def htpArtifacts = files(
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v73.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v75.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v79.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v81.so"),
-        new File(repoRootDir, "cpp/ggml-hexagon/htp/v73/htp_iface.h"),
-        new File(repoRootDir, "cpp/ggml-hexagon/htp/v73/htp_iface_stub.c"),
+        new File(htpSourceDir, "v73/htp_iface.h"),
+        new File(htpSourceDir, "v73/htp_iface_stub.c"),
     )
 
     // A fresh CI runner has no Gradle task history, so prepareHTP would rebuild the

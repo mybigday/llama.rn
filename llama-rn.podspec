@@ -32,24 +32,59 @@ Pod::Spec.new do |s|
 
   header_search_paths = ['$(inherited)']
 
+  llama_cpp = "vendor/llama.cpp"
+  codec_cpp = "vendor/codec.cpp"
+
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
-    s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm,s}"
+    # ios/*: not ios/**, or the prebuilt xcframework's flat Headers/ would join
+    # the header map and shadow the vendored headers with the same basenames.
+    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c}",
+      "#{llama_cpp}/include/*.h",
+      "#{llama_cpp}/src/**/*.{h,cpp}",
+      "#{llama_cpp}/ggml/include/*.h",
+      "#{llama_cpp}/ggml/src/*.{h,c,cpp}",
+      "#{llama_cpp}/ggml/src/ggml-cpu/**/*.{h,c,cpp}",
+      "#{llama_cpp}/ggml/src/ggml-metal/*.{h,m,cpp,s}",
+      "#{llama_cpp}/ggml/src/ggml-blas/*.{h,cpp}",
+      "#{llama_cpp}/common/**/*.{h,cpp}",
+      "#{llama_cpp}/tools/mtmd/**/*.{h,cpp}",
+      "#{llama_cpp}/vendor/**/*.{h,hpp,c,cpp}",
+      "#{codec_cpp}/{include,src,common}/**/*.{h,cpp}"
     # Exclude standalone tooling sources. The mtmd debug CLI depends on
     # common/arg.h; codec's reference runners also conflict with rn-tts.
-    s.exclude_files = "cpp/ggml-opencl/*.{c,cpp}", "cpp/ggml-hexagon/**/*.{c,cpp}", "cpp/tools/mtmd/debug/*.cpp", "cpp/codec/common/tts_runner*.cpp"
+    # common/jinja/string.h must stay out of the pod's header map, or every
+    # <string.h> in the target resolves to it; jinja itself finds it next to
+    # value.h and via the common/ search path.
+    s.exclude_files = "#{llama_cpp}/tools/mtmd/debug/*.cpp", "#{codec_cpp}/common/tts_runner*.cpp",
+      "#{llama_cpp}/common/jinja/string.h"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
-    header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
-    header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/common"'
-    header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/hash"'
+    # Same order as cmake/rnllama-sources.cmake (basename collisions are
+    # resolved by order: common/ before src/ and ggml/src/ggml-cpu).
+    [
+      "cpp",
+      llama_cpp,
+      "#{llama_cpp}/include",
+      "#{llama_cpp}/ggml/include",
+      "#{llama_cpp}/ggml/src",
+      "#{llama_cpp}/common",
+      "#{llama_cpp}/src",
+      "#{llama_cpp}/ggml/src/ggml-cpu",
+      "#{llama_cpp}/tools/mtmd",
+      "#{llama_cpp}/vendor",
+      "#{llama_cpp}/vendor/hash",
+      "#{codec_cpp}/include",
+      "#{codec_cpp}/common",
+    ].each { |dir| header_search_paths << "\"$(PODS_TARGET_SRCROOT)/#{dir}\"" }
   else
     # JSI bindings always compiled from source (must match RN version)
     s.source_files = "ios/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
     base_compiler_flags += " -DRNLLAMA_USE_FRAMEWORK_HEADERS"
+    # Header-only JSON dependency needed by JSI when using the prebuilt xcframework
+    header_search_paths << "\"$(PODS_TARGET_SRCROOT)/#{llama_cpp}/vendor\""
   end
 
-  # Header-only JSON dependency needed by JSI when using the prebuilt xcframework
-  s.preserve_paths = "cpp/nlohmann/**/*.{h,hpp}"
+  s.preserve_paths = "#{llama_cpp}/vendor/nlohmann/**/*.hpp"
 
   s.compiler_flags = base_compiler_flags
   pod_target_xcconfig = {

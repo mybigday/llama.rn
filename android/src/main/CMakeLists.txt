@@ -12,14 +12,10 @@ find_package(fbjni CONFIG REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/rnllama-sources.cmake)
 
-# Include directories for rnllama headers (needed by JNI wrapper)
-include_directories(
-    ${RNLLAMA_LIB_DIR}
-    ${RNLLAMA_LIB_DIR}/common
-    ${RNLLAMA_LIB_DIR}/common/jinja
-)
+# rnllama headers for the JNI wrapper
+include_directories(${RNLLAMA_INCLUDE_DIRS})
 
 find_library(LOG_LIB log)
 
@@ -34,12 +30,12 @@ endif()
 # JNI wrapper source files (always build from source)
 set(JNI_SOURCE_FILES
     ${CMAKE_SOURCE_DIR}/RNLlamaJSI.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/RNLlamaJSI.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIContext.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIUtils.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIParams.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSITaskManager.cpp
-    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/ThreadPool.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/RNLlamaJSI.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/JSIContext.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/JSIUtils.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/JSIParams.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/JSITaskManager.cpp
+    ${RNLLAMA_CPP_DIR}/jsi/ThreadPool.cpp
 )
 
 function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
@@ -120,7 +116,7 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
 
     # Special handling for OpenCL variant when building from source
     if (RNLLAMA_BUILD_FROM_SOURCE AND ENABLE_OPENCL)
-        set(OPENCL_STUB_DIR ${CMAKE_SOURCE_DIR}/../../../bin/${ANDROID_ABI})
+        set(OPENCL_STUB_DIR ${RNLLAMA_ROOT_DIR}/bin/${ANDROID_ABI})
         set(OPENCL_STUB ${OPENCL_STUB_DIR}/libOpenCL.so)
 
         if (EXISTS ${OPENCL_STUB})

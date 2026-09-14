@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
-# update android specific submodules
+# Builds the OpenCL ICD loader (libOpenCL.so) for Android from the vendored
+# vendor/OpenCL-ICD-Loader; the result is only used as a link stub.
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$ROOT_DIR"
-OPENCL_ICD_SUBMODULE=third_party/OpenCL-ICD-Loader
-OPENCL_HEADERS_SUBMODULE=third_party/OpenCL-Headers
-OPENCL_HEADERS_DIR="$ROOT_DIR/$OPENCL_HEADERS_SUBMODULE"
-
-git submodule update --init --recursive "$OPENCL_ICD_SUBMODULE"
-git submodule update --init --recursive "$OPENCL_HEADERS_SUBMODULE"
+OPENCL_ICD_DIR=vendor/OpenCL-ICD-Loader
+OPENCL_HEADERS_DIR="$ROOT_DIR/vendor/OpenCL-Headers"
 
 NDK_VERSION=27.3.13750724
 CMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake
@@ -53,7 +50,7 @@ fi
 
 t0=$(date +%s)
 mkdir -p "$ROOT_DIR/bin"
-cd "$OPENCL_ICD_SUBMODULE"
+cd "$OPENCL_ICD_DIR"
 
 # Function to build for a given ABI
 build_opencl() {
@@ -69,6 +66,7 @@ build_opencl() {
     -DANDROID_ABI=$ABI \
     -DANDROID_PLATFORM=$ANDROID_PLATFORM \
     -DANDROID_STL=c++_shared \
+    -DBUILD_TESTING=OFF \
     -DOPENCL_ICD_LOADER_HEADERS_DIR=$OPENCL_HEADERS_DIR
 
   $CMAKE_PATH --build . --config Release -j $n_cpu

@@ -1,0 +1,21 @@
+# Upstream pins for the vendored trees under vendor/.
+#
+# Edit a *_REF (tag, branch or commit), then run `npm run sync:vendor`.
+# The script resolves *_REF to *_COMMIT and rewrites those lines itself.
+# See vendor/README.md.
+
+LLAMA_CPP_REPO=https://github.com/ggml-org/llama.cpp
+LLAMA_CPP_REF=b10829
+LLAMA_CPP_COMMIT=5fdfa6282936576d2f352d4b97f397a109f207a6
+
+CODEC_CPP_REPO=https://github.com/mybigday/codec.cpp
+CODEC_CPP_REF=63ade8bf2fa3451f9eca7ebaa39f792cc529438e
+CODEC_CPP_COMMIT=63ade8bf2fa3451f9eca7ebaa39f792cc529438e
+
+OPENCL_HEADERS_REPO=https://github.com/KhronosGroup/OpenCL-Headers
+OPENCL_HEADERS_REF=0c54eeb2b1571718a04f85eaddd51df594bd3c3e
+OPENCL_HEADERS_COMMIT=0c54eeb2b1571718a04f85eaddd51df594bd3c3e
+
+OPENCL_ICD_LOADER_REPO=https://github.com/KhronosGroup/OpenCL-ICD-Loader
+OPENCL_ICD_LOADER_REF=02134b05bdff750217bf0c4c11a9b13b63957b04
+OPENCL_ICD_LOADER_COMMIT=02134b05bdff750217bf0c4c11a9b13b63957b04

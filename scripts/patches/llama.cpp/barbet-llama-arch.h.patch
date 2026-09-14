@@ -1,0 +1,10 @@
+--- a/src/llama-arch.h
++++ b/src/llama-arch.h
+@@ -157,6 +157,7 @@
+     LLM_ARCH_EAGLE3,
+     LLM_ARCH_MINIMAX_M3,
+     LLM_ARCH_DFLASH,
++    LLM_ARCH_BARBET,
+     LLM_ARCH_NANBEIGE,
+     LLM_ARCH_QWEN3TTS,
+     LLM_ARCH_POCKETTTS,

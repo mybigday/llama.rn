@@ -1,13 +1,13 @@
 ---
 name: device-test
-description: Build and run the llama.rn example app on real hardware to validate native (cpp/) changes end-to-end - iOS-on-Mac ("Designed for iPad" on Apple Silicon, real Metal GPU) and Android on a connected Snapdragon device with ggml-hexagon (HTP/NPU) enabled. Use this whenever the user wants to test on a real device or real GPU/NPU, says "run on my mac", "test on the phone/device", mentions hexagon, HTP, NPU, Metal GPU testing, or after C++ changes when unit tests pass but on-device verification is needed. Both flows compile the C++ from source, so cpp/ edits take effect.
+description: Build and run the llama.rn example app on real hardware to validate native (cpp/, vendor/llama.cpp) changes end-to-end - iOS-on-Mac ("Designed for iPad" on Apple Silicon, real Metal GPU) and Android on a connected Snapdragon device with ggml-hexagon (HTP/NPU) enabled. Use this whenever the user wants to test on a real device or real GPU/NPU, says "run on my mac", "test on the phone/device", mentions hexagon, HTP, NPU, Metal GPU testing, or after C++ changes when unit tests pass but on-device verification is needed. Both flows compile the C++ from source, so cpp/ and vendor/ edits take effect.
 ---
 
 # Real-device test process (example app)
 
 Both example builds compile llama.rn's C++ from source (`RNLLAMA_BUILD_FROM_SOURCE=1`
 in `example/ios/Podfile`, `rnllamaBuildFromSource=true` in
-`example/android/gradle.properties`), so changes under `cpp/` are exercised for
+`example/android/gradle.properties`), so changes under `cpp/` and `vendor/` are exercised for
 real. First builds are long (iOS ~5-10 min, Android ~20 min including the
 Hexagon HTP Docker build); incremental rebuilds are much faster. Run long
 builds in the background and verify artifacts when they finish.
