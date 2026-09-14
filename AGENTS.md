@@ -27,6 +27,7 @@
 3. **C++ Core (`cpp/` + `vendor/`)**
    - `cpp/` holds only llama.rn's own code: `rn-llama.cpp`, `rn-completion.cpp`, `rn-slot.cpp`, `rn-slot-manager.cpp`, `rn-mtmd.hpp`, `rn-tts.cpp`, `anyascii.*`, and `jsi/`
    - llama.cpp and codec.cpp are vendored under `vendor/` in their upstream layout (`vendor/llama.cpp/{include,src,ggml,common,tools/mtmd,vendor}`), pinned by `vendor/VERSIONS`, with llama.rn changes kept as `-p1` patches in `scripts/patches/<dep>/`. No git submodules, no symbol renaming. See `vendor/README.md`.
+   - `vendor/llama.cpp` is also consumed by llama.node via upstream's CMake project, so it carries upstream's build files, all of `common/` and the CUDA/Vulkan/WebGPU backends. llama.rn's builds never compile those; `cmake/rnllama-sources.cmake` and `llama-rn.podspec` filter them out (keep the two in sync).
    - `cmake/rnllama-sources.cmake` is the single source/include list every CMake build uses; `llama-rn.podspec` mirrors it for CocoaPods
    - Parallel decoding relies on the slot manager and request queues
 

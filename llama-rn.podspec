@@ -50,12 +50,19 @@ Pod::Spec.new do |s|
       "#{llama_cpp}/tools/mtmd/**/*.{h,cpp}",
       "#{llama_cpp}/vendor/**/*.{h,hpp,c,cpp}",
       "#{codec_cpp}/{include,src,common}/**/*.{h,cpp}"
-    # Exclude standalone tooling sources. The mtmd debug CLI depends on
-    # common/arg.h; codec's reference runners also conflict with rn-tts.
-    # common/jinja/string.h must stay out of the pod's header map, or every
-    # <string.h> in the target resolves to it; jinja itself finds it next to
-    # value.h and via the common/ search path.
-    s.exclude_files = "#{llama_cpp}/tools/mtmd/debug/*.cpp", "#{codec_cpp}/common/tts_runner*.cpp",
+    # Exclude what no llama.rn build compiles (same set as the filters in
+    # cmake/rnllama-sources.cmake): the parts of vendor/llama.cpp that are
+    # only there for upstream's CMake project (see vendor/README.md), the
+    # mtmd debug CLI, and codec's reference runners which conflict with
+    # rn-tts. common/jinja/string.h must stay out of the pod's header map, or
+    # every <string.h> in the target resolves to it; jinja itself finds it
+    # next to value.h and via the common/ search path.
+    s.exclude_files = "#{llama_cpp}/src/llama-quant.cpp", "#{llama_cpp}/ggml/src/ggml.cpp",
+      "#{llama_cpp}/common/{arg,console,debug,download,hf-cache,imatrix-loader,llguidance,preset,subproc}.cpp",
+      "#{llama_cpp}/ggml/src/ggml-cpu/hbm.cpp",
+      "#{llama_cpp}/ggml/src/ggml-cpu/{kleidiai,llamafile,arch/wasm}/*",
+      "#{llama_cpp}/vendor/{cpp-httplib,hash/sha1,hash/xxhash}/*",
+      "#{llama_cpp}/tools/mtmd/debug/*.cpp", "#{codec_cpp}/common/tts_runner*.cpp",
       "#{llama_cpp}/common/jinja/string.h"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     # Same order as cmake/rnllama-sources.cmake (basename collisions are

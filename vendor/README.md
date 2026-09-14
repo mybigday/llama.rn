@@ -7,13 +7,25 @@ files in place.
 
 | Directory | Upstream | What is vendored |
 | --- | --- | --- |
-| `llama.cpp/` | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | `include/`, `src/`, `ggml/{include,src}` (CPU, Metal, BLAS, OpenCL, Hexagon backends), the parts of `common/` and `tools/mtmd/` we use, `vendor/{nlohmann,hash,miniaudio,stb}` |
+| `llama.cpp/` | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | `include/`, `src/`, `common/`, `ggml/{include,src}` (CPU, Metal, BLAS, OpenCL, Hexagon, CUDA, Vulkan, WebGPU backends), the library part of `tools/mtmd/`, `vendor/{nlohmann,hash,miniaudio,stb,sheredom,cpp-httplib}`, and the CMake project files |
 | `codec.cpp/` | [mybigday/codec.cpp](https://github.com/mybigday/codec.cpp) | `include/`, `src/`, `common/`, `examples/utils/` |
 | `OpenCL-Headers/` | [KhronosGroup/OpenCL-Headers](https://github.com/KhronosGroup/OpenCL-Headers) | `CL/` |
 | `OpenCL-ICD-Loader/` | [KhronosGroup/OpenCL-ICD-Loader](https://github.com/KhronosGroup/OpenCL-ICD-Loader) | the CMake project that builds the Android `libOpenCL.so` link stub |
 
 `VERSIONS` pins the upstream ref and resolved commit of each tree. The exact
 file list lives in `scripts/sync-vendor.sh`.
+
+`llama.cpp/` serves two consumers. llama.rn's builds pick their sources from
+`cmake/rnllama-sources.cmake` and `llama-rn.podspec`. [llama.node](https://github.com/mybigday/llama.node)
+syncs llama.rn and builds the same tree through upstream's own CMake project
+(`add_subdirectory(vendor/llama.cpp)`), which is why the tree also carries the
+`CMakeLists.txt`/`cmake/` files, all of `common/`, `vendor/cpp-httplib`,
+`vendor/sheredom`, the CUDA/Vulkan/WebGPU backends and the wasm CPU kernels.
+llama.rn never compiles those; its source lists filter them out, and the npm
+package leaves out the three desktop backends. Note that upstream's
+`cmake/build-info.cmake` reads the enclosing git checkout, so a build through
+that project reports llama.rn's commit, not llama.cpp's; the pinned upstream
+commit is in `VERSIONS` and `src/version.ts`.
 
 ## Updating a dependency
 
