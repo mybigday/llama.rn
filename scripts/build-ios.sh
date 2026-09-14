@@ -39,7 +39,7 @@ copy_headers() {
 
   # common/ headers the glue needs, at the root (included without a path prefix)
   local h
-  for h in chat.h common.h sampling.h speculative.h json.h json-schema-to-grammar.h peg-parser.h; do
+  for h in chat.h common.h sampling.h speculative.h json.h json-schema-to-grammar.h json-schema.h peg-parser.h; do
     cp "$llama_cpp/common/$h" "$headers/"
   done
 }
