@@ -109,12 +109,12 @@ void llama_model_laguna::load_arch_tensors(llama_model_loader & ml) {
         // the per-head reshape path is still exercised.
         const int64_t n_gate_per_head = n_head_il;
         const int64_t n_gate_per_elem = n_embd_head_k * n_head_il;
-        const lm_ggml_tensor * gate_meta = ml.get_tensor_meta(tn(LLM_TENSOR_ATTN_GATE, "weight", i).str().c_str());
+        const ggml_tensor * gate_meta = ml.get_tensor_meta(tn(LLM_TENSOR_ATTN_GATE, "weight", i).str().c_str());
         int64_t n_gate_out;
         if (gate_meta != nullptr) {
             n_gate_out = gate_meta->ne[1];
             if (n_gate_out != n_gate_per_head && n_gate_out != n_gate_per_elem) {
-                LM_GGML_ABORT("Laguna: unexpected attention gate width %lld at layer %d "
+                GGML_ABORT("Laguna: unexpected attention gate width %lld at layer %d "
                            "(expected %lld per-head or %lld per-element)",
                            (long long) n_gate_out, i, (long long) n_gate_per_head, (long long) n_gate_per_elem);
             }
@@ -153,21 +153,21 @@ std::unique_ptr<llm_graph_context> llama_model_laguna::build_arch_graph(const ll
 
 llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
     // No MuP embedding scale (laguna omits this; afmoe scales by sqrt(hidden)).
 
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
     // XS.2 is hybrid SWA -> interleaved-SWA KV input; M.1 is all-full -> plain
     // KV input. Pick the matching input (and build_attn overload) per swa_type.
     const bool has_swa = hparams.swa_type != LLAMA_SWA_TYPE_NONE;
     llm_graph_input_attn_kv      * inp_attn_kv   = has_swa ? nullptr : build_attn_inp_kv();
     llm_graph_input_attn_kv_iswa * inp_attn_iswa = has_swa ? build_attn_inp_kv_iswa() : nullptr;
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     const float kq_scale = 1.0f / sqrtf(float(n_embd_head));
 
@@ -192,7 +192,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
         const float beta_slow_l   = is_swa_il ? 0.0f : beta_slow;
         const int   n_ctx_orig_l  = is_swa_il ? hparams.n_ctx_train : n_ctx_orig;
 
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // Pre-norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -200,7 +200,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
 
         // Self-attention
         {
-            lm_ggml_tensor * attn_inp = cur;  // saved for the gate projection
+            ggml_tensor * attn_inp = cur;  // saved for the gate projection
 
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head_il, n_head_kv_il, il);
@@ -208,7 +208,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
             // g_proj on the *pre-attention* hidden state (matches HF
             // reference: gate is computed from the same `hidden_states`
             // input as q/k/v, not from the attn output).
-            lm_ggml_tensor * gate = build_lora_mm(model.layers[il].wqkv_gate, attn_inp);
+            ggml_tensor * gate = build_lora_mm(model.layers[il].wqkv_gate, attn_inp);
             cb(gate, "attn_gate_proj", il);
 
             // QK RMSNorm at head_dim level (Qwen3 style)
@@ -217,10 +217,10 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
             cb(Qcur, "Qcur_normed", il);
             cb(Kcur, "Kcur_normed", il);
 
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr,
                     n_rot_l, rope_type, n_ctx_orig_l, freq_base_l, freq_scale_l,
                     ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr,
                     n_rot_l, rope_type, n_ctx_orig_l, freq_base_l, freq_scale_l,
                     ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
             cb(Qcur, "Qcur_rope", il);
@@ -242,18 +242,18 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
             //                       [1, n_head_il, n_tokens] and broadcast over
             //                       head_dim against cur [head_dim, n_head, T].
             //   M.1  per-element  : gate [n_head_il*head_dim, n_tokens] spans the
-            //                       full attention output -> direct lm_ggml_mul.
-            gate = lm_ggml_softplus(ctx0, gate);
+            //                       full attention output -> direct ggml_mul.
+            gate = ggml_softplus(ctx0, gate);
             cb(gate, "attn_gate_softplus", il);
 
             const int64_t n_tokens = cur->ne[1];
             if (model.layers[il].wqkv_gate->ne[1] == n_head_il) {
-                cur  = lm_ggml_reshape_3d(ctx0, cur,  n_embd_head, n_head_il, n_tokens);
-                gate = lm_ggml_reshape_3d(ctx0, gate, 1,           n_head_il, n_tokens);
-                cur  = lm_ggml_mul(ctx0, cur, gate);
-                cur  = lm_ggml_reshape_2d(ctx0, cur, n_embd_head * n_head_il, n_tokens);
+                cur  = ggml_reshape_3d(ctx0, cur,  n_embd_head, n_head_il, n_tokens);
+                gate = ggml_reshape_3d(ctx0, gate, 1,           n_head_il, n_tokens);
+                cur  = ggml_mul(ctx0, cur, gate);
+                cur  = ggml_reshape_2d(ctx0, cur, n_embd_head * n_head_il, n_tokens);
             } else {
-                cur = lm_ggml_mul(ctx0, cur, gate);
+                cur = ggml_mul(ctx0, cur, gate);
             }
             cb(cur, "attn_gated", il);
 
@@ -262,11 +262,11 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // Pre-norm only (no post-attn norm)
@@ -276,7 +276,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
         if ((uint32_t)il >= hparams.n_layer_dense_lead) {
             // MoE: sigmoid routing + score-correction bias + sum-norm +
             // routed_scaling_factor (all handled by build_moe_ffn).
-            lm_ggml_tensor * moe_out = build_moe_ffn(cur,
+            ggml_tensor * moe_out = build_moe_ffn(cur,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
                     model.layers[il].ffn_gate_exps,
@@ -291,7 +291,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
             cb(moe_out, "ffn_moe_out", il);
 
             // Always-on shared expert, summed in parallel.
-            lm_ggml_tensor * ffn_shexp = build_ffn(cur,
+            ggml_tensor * ffn_shexp = build_ffn(cur,
                     model.layers[il].ffn_up_shexp,   NULL, NULL,
                     model.layers[il].ffn_gate_shexp, NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, NULL,
@@ -299,7 +299,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
                     LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(ffn_shexp, "ffn_shexp", il);
 
-            cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+            cur = ggml_add(ctx0, moe_out, ffn_shexp);
             cb(cur, "ffn_out", il);
         } else {
             // Dense FFN for the leading n_layer_dense_lead layers (XS.2: 1, M.1: 3)
@@ -313,7 +313,7 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
         }
 
         // No post-ffn norm
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
 
@@ -329,5 +329,5 @@ llama_model_laguna::graph::graph(const llama_model & model, const llm_graph_para
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

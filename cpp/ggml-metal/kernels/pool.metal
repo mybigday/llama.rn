@@ -1,7 +1,7 @@
 #include "common.h"
 
 kernel void kernel_pool_2d_max_f32(
-        constant    lm_ggml_metal_kargs_pool_2d & args,
+        constant    ggml_metal_kargs_pool_2d & args,
         device  const float * src0,
         device        float * dst,
         uint        gid[[thread_position_in_grid]]) {
@@ -39,7 +39,7 @@ kernel void kernel_pool_2d_max_f32(
 }
 
 kernel void kernel_pool_2d_avg_f32(
-        constant    lm_ggml_metal_kargs_pool_2d & args,
+        constant    ggml_metal_kargs_pool_2d & args,
         device  const float * src0,
         device        float * dst,
         uint        gid[[thread_position_in_grid]]) {
@@ -81,7 +81,7 @@ kernel void kernel_pool_2d_avg_f32(
 
 
 kernel void kernel_pool_1d_max_f32(
-        constant        lm_ggml_metal_kargs_pool_1d & args,
+        constant        ggml_metal_kargs_pool_1d & args,
         device  const   float * src,
         device          float * dst,
         uint            gid [[thread_position_in_grid]]
@@ -114,7 +114,7 @@ kernel void kernel_pool_1d_max_f32(
 }
 
 kernel void kernel_pool_1d_avg_f32(
-        constant        lm_ggml_metal_kargs_pool_1d & args,
+        constant        ggml_metal_kargs_pool_1d & args,
         device  const   float * src,
         device          float * dst,
         uint            gid [[thread_position_in_grid]]

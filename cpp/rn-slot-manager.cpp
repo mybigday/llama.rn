@@ -164,8 +164,8 @@ void llama_rn_slot_manager::reset_mtp_speculative() {
     mtp_spec_p_min = 0.0f;
     mtp_spec_backend_sampling = true;
     mtp_spec_n_gpu_layers = -1;
-    mtp_spec_cache_type_k = LM_GGML_TYPE_F16;
-    mtp_spec_cache_type_v = LM_GGML_TYPE_F16;
+    mtp_spec_cache_type_k = GGML_TYPE_F16;
+    mtp_spec_cache_type_v = GGML_TYPE_F16;
 }
 
 int32_t llama_rn_slot_manager::reserve_request_id() {
@@ -453,7 +453,7 @@ void llama_rn_slot_manager::release_slot(llama_rn_slot* slot) {
     LOG_VERBOSE("Releasing slot %d", slot->id);
 
     // Update last used timestamp for LRU tracking
-    slot->t_last_used = lm_ggml_time_us();
+    slot->t_last_used = ggml_time_us();
 
     // Reset slot (cache_tokens is preserved by reset() for potential reuse)
     slot->reset();
@@ -620,7 +620,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 }
 
                 // Start timing AFTER state loading completes
-                slot->t_start_process = lm_ggml_time_us();
+                slot->t_start_process = ggml_time_us();
 
                 // Always load prompt - it will detect and preserve state if appropriate
                 bool has_media = !request.media_paths.empty();
@@ -655,7 +655,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->params_storage = request.params;
                 slot->params = &slot->params_storage;
                 // Start timing (no state loading for embeddings)
-                slot->t_start_process = lm_ggml_time_us();
+                slot->t_start_process = ggml_time_us();
 
                 slot->media_paths.clear();
                 slot->prompt_text.clear();
@@ -672,7 +672,7 @@ void llama_rn_slot_manager::process_pending_queue() {
             case SLOT_TASK_TYPE_RERANK: {
                 slot->params = nullptr;
                 // Start timing (memory clear is part of the task, not overhead)
-                slot->t_start_process = lm_ggml_time_us();
+                slot->t_start_process = ggml_time_us();
 
                 if (parent_ctx && parent_ctx->ctx) {
                     // Only this slot's sequence - a global clear would corrupt
@@ -1111,7 +1111,7 @@ void llama_rn_slot_manager::sample_and_callback() {
                         token_output.text = slot.utf8_gate.feed(token_output.text);
                         slot.generated_text += token_output.text;
 
-                        const int64_t t_current = lm_ggml_time_us();
+                        const int64_t t_current = ggml_time_us();
                         slot.t_token_generation = (t_current - slot.t_start_generation) / 1e6;
 
                         slot.generated_tokens.push_back(token_output.tok);
@@ -1229,7 +1229,7 @@ void llama_rn_slot_manager::sample_and_callback() {
                 slot.generated_text += token_text;
 
                 // Update token generation timing
-                const int64_t t_current = lm_ggml_time_us();
+                const int64_t t_current = ggml_time_us();
                 slot.t_token_generation = (t_current - slot.t_start_generation) / 1e6;
 
                 completion_token_output token_output;
@@ -1478,7 +1478,7 @@ void llama_rn_slot_manager::update_slots() {
         // This must happen AFTER batch has been decoded
         {
             std::lock_guard<std::mutex> lock(slots_mutex);
-            const int64_t t_now = lm_ggml_time_us();
+            const int64_t t_now = ggml_time_us();
             for (auto& slot : slots) {
                 if (slot.prompt_processing_finished) {
                     slot.t_start_generation = t_now;

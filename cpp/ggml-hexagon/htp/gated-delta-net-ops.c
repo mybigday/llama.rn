@@ -5,7 +5,7 @@
 #include "hvx-utils.h"
 #include "hex-fastdiv.h"
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "htp-ctx.h"
 

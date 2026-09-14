@@ -2,7 +2,7 @@
 
 // bitonic sort implementation following the CUDA kernels as reference
 typedef void (argsort_t)(
-        constant   lm_ggml_metal_kargs_argsort & args,
+        constant   ggml_metal_kargs_argsort & args,
         device   const char * src0,
         device      int32_t * dst,
         threadgroup int32_t * shmem_i32 [[threadgroup(0)]],
@@ -10,9 +10,9 @@ typedef void (argsort_t)(
         ushort3 tpitg[[thread_position_in_threadgroup]],
         ushort3   ntg[[threads_per_threadgroup]]);
 
-template<lm_ggml_sort_order order>
+template<ggml_sort_order order>
 kernel void kernel_argsort_f32_i32(
-        constant   lm_ggml_metal_kargs_argsort & args,
+        constant   ggml_metal_kargs_argsort & args,
         device   const char * src0,
         device      int32_t * dst,
         threadgroup int32_t * shmem_i32 [[threadgroup(0)]],
@@ -41,7 +41,7 @@ kernel void kernel_argsort_f32_i32(
             if (ixj > col) {
                 if ((col & k) == 0) {
                     if (shmem_i32[col] >= args.ne00 ||
-                       (shmem_i32[ixj] <  args.ne00 && (order == LM_GGML_SORT_ORDER_ASC ?
+                       (shmem_i32[ixj] <  args.ne00 && (order == GGML_SORT_ORDER_ASC ?
                             src0_row[shmem_i32[col]] > src0_row[shmem_i32[ixj]] :
                             src0_row[shmem_i32[col]] < src0_row[shmem_i32[ixj]]))
                     ) {
@@ -49,7 +49,7 @@ kernel void kernel_argsort_f32_i32(
                     }
                 } else {
                     if (shmem_i32[ixj] >= args.ne00 ||
-                       (shmem_i32[col] <  args.ne00 && (order == LM_GGML_SORT_ORDER_ASC ?
+                       (shmem_i32[col] <  args.ne00 && (order == GGML_SORT_ORDER_ASC ?
                             src0_row[shmem_i32[col]] < src0_row[shmem_i32[ixj]] :
                             src0_row[shmem_i32[col]] > src0_row[shmem_i32[ixj]]))
                     ) {
@@ -72,11 +72,11 @@ kernel void kernel_argsort_f32_i32(
     }
 }
 
-template [[host_name("kernel_argsort_f32_i32_asc")]]  kernel argsort_t kernel_argsort_f32_i32<LM_GGML_SORT_ORDER_ASC>;
-template [[host_name("kernel_argsort_f32_i32_desc")]] kernel argsort_t kernel_argsort_f32_i32<LM_GGML_SORT_ORDER_DESC>;
+template [[host_name("kernel_argsort_f32_i32_asc")]]  kernel argsort_t kernel_argsort_f32_i32<GGML_SORT_ORDER_ASC>;
+template [[host_name("kernel_argsort_f32_i32_desc")]] kernel argsort_t kernel_argsort_f32_i32<GGML_SORT_ORDER_DESC>;
 
 typedef void (argsort_merge_t)(
-        constant   lm_ggml_metal_kargs_argsort_merge & args,
+        constant   ggml_metal_kargs_argsort_merge & args,
         device const char    * src0,
         device const int32_t * tmp,
         device       int32_t * dst,
@@ -84,9 +84,9 @@ typedef void (argsort_merge_t)(
         ushort3 tpitg[[thread_position_in_threadgroup]],
         ushort3   ntg[[threads_per_threadgroup]]);
 
-template<lm_ggml_sort_order order>
+template<ggml_sort_order order>
 kernel void kernel_argsort_merge_f32_i32(
-        constant   lm_ggml_metal_kargs_argsort_merge & args,
+        constant   ggml_metal_kargs_argsort_merge & args,
         device const char    * src0,
         device const int32_t * tmp,
         device       int32_t * dst,
@@ -154,7 +154,7 @@ kernel void kernel_argsort_merge_f32_i32(
         const float val1 = src0_row[idx1];
 
         bool take_left;
-        if (order == LM_GGML_SORT_ORDER_ASC) {
+        if (order == GGML_SORT_ORDER_ASC) {
             take_left = (val0 <= val1);
         } else {
             take_left = (val0 >= val1);
@@ -201,7 +201,7 @@ kernel void kernel_argsort_merge_f32_i32(
         } else {
             bool take_left;
 
-            if (order == LM_GGML_SORT_ORDER_ASC) {
+            if (order == GGML_SORT_ORDER_ASC) {
                 take_left = (val0 <= val1);
             } else {
                 take_left = (val0 >= val1);
@@ -228,10 +228,10 @@ kernel void kernel_argsort_merge_f32_i32(
     }
 }
 
-template [[host_name("kernel_argsort_merge_f32_i32_asc")]]  kernel argsort_merge_t kernel_argsort_merge_f32_i32<LM_GGML_SORT_ORDER_ASC>;
-template [[host_name("kernel_argsort_merge_f32_i32_desc")]] kernel argsort_merge_t kernel_argsort_merge_f32_i32<LM_GGML_SORT_ORDER_DESC>;
+template [[host_name("kernel_argsort_merge_f32_i32_asc")]]  kernel argsort_merge_t kernel_argsort_merge_f32_i32<GGML_SORT_ORDER_ASC>;
+template [[host_name("kernel_argsort_merge_f32_i32_desc")]] kernel argsort_merge_t kernel_argsort_merge_f32_i32<GGML_SORT_ORDER_DESC>;
 
-static inline uint lm_ggml_top_k_f2ui(float x) {
+static inline uint ggml_top_k_f2ui(float x) {
     uint y = as_type<uint>(x);
     if ((y & 0x80000000u) != 0u) {
         y ^= 0xFFFFFFFFu; // negative floats: flip all bits
@@ -242,7 +242,7 @@ static inline uint lm_ggml_top_k_f2ui(float x) {
 }
 
 kernel void kernel_top_k_f32_i32(
-        constant   lm_ggml_metal_kargs_top_k & args,
+        constant   ggml_metal_kargs_top_k & args,
         device   const char * src0,
         device      int32_t * dst,
         threadgroup atomic_uint * histo     [[threadgroup(0)]],
@@ -279,7 +279,7 @@ kernel void kernel_top_k_f32_i32(
         const uint prefix_hi = prefix & hi_mask;
 
         for (uint i = tid; i < ncols; i += ntg_x) {
-            const uint key = lm_ggml_top_k_f2ui(src0_row[i]);
+            const uint key = ggml_top_k_f2ui(src0_row[i]);
             if ((key & hi_mask) == prefix_hi) {
                 atomic_fetch_add_explicit(&histo[(key >> uint(shift)) & 0xFFu], 1u, memory_order_relaxed);
             }
@@ -319,7 +319,7 @@ kernel void kernel_top_k_f32_i32(
     const uint threshold = prefix;
 
     for (uint i = tid; i < ncols; i += ntg_x) {
-        if (lm_ggml_top_k_f2ui(src0_row[i]) > threshold) {
+        if (ggml_top_k_f2ui(src0_row[i]) > threshold) {
             const uint pos = atomic_fetch_add_explicit(out_count, 1u, memory_order_relaxed);
             dst_row[pos] = (int32_t) i;
         }
@@ -327,7 +327,7 @@ kernel void kernel_top_k_f32_i32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     for (uint i = tid; i < ncols; i += ntg_x) {
-        if (lm_ggml_top_k_f2ui(src0_row[i]) == threshold) {
+        if (ggml_top_k_f2ui(src0_row[i]) == threshold) {
             const uint pos = atomic_fetch_add_explicit(out_count, 1u, memory_order_relaxed);
             if (pos < top_k) {
                 dst_row[pos] = (int32_t) i;

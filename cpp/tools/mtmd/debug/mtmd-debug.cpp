@@ -52,7 +52,7 @@ static void show_additional_info(int /*argc*/, char ** argv) {
 int main(int argc, char ** argv) {
     std::setlocale(LC_NUMERIC, "C");
 
-    lm_ggml_time_init();
+    ggml_time_init();
 
     common_params params;
 
@@ -70,7 +70,7 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    lm_ggml_backend_load_all();
+    ggml_backend_load_all();
 
     LOG_INF("%s: loading model: %s\n", __func__, params.model.path.c_str());
 

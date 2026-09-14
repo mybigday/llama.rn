@@ -19,16 +19,16 @@
 llama_memory_hybrid_idx::llama_memory_hybrid_idx(
         const llama_model & model,
                             /* attn */
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                  uint32_t   kv_size,
                  uint32_t   n_pad,
                  uint32_t   n_swa,
            llama_swa_type   swa_type,
                             /* recurrent */
-                lm_ggml_type   type_r,
-                lm_ggml_type   type_s,
+                ggml_type   type_r,
+                ggml_type   type_s,
                  uint32_t   rs_size,
                             /* common */
                  uint32_t   n_seq_max,
@@ -189,8 +189,8 @@ void llama_memory_hybrid_idx::seq_div(llama_seq_id seq_id, llama_pos p0, llama_p
     }
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_memory_hybrid_idx::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> mb = llama_memory_hybrid::memory_breakdown();
+std::map<ggml_backend_buffer_type_t, size_t> llama_memory_hybrid_idx::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> mb = llama_memory_hybrid::memory_breakdown();
 
     if (mem_idx) {
         for (const auto & buft_size : mem_idx->memory_breakdown()) {
@@ -267,17 +267,17 @@ llama_kv_cache * llama_memory_hybrid_idx::get_mem_idx() const {
 }
 
 void llama_memory_hybrid_idx::set_input_qsa(
-        lm_ggml_tensor * cell_blk,
-        lm_ggml_tensor * blk_cells,
-        lm_ggml_tensor * blk_pos,
-        lm_ggml_tensor * bias,
+        ggml_tensor * cell_blk,
+        ggml_tensor * blk_cells,
+        ggml_tensor * blk_pos,
+        ggml_tensor * bias,
         const llama_ubatch * ubatch,
         uint32_t ratio,
         bool blk_bias) const {
-    LM_GGML_ASSERT(ratio > 0);
-    LM_GGML_ASSERT(get_mem_idx() != nullptr);
+    GGML_ASSERT(ratio > 0);
+    GGML_ASSERT(get_mem_idx() != nullptr);
 
-    LM_GGML_ASSERT(lm_ggml_backend_buffer_is_host(cell_blk->buffer));
+    GGML_ASSERT(ggml_backend_buffer_is_host(cell_blk->buffer));
 
     const int64_t n_kv     = cell_blk->ne[0];
     const int64_t n_ns     = cell_blk->ne[1];        // streams in this ubatch
@@ -285,7 +285,7 @@ void llama_memory_hybrid_idx::set_input_qsa(
     const int64_t n_tokens = ubatch->n_tokens;
     const int64_t r        = ratio;
 
-    LM_GGML_ASSERT(n_tokens % n_ns == 0);
+    GGML_ASSERT(n_tokens % n_ns == 0);
     const int64_t n_tps = n_tokens/n_ns;             // tokens per stream
 
     int32_t * dst_cell_blk  = (int32_t *) cell_blk->data;
@@ -295,7 +295,7 @@ void llama_memory_hybrid_idx::set_input_qsa(
 
     // a block is keyed on (sequence set, index bucket): a unified cache counts every sequence
     // from zero, so the bucket alone would pool two sequences into one block
-    LM_GGML_ASSERT(r <= 64);
+    GGML_ASSERT(r <= 64);
     const uint64_t slots_full = r == 64 ? ~uint64_t(0) : ((uint64_t(1) << r) - 1);
 
     // TODO: this runs per ubatch and is O(n_kv) per stream, about 865 us at 33k context. the cost
@@ -449,7 +449,7 @@ void llama_memory_hybrid_idx::set_input_qsa(
             group_cells();
         }
 
-        LM_GGML_ASSERT((!blk_bias || !oor) && "qsa: cell position runs past the cell window");
+        GGML_ASSERT((!blk_bias || !oor) && "qsa: cell position runs past the cell window");
 
         int32_t n_bid = 0;
 
@@ -467,7 +467,7 @@ void llama_memory_hybrid_idx::set_input_qsa(
             }
         }
 
-        LM_GGML_ASSERT(n_bid <= n_blocks);
+        GGML_ASSERT(n_bid <= n_blocks);
 
         for (int32_t b = 0; b < n_bid; ++b) {
             int32_t sec_pos[4] = { bid_idx[b], bid_idx[b], bid_idx[b], bid_idx[b] };
@@ -660,20 +660,20 @@ const llama_kv_cache_context * llama_memory_hybrid_idx_context::get_idx() const 
 }
 
 uint32_t llama_memory_hybrid_idx_context::get_n_stream() const {
-    LM_GGML_ASSERT(i_cur < ns_ubatch.size());
+    GGML_ASSERT(i_cur < ns_ubatch.size());
 
     return ns_ubatch[i_cur];
 }
 
 void llama_memory_hybrid_idx_context::set_input_qsa(
-        lm_ggml_tensor * cell_blk,
-        lm_ggml_tensor * blk_cells,
-        lm_ggml_tensor * blk_pos,
-        lm_ggml_tensor * bias,
+        ggml_tensor * cell_blk,
+        ggml_tensor * blk_cells,
+        ggml_tensor * blk_pos,
+        ggml_tensor * bias,
         const llama_ubatch * ubatch,
         uint32_t ratio,
         bool blk_bias) const {
-    LM_GGML_ASSERT(mem != nullptr);
+    GGML_ASSERT(mem != nullptr);
 
     mem->set_input_qsa(cell_blk, blk_cells, blk_pos, bias, ubatch, ratio, blk_bias);
 }

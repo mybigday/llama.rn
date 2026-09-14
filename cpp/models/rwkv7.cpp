@@ -123,11 +123,11 @@ std::unique_ptr<llm_graph_context> llama_model_rwkv7::build_arch_graph(const llm
 
 llama_model_rwkv7::graph::graph(const llama_model & model, const llm_graph_params & params) :
     llm_build_rwkv7_base(model, params) {
-    LM_GGML_ASSERT(hparams.token_shift_count == 2);
+    GGML_ASSERT(hparams.token_shift_count == 2);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
-    lm_ggml_tensor * v_first = nullptr;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
+    ggml_tensor * v_first = nullptr;
 
     inpL = build_inp_embd(model.tok_embd);
     inpL = build_norm(inpL, model.tok_norm, model.tok_norm_b, LLM_NORM, 0);
@@ -138,57 +138,57 @@ llama_model_rwkv7::graph::graph(const llama_model & model, const llm_graph_param
     const auto n_seq_tokens = ubatch.n_seq_tokens;
     const auto n_seqs       = ubatch.n_seqs;
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const llama_layer * layer = &model.layers[il];
-        inpL                      = lm_ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
+        inpL                      = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
-        lm_ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, ubatch, il);
+        ggml_tensor * token_shift = build_rwkv_token_shift_load(rs_inp, ubatch, il);
 
-        lm_ggml_tensor * att_shift =
-            lm_ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], 0);
-        lm_ggml_tensor * ffn_shift = lm_ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1],
-                                               token_shift->nb[2], n_embd * lm_ggml_element_size(token_shift));
+        ggml_tensor * att_shift =
+            ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1], token_shift->nb[2], 0);
+        ggml_tensor * ffn_shift = ggml_view_3d(ctx0, token_shift, n_embd, 1, n_seqs, token_shift->nb[1],
+                                               token_shift->nb[2], n_embd * ggml_element_size(token_shift));
 
-        lm_ggml_tensor * att_norm = build_norm(inpL, layer->attn_norm, layer->attn_norm_b, LLM_NORM, il);
+        ggml_tensor * att_norm = build_norm(inpL, layer->attn_norm, layer->attn_norm_b, LLM_NORM, il);
         cb(att_norm, "attn_norm", il);
 
-        lm_ggml_tensor * x_prev = lm_ggml_concat(
+        ggml_tensor * x_prev = ggml_concat(
             ctx0, att_shift,
-            lm_ggml_view_3d(ctx0, att_norm, n_embd, n_seq_tokens - 1, n_seqs, att_norm->nb[1], att_norm->nb[2], 0), 1);
+            ggml_view_3d(ctx0, att_norm, n_embd, n_seq_tokens - 1, n_seqs, att_norm->nb[1], att_norm->nb[2], 0), 1);
 
         cur = build_rwkv7_time_mix(rs_inp, att_norm, x_prev, v_first, ubatch, il);
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpL);
         cb(ffn_inp, "ffn_inp", il);
 
-        lm_ggml_tensor * ffn_norm = build_norm(ffn_inp, layer->attn_norm_2, layer->attn_norm_2_b, LLM_NORM, il);
+        ggml_tensor * ffn_norm = build_norm(ffn_inp, layer->attn_norm_2, layer->attn_norm_2_b, LLM_NORM, il);
         cb(ffn_norm, "ffn_norm", il);
 
-        x_prev = lm_ggml_concat(
+        x_prev = ggml_concat(
             ctx0, ffn_shift,
-            lm_ggml_view_3d(ctx0, ffn_norm, n_embd, n_seq_tokens - 1, n_seqs, ffn_norm->nb[1], ffn_norm->nb[2], 0), 1);
+            ggml_view_3d(ctx0, ffn_norm, n_embd, n_seq_tokens - 1, n_seqs, ffn_norm->nb[1], ffn_norm->nb[2], 0), 1);
 
-        token_shift = lm_ggml_concat(ctx0,
-                                  lm_ggml_view_3d(ctx0, att_norm, n_embd, 1, n_seqs, att_norm->nb[1], att_norm->nb[2],
-                                               (n_seq_tokens - 1) * n_embd * lm_ggml_element_size(att_norm)),
-                                  lm_ggml_view_3d(ctx0, ffn_norm, n_embd, 1, n_seqs, ffn_norm->nb[1], ffn_norm->nb[2],
-                                               (n_seq_tokens - 1) * n_embd * lm_ggml_element_size(ffn_norm)),
+        token_shift = ggml_concat(ctx0,
+                                  ggml_view_3d(ctx0, att_norm, n_embd, 1, n_seqs, att_norm->nb[1], att_norm->nb[2],
+                                               (n_seq_tokens - 1) * n_embd * ggml_element_size(att_norm)),
+                                  ggml_view_3d(ctx0, ffn_norm, n_embd, 1, n_seqs, ffn_norm->nb[1], ffn_norm->nb[2],
+                                               (n_seq_tokens - 1) * n_embd * ggml_element_size(ffn_norm)),
                                   1);
-        lm_ggml_build_forward_expand(gf, build_rwkv_token_shift_store(token_shift, ubatch, il));
+        ggml_build_forward_expand(gf, build_rwkv_token_shift_store(token_shift, ubatch, il));
 
-        ffn_inp  = lm_ggml_reshape_2d(ctx0, ffn_inp, n_embd, n_tokens);
-        ffn_norm = lm_ggml_reshape_2d(ctx0, ffn_norm, n_embd, n_tokens);
-        x_prev   = lm_ggml_reshape_2d(ctx0, x_prev, n_embd, n_tokens);
+        ffn_inp  = ggml_reshape_2d(ctx0, ffn_inp, n_embd, n_tokens);
+        ffn_norm = ggml_reshape_2d(ctx0, ffn_norm, n_embd, n_tokens);
+        x_prev   = ggml_reshape_2d(ctx0, x_prev, n_embd, n_tokens);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            ffn_inp  = lm_ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
-            ffn_norm = lm_ggml_get_rows(ctx0, ffn_norm, inp_out_ids);
-            x_prev   = lm_ggml_get_rows(ctx0, x_prev, inp_out_ids);
+            ffn_inp  = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
+            ffn_norm = ggml_get_rows(ctx0, ffn_norm, inp_out_ids);
+            x_prev   = ggml_get_rows(ctx0, x_prev, inp_out_ids);
         }
         cur = build_rwkv7_channel_mix(layer, ffn_norm, x_prev, LLM_ARCH_RWKV7);
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -207,5 +207,5 @@ llama_model_rwkv7::graph::graph(const llama_model & model, const llm_graph_param
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

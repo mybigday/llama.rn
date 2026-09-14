@@ -2,10 +2,10 @@
 
 #include "../runtime/graph.h"
 #include "../runtime/graph_exec.h"
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 #include "../runtime/audio_dsp.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 
 #include <ggml.h>
 
@@ -92,29 +92,29 @@ struct cbx_impl {
     std::vector<float> proj_b;       // E
 
     // cond_enc graph tensors (handles into model->weights).
-    lm_ggml_tensor * spkr_enc_W       = nullptr; // (E_speaker=256, H=1024) F16/F32
-    lm_ggml_tensor * spkr_enc_b       = nullptr; // (H,)
-    lm_ggml_tensor * emotion_adv_W    = nullptr; // (1, H)
-    lm_ggml_tensor * speech_emb       = nullptr; // (vocab, H)
-    lm_ggml_tensor * speech_pos_emb   = nullptr; // (max_speech_tokens, H)
-    lm_ggml_tensor * perceiver_q      = nullptr; // (1, 32, H) — 32 learned queries
-    lm_ggml_tensor * perc_norm_W      = nullptr; // (H,)
-    lm_ggml_tensor * perc_norm_b      = nullptr; // (H,)
-    lm_ggml_tensor * perc_to_q_W      = nullptr; // (H, H)
-    lm_ggml_tensor * perc_to_q_b      = nullptr; // (H,)
-    lm_ggml_tensor * perc_to_k_W      = nullptr; // (H, H)
-    lm_ggml_tensor * perc_to_k_b      = nullptr; // (H,)
-    lm_ggml_tensor * perc_to_v_W      = nullptr; // (H, H)
-    lm_ggml_tensor * perc_to_v_b      = nullptr; // (H,)
-    lm_ggml_tensor * perc_proj_out_W  = nullptr; // (H, H)
-    lm_ggml_tensor * perc_proj_out_b  = nullptr; // (H,)
+    ggml_tensor * spkr_enc_W       = nullptr; // (E_speaker=256, H=1024) F16/F32
+    ggml_tensor * spkr_enc_b       = nullptr; // (H,)
+    ggml_tensor * emotion_adv_W    = nullptr; // (1, H)
+    ggml_tensor * speech_emb       = nullptr; // (vocab, H)
+    ggml_tensor * speech_pos_emb   = nullptr; // (max_speech_tokens, H)
+    ggml_tensor * perceiver_q      = nullptr; // (1, 32, H) — 32 learned queries
+    ggml_tensor * perc_norm_W      = nullptr; // (H,)
+    ggml_tensor * perc_norm_b      = nullptr; // (H,)
+    ggml_tensor * perc_to_q_W      = nullptr; // (H, H)
+    ggml_tensor * perc_to_q_b      = nullptr; // (H,)
+    ggml_tensor * perc_to_k_W      = nullptr; // (H, H)
+    ggml_tensor * perc_to_k_b      = nullptr; // (H,)
+    ggml_tensor * perc_to_v_W      = nullptr; // (H, H)
+    ggml_tensor * perc_to_v_b      = nullptr; // (H,)
+    ggml_tensor * perc_proj_out_W  = nullptr; // (H, H)
+    ggml_tensor * perc_proj_out_b  = nullptr; // (H,)
 
     // Lazily-allocated context for the cond_enc graph (one per lm, owned).
     codec_context * cond_ctx = nullptr;
 };
 
-lm_ggml_tensor * find_required(codec_lm * lm, const char * name) {
-    lm_ggml_tensor * t = lm_ggml_get_tensor(lm->codec->weights, name);
+ggml_tensor * find_required(codec_lm * lm, const char * name) {
+    ggml_tensor * t = ggml_get_tensor(lm->codec->weights, name);
     if (t == nullptr) {
         lm->last_error = std::string("speaker(chatterbox): missing tensor: ") + name;
     }
@@ -125,13 +125,13 @@ bool load_lstm_layer_weights(
         codec_lm * lm, int32_t l, cbx_impl::lstm_layer & w) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.W_ih", l);
-    lm_ggml_tensor * w_ih = find_required(lm, buf); if (!w_ih) return false;
+    ggml_tensor * w_ih = find_required(lm, buf); if (!w_ih) return false;
     std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.W_hh", l);
-    lm_ggml_tensor * w_hh = find_required(lm, buf); if (!w_hh) return false;
+    ggml_tensor * w_hh = find_required(lm, buf); if (!w_hh) return false;
     std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.b_ih", l);
-    lm_ggml_tensor * b_ih = find_required(lm, buf); if (!b_ih) return false;
+    ggml_tensor * b_ih = find_required(lm, buf); if (!b_ih) return false;
     std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.b_hh", l);
-    lm_ggml_tensor * b_hh = find_required(lm, buf); if (!b_hh) return false;
+    ggml_tensor * b_hh = find_required(lm, buf); if (!b_hh) return false;
 
     if (!codec_tensor_as_vec_f32(w_ih, &w.W_ih) ||
         !codec_tensor_as_vec_f32(w_hh, &w.W_hh) ||
@@ -156,7 +156,7 @@ bool chatterbox_speaker_init(codec_lm * lm) {
         lm->last_error = "speaker(chatterbox): codec has no gguf/weights";
         return false;
     }
-    lm_gguf_context * gf = lm->codec->gguf;
+    gguf_context * gf = lm->codec->gguf;
 
     cbx_impl * impl = new (std::nothrow) cbx_impl();
     if (impl == nullptr) {
@@ -191,8 +191,8 @@ bool chatterbox_speaker_init(codec_lm * lm) {
     }
 
     // VE projection (256 → 256).
-    lm_ggml_tensor * pw = find_required(lm, "speaker.voice_encoder.proj.weight");
-    lm_ggml_tensor * pb = find_required(lm, "speaker.voice_encoder.proj.bias");
+    ggml_tensor * pw = find_required(lm, "speaker.voice_encoder.proj.weight");
+    ggml_tensor * pb = find_required(lm, "speaker.voice_encoder.proj.bias");
     if (!pw || !pb) { delete impl; return false; }
     if (!codec_tensor_as_vec_f32(pw, &impl->proj_W) ||
         !codec_tensor_as_vec_f32(pb, &impl->proj_b)) {
@@ -202,8 +202,8 @@ bool chatterbox_speaker_init(codec_lm * lm) {
 
     // Baked mel basis + Hann window — host-side buffers used by the
     // CPU mel front-end.
-    lm_ggml_tensor * mb_t = find_required(lm, "speaker.voice_encoder.mel_basis");
-    lm_ggml_tensor * wn_t = find_required(lm, "speaker.voice_encoder.window");
+    ggml_tensor * mb_t = find_required(lm, "speaker.voice_encoder.mel_basis");
+    ggml_tensor * wn_t = find_required(lm, "speaker.voice_encoder.window");
     if (!mb_t || !wn_t) { delete impl; return false; }
     if (!codec_tensor_as_vec_f32(mb_t, &impl->mel_basis) ||
         !codec_tensor_as_vec_f32(wn_t, &impl->window)) {
@@ -392,11 +392,11 @@ struct cbx_cond_build_data {
 // `n_heads = 4`, `head_dim = H / n_heads = 256` (Perceiver default).
 //
 // scale = head_dim^-0.5 (upstream default when scale=None).
-lm_ggml_tensor * perceiver_attn_block(
-        lm_ggml_context * ctx,
+ggml_tensor * perceiver_attn_block(
+        ggml_context * ctx,
         cbx_impl * impl,
-        lm_ggml_tensor * x1,        // (H, T_q)
-        lm_ggml_tensor * x2,        // (H, T_k)
+        ggml_tensor * x1,        // (H, T_q)
+        ggml_tensor * x2,        // (H, T_k)
         int32_t n_heads) {
     const int64_t H   = x1->ne[0];
     const int64_t T_q = x1->ne[1];
@@ -404,66 +404,66 @@ lm_ggml_tensor * perceiver_attn_block(
     const int64_t head_dim = H / n_heads;
     const float   scale    = 1.0f / std::sqrt((float) head_dim);
 
-    lm_ggml_tensor * norm_W = codec_graph_cast_f32(ctx, impl->perc_norm_W);
-    lm_ggml_tensor * norm_b = codec_graph_cast_f32(ctx, impl->perc_norm_b);
+    ggml_tensor * norm_W = codec_graph_cast_f32(ctx, impl->perc_norm_W);
+    ggml_tensor * norm_b = codec_graph_cast_f32(ctx, impl->perc_norm_b);
 
-    lm_ggml_tensor * x1_norm = lm_ggml_norm(ctx, x1, 1e-5f);
-    x1_norm = lm_ggml_add(ctx, lm_ggml_mul(ctx, x1_norm, lm_ggml_repeat(ctx,
-                lm_ggml_reshape_2d(ctx, norm_W, H, 1), x1_norm)),
-                lm_ggml_repeat(ctx, lm_ggml_reshape_2d(ctx, norm_b, H, 1), x1_norm));
-    lm_ggml_tensor * x2_norm = lm_ggml_norm(ctx, x2, 1e-5f);
-    x2_norm = lm_ggml_add(ctx, lm_ggml_mul(ctx, x2_norm, lm_ggml_repeat(ctx,
-                lm_ggml_reshape_2d(ctx, norm_W, H, 1), x2_norm)),
-                lm_ggml_repeat(ctx, lm_ggml_reshape_2d(ctx, norm_b, H, 1), x2_norm));
+    ggml_tensor * x1_norm = ggml_norm(ctx, x1, 1e-5f);
+    x1_norm = ggml_add(ctx, ggml_mul(ctx, x1_norm, ggml_repeat(ctx,
+                ggml_reshape_2d(ctx, norm_W, H, 1), x1_norm)),
+                ggml_repeat(ctx, ggml_reshape_2d(ctx, norm_b, H, 1), x1_norm));
+    ggml_tensor * x2_norm = ggml_norm(ctx, x2, 1e-5f);
+    x2_norm = ggml_add(ctx, ggml_mul(ctx, x2_norm, ggml_repeat(ctx,
+                ggml_reshape_2d(ctx, norm_W, H, 1), x2_norm)),
+                ggml_repeat(ctx, ggml_reshape_2d(ctx, norm_b, H, 1), x2_norm));
 
     // Linear projections: q/k/v.  Weights are (in=H, out=H) stored as
     // (out, in) row-major → ggml ne[0]=H_in, ne[1]=H_out — matches the
     // mul_mat src[0] convention.
-    auto linear_HH = [&](lm_ggml_tensor * W, lm_ggml_tensor * b, lm_ggml_tensor * x_2d) {
-        lm_ggml_tensor * W_lhs = codec_graph_mat_lhs(ctx, W);
-        lm_ggml_tensor * y = lm_ggml_mul_mat(ctx, W_lhs, x_2d);   // (H_out, T)
-        lm_ggml_tensor * b_f32 = codec_graph_cast_f32(ctx, b);
-        lm_ggml_tensor * b_2d  = lm_ggml_reshape_2d(ctx, b_f32, H, 1);
-        y = lm_ggml_add(ctx, y, lm_ggml_repeat(ctx, b_2d, y));
+    auto linear_HH = [&](ggml_tensor * W, ggml_tensor * b, ggml_tensor * x_2d) {
+        ggml_tensor * W_lhs = codec_graph_mat_lhs(ctx, W);
+        ggml_tensor * y = ggml_mul_mat(ctx, W_lhs, x_2d);   // (H_out, T)
+        ggml_tensor * b_f32 = codec_graph_cast_f32(ctx, b);
+        ggml_tensor * b_2d  = ggml_reshape_2d(ctx, b_f32, H, 1);
+        y = ggml_add(ctx, y, ggml_repeat(ctx, b_2d, y));
         return y;
     };
-    lm_ggml_tensor * q = linear_HH(impl->perc_to_q_W, impl->perc_to_q_b, x1_norm);  // (H, T_q)
-    lm_ggml_tensor * k = linear_HH(impl->perc_to_k_W, impl->perc_to_k_b, x2_norm);  // (H, T_k)
-    lm_ggml_tensor * v = linear_HH(impl->perc_to_v_W, impl->perc_to_v_b, x2_norm);  // (H, T_k)
+    ggml_tensor * q = linear_HH(impl->perc_to_q_W, impl->perc_to_q_b, x1_norm);  // (H, T_q)
+    ggml_tensor * k = linear_HH(impl->perc_to_k_W, impl->perc_to_k_b, x2_norm);  // (H, T_k)
+    ggml_tensor * v = linear_HH(impl->perc_to_v_W, impl->perc_to_v_b, x2_norm);  // (H, T_k)
 
     // Split into heads: (H, T) → (head_dim, n_heads, T) → permute to
-    // (head_dim, T, n_heads) for attention math (lm_ggml_mul_mat on ne[0]).
-    auto split_heads = [&](lm_ggml_tensor * t, int64_t T) {
-        lm_ggml_tensor * t3 = lm_ggml_reshape_3d(ctx, t, head_dim, n_heads, T);
-        return lm_ggml_cont(ctx, lm_ggml_permute(ctx, t3, 0, 2, 1, 3));  // (head_dim, T, n_heads)
+    // (head_dim, T, n_heads) for attention math (ggml_mul_mat on ne[0]).
+    auto split_heads = [&](ggml_tensor * t, int64_t T) {
+        ggml_tensor * t3 = ggml_reshape_3d(ctx, t, head_dim, n_heads, T);
+        return ggml_cont(ctx, ggml_permute(ctx, t3, 0, 2, 1, 3));  // (head_dim, T, n_heads)
     };
-    lm_ggml_tensor * q_p = split_heads(q, T_q);   // (head_dim, T_q, n_heads)
-    lm_ggml_tensor * k_p = split_heads(k, T_k);
-    lm_ggml_tensor * v_p = split_heads(v, T_k);
+    ggml_tensor * q_p = split_heads(q, T_q);   // (head_dim, T_q, n_heads)
+    ggml_tensor * k_p = split_heads(k, T_k);
+    ggml_tensor * v_p = split_heads(v, T_k);
 
-    // sim = k_p^T @ q_p : lm_ggml_mul_mat(a=k_p, b=q_p) contracts on ne[0]=head_dim
+    // sim = k_p^T @ q_p : ggml_mul_mat(a=k_p, b=q_p) contracts on ne[0]=head_dim
     //   → (T_k, T_q, n_heads)
-    lm_ggml_tensor * sim = lm_ggml_mul_mat(ctx, k_p, q_p);
-    sim = lm_ggml_scale(ctx, sim, scale);
-    lm_ggml_tensor * attn = lm_ggml_soft_max(ctx, sim);              // softmax over ne[0]=T_k
+    ggml_tensor * sim = ggml_mul_mat(ctx, k_p, q_p);
+    sim = ggml_scale(ctx, sim, scale);
+    ggml_tensor * attn = ggml_soft_max(ctx, sim);              // softmax over ne[0]=T_k
 
     // out = v_p^T @ attn : but we want (head_dim, T_q, n_heads).
     // v_p is (head_dim, T_k, n_heads), attn is (T_k, T_q, n_heads).
-    // lm_ggml_mul_mat needs ne[0]s to match — permute v_p to (T_k, head_dim, n_heads)
+    // ggml_mul_mat needs ne[0]s to match — permute v_p to (T_k, head_dim, n_heads)
     // so contraction is on T_k, result (head_dim, T_q, n_heads).
-    lm_ggml_tensor * v_pT = lm_ggml_cont(ctx, lm_ggml_permute(ctx, v_p, 1, 0, 2, 3));
-    lm_ggml_tensor * out  = lm_ggml_mul_mat(ctx, v_pT, attn);          // (head_dim, T_q, n_heads)
+    ggml_tensor * v_pT = ggml_cont(ctx, ggml_permute(ctx, v_p, 1, 0, 2, 3));
+    ggml_tensor * out  = ggml_mul_mat(ctx, v_pT, attn);          // (head_dim, T_q, n_heads)
 
     // Merge heads: (head_dim, T_q, n_heads) → (head_dim, n_heads, T_q) → (H, T_q).
-    lm_ggml_tensor * out_merged = lm_ggml_cont(ctx, lm_ggml_permute(ctx, out, 0, 2, 1, 3));
-    out_merged = lm_ggml_reshape_2d(ctx, out_merged, H, T_q);
+    ggml_tensor * out_merged = ggml_cont(ctx, ggml_permute(ctx, out, 0, 2, 1, 3));
+    out_merged = ggml_reshape_2d(ctx, out_merged, H, T_q);
 
     // proj_out + residual.
-    lm_ggml_tensor * h = linear_HH(impl->perc_proj_out_W, impl->perc_proj_out_b, out_merged);
-    return lm_ggml_add(ctx, x1, h);
+    ggml_tensor * h = linear_HH(impl->perc_proj_out_W, impl->perc_proj_out_b, out_merged);
+    return ggml_add(ctx, x1, h);
 }
 
-bool build_cond_graph(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** out) {
+bool build_cond_graph(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     auto * b = static_cast<cbx_cond_build_data *>(ud);
     if (ctx_eval == nullptr || b == nullptr || b->impl == nullptr || out == nullptr) return false;
     cbx_impl * impl = b->impl;
@@ -471,55 +471,55 @@ bool build_cond_graph(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** o
     const int64_t T_speech = b->T_speech;
 
     // ---- Inputs ---------------------------------------------------
-    lm_ggml_tensor * t_spk     = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_F32, impl->speaker_embed_dim);
-    lm_ggml_set_name(t_spk, "spk.in.spkr_emb");
-    lm_ggml_tensor * t_tokens  = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, T_speech);
-    lm_ggml_set_name(t_tokens, "spk.in.tokens");
-    lm_ggml_tensor * t_emotion = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_F32, 1);
-    lm_ggml_set_name(t_emotion, "spk.in.emotion");
+    ggml_tensor * t_spk     = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, impl->speaker_embed_dim);
+    ggml_set_name(t_spk, "spk.in.spkr_emb");
+    ggml_tensor * t_tokens  = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, T_speech);
+    ggml_set_name(t_tokens, "spk.in.tokens");
+    ggml_tensor * t_emotion = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, 1);
+    ggml_set_name(t_emotion, "spk.in.emotion");
 
     // ---- cond_spkr = spkr_enc(spk_emb_raw) ----------------------
     //   spkr_enc.weight is (256, 1024) — ggml ne[0]=256, ne[1]=1024.
-    //   y = W^T @ x : lm_ggml_mul_mat(W, x_256) gives (1024,) (contracts on ne[0]).
-    lm_ggml_tensor * spk_W = codec_graph_mat_lhs(ctx_eval, impl->spkr_enc_W);
-    lm_ggml_tensor * spk_y = lm_ggml_mul_mat(ctx_eval, spk_W, t_spk);   // (1024,)
-    lm_ggml_tensor * spk_b = codec_graph_cast_f32(ctx_eval, impl->spkr_enc_b);
-    spk_y = lm_ggml_add(ctx_eval, spk_y, spk_b);
-    lm_ggml_tensor * cond_spkr = lm_ggml_reshape_2d(ctx_eval, spk_y, H, 1);   // (H, 1)
+    //   y = W^T @ x : ggml_mul_mat(W, x_256) gives (1024,) (contracts on ne[0]).
+    ggml_tensor * spk_W = codec_graph_mat_lhs(ctx_eval, impl->spkr_enc_W);
+    ggml_tensor * spk_y = ggml_mul_mat(ctx_eval, spk_W, t_spk);   // (1024,)
+    ggml_tensor * spk_b = codec_graph_cast_f32(ctx_eval, impl->spkr_enc_b);
+    spk_y = ggml_add(ctx_eval, spk_y, spk_b);
+    ggml_tensor * cond_spkr = ggml_reshape_2d(ctx_eval, spk_y, H, 1);   // (H, 1)
 
     // ---- cond_emotion = emotion_adv_fc(emotion) --------------------
     //   emotion_adv_fc.weight is (1, 1024) — ggml ne[0]=1, ne[1]=1024.
-    //   y = W @ scalar : lm_ggml_mul_mat(W_2d, scalar_1d).  Result (1024,).
-    lm_ggml_tensor * emo_W = codec_graph_mat_lhs(ctx_eval, impl->emotion_adv_W);
-    lm_ggml_tensor * emo_y = lm_ggml_mul_mat(ctx_eval, emo_W, t_emotion);   // (1024,)
-    lm_ggml_tensor * cond_emotion = lm_ggml_reshape_2d(ctx_eval, emo_y, H, 1);
+    //   y = W @ scalar : ggml_mul_mat(W_2d, scalar_1d).  Result (1024,).
+    ggml_tensor * emo_W = codec_graph_mat_lhs(ctx_eval, impl->emotion_adv_W);
+    ggml_tensor * emo_y = ggml_mul_mat(ctx_eval, emo_W, t_emotion);   // (1024,)
+    ggml_tensor * cond_emotion = ggml_reshape_2d(ctx_eval, emo_y, H, 1);
 
     // ---- speech_emb lookup + speech_pos_emb add → seq (H, T_speech) -
-    lm_ggml_tensor * emb_rows = lm_ggml_get_rows(ctx_eval, impl->speech_emb, t_tokens);   // (H, T_speech)
+    ggml_tensor * emb_rows = ggml_get_rows(ctx_eval, impl->speech_emb, t_tokens);   // (H, T_speech)
     emb_rows = codec_graph_cast_f32(ctx_eval, emb_rows);
 
     // pos_ids = [0, 1, ..., T_speech-1]
-    lm_ggml_tensor * pos_ids = lm_ggml_arange(ctx_eval, 0.0f, (float) T_speech, 1.0f);
-    pos_ids = lm_ggml_cast(ctx_eval, pos_ids, LM_GGML_TYPE_I32);
-    lm_ggml_tensor * pos_rows = lm_ggml_get_rows(ctx_eval, impl->speech_pos_emb, pos_ids);
+    ggml_tensor * pos_ids = ggml_arange(ctx_eval, 0.0f, (float) T_speech, 1.0f);
+    pos_ids = ggml_cast(ctx_eval, pos_ids, GGML_TYPE_I32);
+    ggml_tensor * pos_rows = ggml_get_rows(ctx_eval, impl->speech_pos_emb, pos_ids);
     pos_rows = codec_graph_cast_f32(ctx_eval, pos_rows);
 
-    lm_ggml_tensor * seq = lm_ggml_add(ctx_eval, emb_rows, pos_rows);     // (H, T_speech)
+    ggml_tensor * seq = ggml_add(ctx_eval, emb_rows, pos_rows);     // (H, T_speech)
 
     // ---- Perceiver: 32 learned queries cross-attend over seq, then self-attend.
     // perceiver_q stored as (1, 32, H) — flatten to (H, 32).
-    lm_ggml_tensor * pq_f32 = codec_graph_cast_f32(ctx_eval, impl->perceiver_q);
-    lm_ggml_tensor * queries = lm_ggml_reshape_2d(ctx_eval, pq_f32, H, 32);   // (H, 32)
-    queries = lm_ggml_cont(ctx_eval, queries);
+    ggml_tensor * pq_f32 = codec_graph_cast_f32(ctx_eval, impl->perceiver_q);
+    ggml_tensor * queries = ggml_reshape_2d(ctx_eval, pq_f32, H, 32);   // (H, 32)
+    queries = ggml_cont(ctx_eval, queries);
 
-    lm_ggml_tensor * pre_att = perceiver_attn_block(ctx_eval, impl, queries, seq, /*n_heads=*/4);
-    lm_ggml_tensor * att     = perceiver_attn_block(ctx_eval, impl, pre_att, pre_att, /*n_heads=*/4);
+    ggml_tensor * pre_att = perceiver_attn_block(ctx_eval, impl, queries, seq, /*n_heads=*/4);
+    ggml_tensor * att     = perceiver_attn_block(ctx_eval, impl, pre_att, pre_att, /*n_heads=*/4);
     // att shape: (H, 32)
 
     // ---- Concat: [cond_spkr (1) | att (32) | cond_emotion (1)] → (H, 34)
-    lm_ggml_tensor * cat0 = lm_ggml_concat(ctx_eval, cond_spkr, att, 1);      // (H, 33)
-    lm_ggml_tensor * cond = lm_ggml_concat(ctx_eval, cat0, cond_emotion, 1);  // (H, 34)
-    lm_ggml_set_name(cond, "spk.out.cond_emb");
+    ggml_tensor * cat0 = ggml_concat(ctx_eval, cond_spkr, att, 1);      // (H, 33)
+    ggml_tensor * cond = ggml_concat(ctx_eval, cat0, cond_emotion, 1);  // (H, 34)
+    ggml_set_name(cond, "spk.out.cond_emb");
     *out = cond;
     return true;
 }
@@ -690,10 +690,10 @@ enum codec_status chatterbox_speaker_encode_from_emb(
         lm->last_error = "chatterbox speaker_encode: " + err;
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_spk     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.spkr_emb");
-    lm_ggml_tensor * t_tokens  = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.tokens");
-    lm_ggml_tensor * t_emotion = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.emotion");
-    lm_ggml_tensor * t_out     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.out.cond_emb");
+    ggml_tensor * t_spk     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.spkr_emb");
+    ggml_tensor * t_tokens  = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.tokens");
+    ggml_tensor * t_emotion = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.emotion");
+    ggml_tensor * t_out     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.out.cond_emb");
     if (!t_spk || !t_tokens || !t_emotion || !t_out) {
         lm->last_error = "chatterbox speaker_encode: cond graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;

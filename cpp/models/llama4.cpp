@@ -107,19 +107,19 @@ template <bool iswa>
 llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     // temperature tuning
-    lm_ggml_tensor * inp_attn_scale = nullptr;
+    ggml_tensor * inp_attn_scale = nullptr;
     inp_attn_scale = build_inp_attn_scale();
 
     using inp_attn_type = std::conditional_t<iswa, llm_graph_input_attn_kv_iswa, llm_graph_input_attn_kv>;
@@ -133,13 +133,13 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
 
     const float kq_scale = hparams.f_attention_scale == 0.0f ? 1.0f/sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const float freq_base_l  = model.get_rope_freq_base (cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // This overlaps with SWA layers in current models, so get_rope_freq_base/scale may be superfluous
         const bool use_rope = hparams.n_no_rope_layer_step > 0 &&
@@ -154,26 +154,26 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
         // self-attention
         {
             // rope freq factors for llama3; may return nullptr for llama2 and other models
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             // compute Q and K and RoPE them
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
             if (use_rope) {
-                Qcur = lm_ggml_rope_ext(
+                Qcur = ggml_rope_ext(
                         ctx0, Qcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                         ext_factor, attn_factor, beta_fast, beta_slow
                         );
 
-                Kcur = lm_ggml_rope_ext(
+                Kcur = ggml_rope_ext(
                         ctx0, Kcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                         ext_factor, attn_factor, beta_fast, beta_slow
                         );
             } else if (inp_attn_scale) {
-                Qcur = lm_ggml_mul(ctx0, Qcur, inp_attn_scale);
+                Qcur = ggml_mul(ctx0, Qcur, inp_attn_scale);
             }
             cb(Qcur, "Qcur", il);
             cb(Kcur, "Kcur", il);
@@ -181,8 +181,8 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
 
             if (use_rope && hparams.use_kq_norm) {
                 // Llama4TextL2Norm
-                Qcur = lm_ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
-                Kcur = lm_ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
+                Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
+                Kcur = ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
                 cb(Qcur, "Qcur_normed", il);
                 cb(Kcur, "Kcur_normed", il);
             }
@@ -192,10 +192,10 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
             cb(cur, "attn_out", il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network (non-MoE)
@@ -213,12 +213,12 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
                     LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(cur, "ffn_out", il);
         } else {
-            lm_ggml_tensor * ffn_inp_normed = build_norm(ffn_inp,
+            ggml_tensor * ffn_inp_normed = build_norm(ffn_inp,
                     model.layers[il].ffn_norm, NULL,
                     LLM_NORM_RMS, il);
             cb(cur, "ffn_norm", il);
 
-            lm_ggml_tensor * moe_out = build_moe_ffn(ffn_inp_normed,
+            ggml_tensor * moe_out = build_moe_ffn(ffn_inp_normed,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
                     model.layers[il].ffn_gate_exps,
@@ -231,7 +231,7 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
                     il);
 
             // Shared experts
-            lm_ggml_tensor * shexp_out = build_ffn(ffn_inp_normed,
+            ggml_tensor * shexp_out = build_ffn(ffn_inp_normed,
                 model.layers[il].ffn_up_shexp,   NULL, NULL,
                 model.layers[il].ffn_gate_shexp, NULL, NULL,
                 model.layers[il].ffn_down_shexp, NULL, NULL,
@@ -239,10 +239,10 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
                 LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(shexp_out, "ffn_moe_shexp", il);
 
-            cur = lm_ggml_add(ctx0, moe_out, shexp_out);
+            cur = ggml_add(ctx0, moe_out, shexp_out);
             cb(cur, "ffn_moe_out_merged", il);
         }
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "ffn_out", il);
 
         cur = build_cvec(cur, il);
@@ -266,7 +266,7 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Explicit template instantiations

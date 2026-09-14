@@ -770,7 +770,7 @@ common_chat_templates_ptr common_chat_templates_init(const struct llama_model * 
 
     bool has_explicit_template = !chat_template_override.empty();
     if (chat_template_override.empty()) {
-        LM_GGML_ASSERT(model != nullptr);
+        GGML_ASSERT(model != nullptr);
         const auto * str = llama_model_chat_template(model, /* name */ nullptr);
         if (str) {
             default_template_src  = str;
@@ -3066,7 +3066,7 @@ static void system_message_not_supported(json & messages) {
 }
 
 static void requires_non_null_content(json & messages) {
-    LM_GGML_ASSERT(messages.is_array());
+    GGML_ASSERT(messages.is_array());
     for (auto & message : messages) {
         if (message.contains("tool_calls") && !message.contains("content")) {
             message["content"] = "";
@@ -3219,7 +3219,7 @@ static void convert_tool_responses_gemma4(json & messages) {
 }
 
 static void func_args_not_string(json & messages) {
-    LM_GGML_ASSERT(messages.is_array());
+    GGML_ASSERT(messages.is_array());
     for (auto & message : messages) {
         if (message.contains("tool_calls")) {
             for (auto & tool_call : message["tool_calls"]) {
@@ -3899,7 +3899,7 @@ static common_chat_params common_chat_templates_apply_legacy(const struct common
 
 common_chat_params common_chat_templates_apply(const struct common_chat_templates *        tmpls,
                                                const struct common_chat_templates_inputs & inputs) {
-    LM_GGML_ASSERT(tmpls != nullptr);
+    GGML_ASSERT(tmpls != nullptr);
     return inputs.use_jinja ? common_chat_templates_apply_jinja(tmpls, inputs) :
                               common_chat_templates_apply_legacy(tmpls, inputs);
 }
@@ -3989,8 +3989,8 @@ common_chat_msg common_chat_peg_parse(const common_peg_arena &          src_pars
 }
 
 std::map<std::string, bool> common_chat_templates_get_caps(const common_chat_templates * chat_templates) {
-    LM_GGML_ASSERT(chat_templates != nullptr);
-    LM_GGML_ASSERT(chat_templates->template_default != nullptr);
+    GGML_ASSERT(chat_templates != nullptr);
+    GGML_ASSERT(chat_templates->template_default != nullptr);
     if (chat_templates->template_tool_use != nullptr) {
         // take the more expressive template when available
         return chat_templates->template_tool_use->caps.to_map();

@@ -18,17 +18,17 @@
 //
 
 struct mtmd_helper_logger {
-    lm_ggml_log_callback default_callback = [](lm_ggml_log_level level, const char * text, void * user_data) {
+    ggml_log_callback default_callback = [](ggml_log_level level, const char * text, void * user_data) {
         (void) level;
         (void) user_data;
         fputs(text, stderr);
         fflush(stderr);
     };
 
-    lm_ggml_log_callback log_callback = default_callback;
+    ggml_log_callback log_callback = default_callback;
     void * log_callback_user_data;
 
-    void log_v(enum lm_ggml_log_level level, const char * format, va_list args) {
+    void log_v(enum ggml_log_level level, const char * format, va_list args) {
         if (format == NULL) {
             return;
         }
@@ -48,7 +48,7 @@ struct mtmd_helper_logger {
         va_end(args_copy);
     }
 
-    void log(enum lm_ggml_log_level level, const char * format, ...) {
+    void log(enum ggml_log_level level, const char * format, ...) {
         va_list args;
         va_start(args, format);
         log_v(level, format, args);
@@ -59,10 +59,10 @@ struct mtmd_helper_logger {
 // inline, so all TUs including this header share one instance
 inline mtmd_helper_logger g_logger;
 
-#define LOG_DBG(...) g_logger.log(LM_GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define LOG_INF(...) g_logger.log(LM_GGML_LOG_LEVEL_INFO,  __VA_ARGS__)
-#define LOG_WRN(...) g_logger.log(LM_GGML_LOG_LEVEL_WARN,  __VA_ARGS__)
-#define LOG_ERR(...) g_logger.log(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+#define LOG_DBG(...) g_logger.log(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define LOG_INF(...) g_logger.log(GGML_LOG_LEVEL_INFO,  __VA_ARGS__)
+#define LOG_WRN(...) g_logger.log(GGML_LOG_LEVEL_WARN,  __VA_ARGS__)
+#define LOG_ERR(...) g_logger.log(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
 
 //
 // embd batch
@@ -81,7 +81,7 @@ struct decode_embd_batch {
     std::vector<int8_t>         logits;
     llama_batch batch;
     decode_embd_batch(float * embd, int32_t n_tokens, int n_pos_per_embd, int n_mmproj_embd) : n_pos_per_embd(n_pos_per_embd), n_mmproj_embd(n_mmproj_embd) {
-        LM_GGML_ASSERT(n_tokens > 0 && n_pos_per_embd > 0 && n_mmproj_embd > 0);
+        GGML_ASSERT(n_tokens > 0 && n_pos_per_embd > 0 && n_mmproj_embd > 0);
         pos     .resize((size_t) n_tokens * (size_t) n_pos_per_embd);
         n_seq_id.resize(n_tokens);
         seq_ids .resize(n_tokens + 1);
@@ -111,8 +111,8 @@ struct decode_embd_batch {
 
     // M-RoPE for image
     void set_position_mrope_2d(const std::vector<mtmd_decoder_pos> & rel_pos, llama_seq_id seq_id) {
-        LM_GGML_ASSERT(n_pos_per_embd == 4);
-        LM_GGML_ASSERT(!rel_pos.empty() && (int32_t)rel_pos.size() == batch.n_tokens);
+        GGML_ASSERT(n_pos_per_embd == 4);
+        GGML_ASSERT(!rel_pos.empty() && (int32_t)rel_pos.size() == batch.n_tokens);
         seq_id_0[0] = seq_id;
         for (int32_t i = 0; i < batch.n_tokens; i++) {
             const size_t idx = (size_t) i;
@@ -131,7 +131,7 @@ struct decode_embd_batch {
 
     // M-RoPE for audio
     void set_position_mrope_1d(llama_pos pos_0, llama_seq_id seq_id) {
-        LM_GGML_ASSERT(n_pos_per_embd == 4);
+        GGML_ASSERT(n_pos_per_embd == 4);
         seq_id_0[0] = seq_id;
         for (int i = 0; i < batch.n_tokens; i++) {
             const size_t idx = (size_t) i;
@@ -149,7 +149,7 @@ struct decode_embd_batch {
     }
 
     llama_batch get_view(int offset, int n_tokens) {
-        LM_GGML_ASSERT(offset >= 0 && n_tokens > 0 && offset + n_tokens <= batch.n_tokens);
+        GGML_ASSERT(offset >= 0 && n_tokens > 0 && offset + n_tokens <= batch.n_tokens);
         llama_pos * pos_ptr;
         pos_view.clear();
         pos_view.reserve((size_t) n_tokens * (size_t) n_pos_per_embd);

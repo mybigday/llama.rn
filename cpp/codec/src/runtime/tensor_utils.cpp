@@ -7,14 +7,14 @@
 #include <cstring>
 #include <unordered_map>
 
-bool codec_runtime_write_tensor(lm_ggml_tensor * t, const void * data, size_t n_bytes, std::string * error) {
+bool codec_runtime_write_tensor(ggml_tensor * t, const void * data, size_t n_bytes, std::string * error) {
     if (t == nullptr || data == nullptr) {
         if (error != nullptr) {
             *error = "invalid tensor set arguments";
         }
         return false;
     }
-    if (n_bytes != lm_ggml_nbytes(t)) {
+    if (n_bytes != ggml_nbytes(t)) {
         if (error != nullptr) {
             *error = "tensor set size mismatch";
         }
@@ -27,18 +27,18 @@ bool codec_runtime_write_tensor(lm_ggml_tensor * t, const void * data, size_t n_
         }
         return false;
     }
-    lm_ggml_backend_tensor_set(t, data, 0, n_bytes);
+    ggml_backend_tensor_set(t, data, 0, n_bytes);
     return true;
 }
 
-bool codec_runtime_read_tensor(lm_ggml_tensor * t, void * data, size_t n_bytes, std::string * error) {
+bool codec_runtime_read_tensor(ggml_tensor * t, void * data, size_t n_bytes, std::string * error) {
     if (t == nullptr || data == nullptr) {
         if (error != nullptr) {
             *error = "invalid tensor get arguments";
         }
         return false;
     }
-    if (n_bytes != lm_ggml_nbytes(t)) {
+    if (n_bytes != ggml_nbytes(t)) {
         if (error != nullptr) {
             *error = "tensor get size mismatch";
         }
@@ -51,18 +51,18 @@ bool codec_runtime_read_tensor(lm_ggml_tensor * t, void * data, size_t n_bytes, 
         }
         return false;
     }
-    lm_ggml_backend_tensor_get(t, data, 0, n_bytes);
+    ggml_backend_tensor_get(t, data, 0, n_bytes);
     return true;
 }
 
-bool codec_runtime_read_tensor_i32_2d_tq(lm_ggml_tensor * t, std::vector<int32_t> * out, std::string * error) {
+bool codec_runtime_read_tensor_i32_2d_tq(ggml_tensor * t, std::vector<int32_t> * out, std::string * error) {
     if (t == nullptr || out == nullptr) {
         if (error != nullptr) {
             *error = "invalid token tensor get arguments";
         }
         return false;
     }
-    if (t->type != LM_GGML_TYPE_I32) {
+    if (t->type != GGML_TYPE_I32) {
         if (error != nullptr) {
             *error = "token tensor must be int32";
         }
@@ -93,73 +93,73 @@ bool codec_runtime_read_tensor_i32_2d_tq(lm_ggml_tensor * t, std::vector<int32_t
     return true;
 }
 
-lm_ggml_tensor * codec_model_get_tensor(const codec_model * model, const char * name) {
+ggml_tensor * codec_model_get_tensor(const codec_model * model, const char * name) {
     if (model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    return lm_ggml_get_tensor(model->weights, name);
+    return ggml_get_tensor(model->weights, name);
 }
 
-lm_ggml_tensor * codec_model_get_tensor(const codec_model * model, const std::string & name) {
+ggml_tensor * codec_model_get_tensor(const codec_model * model, const std::string & name) {
     return codec_model_get_tensor(model, name.c_str());
 }
 
-lm_ggml_tensor * codec_graph_cast_f32(lm_ggml_context * ctx_eval, lm_ggml_tensor * t) {
+ggml_tensor * codec_graph_cast_f32(ggml_context * ctx_eval, ggml_tensor * t) {
     if (ctx_eval == nullptr || t == nullptr) {
         return nullptr;
     }
-    if (t->type == LM_GGML_TYPE_F32) {
+    if (t->type == GGML_TYPE_F32) {
         return t;
     }
-    return lm_ggml_cast(ctx_eval, t, LM_GGML_TYPE_F32);
+    return ggml_cast(ctx_eval, t, GGML_TYPE_F32);
 }
 
-lm_ggml_tensor * codec_graph_mat_lhs(lm_ggml_context * ctx_eval, lm_ggml_tensor * t) {
-    // Pass-through for the dtypes lm_ggml_mul_mat consumes natively as
+ggml_tensor * codec_graph_mat_lhs(ggml_context * ctx_eval, ggml_tensor * t) {
+    // Pass-through for the dtypes ggml_mul_mat consumes natively as
     // src[0] without an extra dequant pass — see header comment for
     // the rationale.  Cast the rest.
     if (ctx_eval == nullptr || t == nullptr) {
         return nullptr;
     }
     switch (t->type) {
-        case LM_GGML_TYPE_F32:
-        case LM_GGML_TYPE_F16:
-        case LM_GGML_TYPE_BF16:
+        case GGML_TYPE_F32:
+        case GGML_TYPE_F16:
+        case GGML_TYPE_BF16:
             return t;
         default:
-            return lm_ggml_cast(ctx_eval, t, LM_GGML_TYPE_F32);
+            return ggml_cast(ctx_eval, t, GGML_TYPE_F32);
     }
 }
 
-lm_ggml_tensor * codec_graph_weight_or_null(lm_ggml_context * ctx_eval, const codec_model * model, const char * name) {
+ggml_tensor * codec_graph_weight_or_null(ggml_context * ctx_eval, const codec_model * model, const char * name) {
     if (ctx_eval == nullptr || model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    lm_ggml_tensor * w = lm_ggml_get_tensor(model->weights, name);
+    ggml_tensor * w = ggml_get_tensor(model->weights, name);
     if (w == nullptr) {
         return nullptr;
     }
     return codec_graph_cast_f32(ctx_eval, w);
 }
 
-lm_ggml_tensor * codec_graph_weight_or_null(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
+ggml_tensor * codec_graph_weight_or_null(ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
     return codec_graph_weight_or_null(ctx_eval, model, name.c_str());
 }
 
-lm_ggml_tensor * codec_graph_weight(lm_ggml_context * ctx_eval, const codec_model * model, const char * name) {
+ggml_tensor * codec_graph_weight(ggml_context * ctx_eval, const codec_model * model, const char * name) {
     return codec_graph_weight_or_null(ctx_eval, model, name);
 }
 
-lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const char * name) {
+ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model * model, const char * name) {
     if (ctx_eval == nullptr || model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    lm_ggml_tensor * w = lm_ggml_get_tensor(model->weights, name);
+    ggml_tensor * w = ggml_get_tensor(model->weights, name);
     if (w == nullptr) {
         return nullptr;
     }
     // LHS pass-through for the graph's hot matmuls: F16/BF16 weights feed
-    // lm_ggml_mul_mat natively, so we must NOT bake a dequant CPY into the graph.
+    // ggml_mul_mat natively, so we must NOT bake a dequant CPY into the graph.
     // That per-eval full-weight F16->F32 copy dominated BlueMagpie's CFM wall
     // time (30% of compute — the matmuls themselves are tiny), see Phase-4
     // profiling.
@@ -172,21 +172,21 @@ lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_
     // (~8x on Vulkan for this graph); default keeps parity.  Note an F16 GGUF
     // on GPU is both faster than cast-Q8 and bit-parity, so Q8 is off the
     // critical config on UMA hardware.
-    if (w->type == LM_GGML_TYPE_F32 || w->type == LM_GGML_TYPE_F16 || w->type == LM_GGML_TYPE_BF16) {
+    if (w->type == GGML_TYPE_F32 || w->type == GGML_TYPE_F16 || w->type == GGML_TYPE_BF16) {
         return w;
     }
     static const bool native_quant = std::getenv("CODEC_MAT_NATIVE_QUANT") != nullptr;
-    if (native_quant && lm_ggml_is_quantized(w->type)) {
+    if (native_quant && ggml_is_quantized(w->type)) {
         return w;
     }
-    return lm_ggml_cast(ctx_eval, w, LM_GGML_TYPE_F32);
+    return ggml_cast(ctx_eval, w, GGML_TYPE_F32);
 }
 
-lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
+ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
     return codec_graph_weight_mat(ctx_eval, model, name.c_str());
 }
 
-lm_ggml_tensor * codec_graph_weight(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
+ggml_tensor * codec_graph_weight(ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
     return codec_graph_weight_or_null(ctx_eval, model, name.c_str());
 }
 
@@ -290,92 +290,92 @@ void codec_latent_buffer_reset(struct codec_latent_buffer * latent) {
     latent->hop_size = 0;
 }
 
-const float * codec_tensor_data_f32(const struct lm_ggml_tensor * t) {
+const float * codec_tensor_data_f32(const struct ggml_tensor * t) {
     if (t == nullptr) {
         return nullptr;
     }
-    if (t->type != LM_GGML_TYPE_F32) {
+    if (t->type != GGML_TYPE_F32) {
         return nullptr;
     }
 
-    if (t->buffer == nullptr || lm_ggml_backend_buffer_is_host(t->buffer)) {
-        return static_cast<const float *>(lm_ggml_get_data(const_cast<struct lm_ggml_tensor *>(t)));
+    if (t->buffer == nullptr || ggml_backend_buffer_is_host(t->buffer)) {
+        return static_cast<const float *>(ggml_get_data(const_cast<struct ggml_tensor *>(t)));
     }
 
-    thread_local std::unordered_map<const struct lm_ggml_tensor *, std::vector<float>> tensor_cache;
+    thread_local std::unordered_map<const struct ggml_tensor *, std::vector<float>> tensor_cache;
     std::vector<float> & cached = tensor_cache[t];
-    cached.resize((size_t) lm_ggml_nelements(t));
-    lm_ggml_backend_tensor_get(const_cast<lm_ggml_tensor *>(t), cached.data(), 0, cached.size() * sizeof(float));
+    cached.resize((size_t) ggml_nelements(t));
+    ggml_backend_tensor_get(const_cast<ggml_tensor *>(t), cached.data(), 0, cached.size() * sizeof(float));
     return cached.data();
 }
 
-int64_t codec_ne(const struct lm_ggml_tensor * t, int dim) {
-    return t != nullptr && dim >= 0 && dim < LM_GGML_MAX_DIMS ? t->ne[dim] : 0;
+int64_t codec_ne(const struct ggml_tensor * t, int dim) {
+    return t != nullptr && dim >= 0 && dim < GGML_MAX_DIMS ? t->ne[dim] : 0;
 }
 
-bool codec_tensor_as_vec_f32(const struct lm_ggml_tensor * t, std::vector<float> * out) {
+bool codec_tensor_as_vec_f32(const struct ggml_tensor * t, std::vector<float> * out) {
     if (t == nullptr || out == nullptr) {
         return false;
     }
 
-    if (t->type == LM_GGML_TYPE_F32) {
-        const size_t n = (size_t)lm_ggml_nelements(t);
+    if (t->type == GGML_TYPE_F32) {
+        const size_t n = (size_t)ggml_nelements(t);
         out->resize(n);
-        if (t->buffer == nullptr || lm_ggml_backend_buffer_is_host(t->buffer)) {
-            const float * ptr = static_cast<const float *>(lm_ggml_get_data(const_cast<struct lm_ggml_tensor *>(t)));
+        if (t->buffer == nullptr || ggml_backend_buffer_is_host(t->buffer)) {
+            const float * ptr = static_cast<const float *>(ggml_get_data(const_cast<struct ggml_tensor *>(t)));
             if (ptr == nullptr) {
                 return false;
             }
             out->assign(ptr, ptr + n);
         } else {
-            lm_ggml_backend_tensor_get(const_cast<lm_ggml_tensor *>(t), out->data(), 0, n * sizeof(float));
+            ggml_backend_tensor_get(const_cast<ggml_tensor *>(t), out->data(), 0, n * sizeof(float));
         }
         return true;
     }
 
-    if (t->type == LM_GGML_TYPE_F16) {
-        const size_t n = (size_t)lm_ggml_nelements(t);
+    if (t->type == GGML_TYPE_F16) {
+        const size_t n = (size_t)ggml_nelements(t);
         out->resize(n);
-        if (t->buffer == nullptr || lm_ggml_backend_buffer_is_host(t->buffer)) {
-            const lm_ggml_fp16_t * ptr = static_cast<const lm_ggml_fp16_t *>(lm_ggml_get_data(const_cast<struct lm_ggml_tensor *>(t)));
+        if (t->buffer == nullptr || ggml_backend_buffer_is_host(t->buffer)) {
+            const ggml_fp16_t * ptr = static_cast<const ggml_fp16_t *>(ggml_get_data(const_cast<struct ggml_tensor *>(t)));
             if (ptr == nullptr) {
                 return false;
             }
             for (size_t i = 0; i < n; ++i) {
-                (*out)[i] = lm_ggml_fp16_to_fp32(ptr[i]);
+                (*out)[i] = ggml_fp16_to_fp32(ptr[i]);
             }
         } else {
-            std::vector<lm_ggml_fp16_t> tmp(n);
-            lm_ggml_backend_tensor_get(const_cast<lm_ggml_tensor *>(t), tmp.data(), 0, n * sizeof(lm_ggml_fp16_t));
+            std::vector<ggml_fp16_t> tmp(n);
+            ggml_backend_tensor_get(const_cast<ggml_tensor *>(t), tmp.data(), 0, n * sizeof(ggml_fp16_t));
             for (size_t i = 0; i < n; ++i) {
-                (*out)[i] = lm_ggml_fp16_to_fp32(tmp[i]);
+                (*out)[i] = ggml_fp16_to_fp32(tmp[i]);
             }
         }
         return true;
     }
 
-    const lm_ggml_type_traits * traits = lm_ggml_get_type_traits(t->type);
+    const ggml_type_traits * traits = ggml_get_type_traits(t->type);
     if (traits != nullptr && traits->to_float != nullptr && t->ne[0] > 0) {
         const int64_t ne0 = t->ne[0];
-        const size_t n = (size_t) lm_ggml_nelements(t);
+        const size_t n = (size_t) ggml_nelements(t);
         if ((n % (size_t) ne0) != 0) {
             return false;
         }
 
         std::vector<uint8_t> tmp;
         const uint8_t * data = nullptr;
-        if (t->buffer == nullptr || lm_ggml_backend_buffer_is_host(t->buffer)) {
-            data = static_cast<const uint8_t *>(lm_ggml_get_data(const_cast<struct lm_ggml_tensor *>(t)));
+        if (t->buffer == nullptr || ggml_backend_buffer_is_host(t->buffer)) {
+            data = static_cast<const uint8_t *>(ggml_get_data(const_cast<struct ggml_tensor *>(t)));
             if (data == nullptr) {
                 return false;
             }
         } else {
-            tmp.resize(lm_ggml_nbytes(t));
-            lm_ggml_backend_tensor_get(const_cast<lm_ggml_tensor *>(t), tmp.data(), 0, tmp.size());
+            tmp.resize(ggml_nbytes(t));
+            ggml_backend_tensor_get(const_cast<ggml_tensor *>(t), tmp.data(), 0, tmp.size());
             data = tmp.data();
         }
 
-        const size_t row_size = lm_ggml_row_size(t->type, ne0);
+        const size_t row_size = ggml_row_size(t->type, ne0);
         const size_t n_rows = n / (size_t) ne0;
         out->resize(n);
         for (size_t row = 0; row < n_rows; ++row) {

@@ -8,24 +8,24 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    LM_GGML_ASSERT(hparams.n_moe_layer_step > 0 && "Ernie 4.5 MoE requires n_moe_layer_step > 0");
+    GGML_ASSERT(hparams.n_moe_layer_step > 0 && "Ernie 4.5 MoE requires n_moe_layer_step > 0");
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
         // norm
         {
             cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -37,10 +37,10 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             cb(Qcur, "Qcur", il);
@@ -53,10 +53,10 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
             cb(cur, "attn_out", il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
@@ -78,7 +78,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
             cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
             cb(cur, "ffn_norm", il);
 
-            lm_ggml_tensor * moe_out = build_moe_ffn(cur,
+            ggml_tensor * moe_out = build_moe_ffn(cur,
                                         model.layers[il].ffn_gate_inp,
                                         model.layers[il].ffn_up_exps,
                                         model.layers[il].ffn_gate_exps,
@@ -93,7 +93,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
 
             // Shared expert (if present)
             if (hparams.n_ff_shexp > 0) {
-                lm_ggml_tensor * ffn_shexp =
+                ggml_tensor * ffn_shexp =
                     build_ffn(cur,
                         model.layers[il].ffn_up_shexp, NULL, NULL,
                         model.layers[il].ffn_gate_shexp, NULL, NULL,
@@ -101,13 +101,13 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
                         NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
                 cb(ffn_shexp, "ffn_shexp", il);
 
-                cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+                cur = ggml_add(ctx0, moe_out, ffn_shexp);
             } else {
                 cur = moe_out;
             }
             cb(cur, "ffn_out", il);
         }
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "ffn_out", il);
 
         cur = build_cvec(cur, il);
@@ -129,5 +129,5 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

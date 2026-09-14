@@ -11,7 +11,7 @@
 //   {"phase":"graph_compute","wall_us":1234,"detail":"kind=12"}
 //
 // to that file.  When the env var is unset (the common case) the scope is
-// effectively a single `lm_ggml_time_us()` call at construction + a no-op at
+// effectively a single `ggml_time_us()` call at construction + a no-op at
 // destruction — suitable for keeping in hot paths.
 //
 // Use the `CODEC_PERF_SCOPE` macro to record a phase with its enclosing

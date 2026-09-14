@@ -44,7 +44,7 @@ void llama_model_eagle3::load_arch_tensors(llama_model_loader &) {
     // Get vocab size from the d2t tensor in the GGUF file (optional - only needed if eagle3 has different vocab_size than target)
     // d2t: draft to target vocabulary mapping
     int64_t n_draft_vocab = n_vocab;  // Default: same as target vocab
-    const struct lm_ggml_tensor * d2t_meta = ml->get_tensor_meta("d2t");
+    const struct ggml_tensor * d2t_meta = ml->get_tensor_meta("d2t");
     if (d2t_meta) {
         n_draft_vocab = d2t_meta->ne[0]; // update draft vocab size
         d2t = create_tensor(tn(LLM_TENSOR_D2T), {n_draft_vocab}, 0);
@@ -67,7 +67,7 @@ void llama_model_eagle3::load_arch_tensors(llama_model_loader &) {
     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_draft_vocab}, TENSOR_NOT_REQUIRED);
 
     // Token embeddings (optional - Llama 3.3 70B EAGLE3 has its own)
-    const struct lm_ggml_tensor * tok_embd_meta = ml->get_tensor_meta(tn(LLM_TENSOR_TOKEN_EMBD, "weight").str().c_str());
+    const struct ggml_tensor * tok_embd_meta = ml->get_tensor_meta(tn(LLM_TENSOR_TOKEN_EMBD, "weight").str().c_str());
     if (tok_embd_meta) {
         const int64_t n_target_vocab = tok_embd_meta->ne[1];
         tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_target_vocab}, 0);
@@ -108,19 +108,19 @@ std::unique_ptr<llm_graph_context> llama_model_eagle3::build_arch_graph(const ll
         case LLM_GRAPH_TYPE_DECODER:
             return std::make_unique<graph<false>>(*this, params);
         default:
-            LM_GGML_ABORT("invalid graph type");
+            GGML_ABORT("invalid graph type");
     };
 }
 
 template <>
-lm_ggml_tensor * llama_model_eagle3::graph<true>::build_inp_embd_enc() const {
-    lm_ggml_tensor * cur = nullptr;
+ggml_tensor * llama_model_eagle3::graph<true>::build_inp_embd_enc() const {
+    ggml_tensor * cur = nullptr;
 
     // Input: Target model features (3 layers concatenated: low, mid, high)
     // Data will be provided via ubatch->embd in encode_eagle3_features()
     auto inp_target = std::make_unique<llm_graph_input_embd>(hparams.n_embd_inp_enc());
-    inp_target->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd_inp_enc(), n_tokens);
-    lm_ggml_set_input(inp_target->embd);
+    inp_target->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd_inp_enc(), n_tokens);
+    ggml_set_input(inp_target->embd);
 
     cur = inp_target->embd;
     cb(cur, "inp_embd", -1);
@@ -135,7 +135,7 @@ lm_ggml_tensor * llama_model_eagle3::graph<true>::build_inp_embd_enc() const {
 // Output: g_embeddings e.g. [4096, n_tokens] stored in context
 template <>
 llama_model_eagle3::graph<true>::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    lm_ggml_tensor * cur = nullptr;
+    ggml_tensor * cur = nullptr;
 
     cur = build_inp_embd_enc();
 
@@ -151,10 +151,10 @@ llama_model_eagle3::graph<true>::graph(const llama_model & model, const llm_grap
 
     // Output: g_embeddings e.g. [4096, n_tokens]
     // store in t_h_nextn (same as MTP) so can be read via llama_get_embeddings_nextn(ctx_dft)
-    lm_ggml_set_output(cur);
+    ggml_set_output(cur);
     res->t_h_nextn = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // eagle3 Decoder: processes draft tokens using g_embeddings from encoder
@@ -164,36 +164,36 @@ template <>
 llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_layer == 1);  // eagle3 has only one decoder layer
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_layer == 1);  // eagle3 has only one decoder layer
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     // eagle3 Decoder receives:
     // 1. Token embeddings (e.g.from eagle3's own tok_embd for Llama 3.3 70B, or target model for Llama 3.1 8B)
     // 2. g_embeddings from encoder
     auto * tok_embd = model.tok_embd;
     if (model.tok_embd == nullptr) {
-        LM_GGML_ASSERT(cparams.ctx_other != nullptr);
+        GGML_ASSERT(cparams.ctx_other != nullptr);
         const auto * model_other = llama_get_model(cparams.ctx_other);
 
-        LM_GGML_ASSERT(model_other->tok_embd != nullptr && "EAGLE3 decoder requires token embeddings (own or from target model)");
+        GGML_ASSERT(model_other->tok_embd != nullptr && "EAGLE3 decoder requires token embeddings (own or from target model)");
         tok_embd = model_other->tok_embd;
     }
 
     auto inp = std::make_unique<llm_graph_input_embd>(n_embd);
 
-    inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_tokens);
-    lm_ggml_set_input(inp->tokens);
+    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(inp->tokens);
 
-    inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd, n_tokens);
-    lm_ggml_set_input(inp->embd);
+    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, n_tokens);
+    ggml_set_input(inp->embd);
 
-    lm_ggml_tensor * inp_embd = lm_ggml_get_rows(ctx0, tok_embd, inp->tokens);
+    ggml_tensor * inp_embd = ggml_get_rows(ctx0, tok_embd, inp->tokens);
     cb(inp_embd, "inp_embd", -1);
 
-    lm_ggml_tensor * inp_g = inp->embd;
+    ggml_tensor * inp_g = inp->embd;
     cb(inp_g, "inp_g_embeddings", -1);
 
     res->add_input(std::move(inp));
@@ -201,7 +201,7 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
     inpL = inp_g;
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
@@ -211,13 +211,13 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
     const int il = 0;
     {
         // Apply input_layernorm to the token embeddings
-        lm_ggml_tensor * embd_norm = build_norm(inp_embd,
+        ggml_tensor * embd_norm = build_norm(inp_embd,
                 model.layers[il].attn_norm, NULL,
                 LLM_NORM_RMS, il);
         cb(embd_norm, "embd_norm", il);
 
         // Apply hidden_norm to inp_g
-        lm_ggml_tensor * g_norm = build_norm(inp_g,
+        ggml_tensor * g_norm = build_norm(inp_g,
                 model.layers[il].attn_norm_2, NULL,
                 LLM_NORM_RMS, -1);
         cb(g_norm, "g_norm", il);
@@ -226,36 +226,36 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
         // - false (default): use raw inp_g for residual
         // - true: use normalized g_norm for residual
         // inpL is the concatenated input (normalized inp_embd + normalized inp_g)
-        lm_ggml_tensor * inpSA = hparams.norm_before_residual ? g_norm : inpL;
+        ggml_tensor * inpSA = hparams.norm_before_residual ? g_norm : inpL;
 
         // Concatenate normalized inp_embd and normalized inp_g
-        cur = lm_ggml_concat(ctx0, embd_norm, g_norm, il);
+        cur = ggml_concat(ctx0, embd_norm, g_norm, il);
         cb(cur, "concat_embd", il);
 
         // Self-attention with concatenated input
-        lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
+        ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
         cb(Qcur, "Qcur", il);
 
-        lm_ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+        ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
         cb(Kcur, "Kcur", il);
 
-        lm_ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+        ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
         cb(Vcur, "Vcur", il);
 
-        Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
-        Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
-        Vcur = lm_ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+        Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
+        Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+        Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
 
         // rope freq factors, returns nullptr if not available
-        lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+        ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
         // RoPE
-        Qcur = lm_ggml_rope_ext(
+        Qcur = ggml_rope_ext(
                 ctx0, Qcur, inp_pos, rope_factors,
                 n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                 ext_factor, attn_factor, beta_fast, beta_slow
                 );
-        Kcur = lm_ggml_rope_ext(
+        Kcur = ggml_rope_ext(
                 ctx0, Kcur, inp_pos, rope_factors,
                 n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                 ext_factor, attn_factor, beta_fast, beta_slow
@@ -269,7 +269,7 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
                 Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
 
         // Add residual and update it
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // Apply FFN norm to the sum
@@ -287,7 +287,7 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
         cb(cur, "ffn_out", il);
 
         // Output norm with residual
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "eagle3_prenorm", il);
 
         inpL = cur;
@@ -296,7 +296,7 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
     cur = inpL;
 
     // Output prenorm state (for next token's g_embeddings in autoregressive generation)
-    lm_ggml_set_output(cur);
+    ggml_set_output(cur);
     res->t_h_nextn = cur;
 
     cur = build_norm(cur,
@@ -308,10 +308,10 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
     // if the draft has no own output projection, inherit the target model's lm_head
     auto * output = model.output;
     if (output == nullptr) {
-        LM_GGML_ASSERT(cparams.ctx_other != nullptr);
+        GGML_ASSERT(cparams.ctx_other != nullptr);
         const auto * model_other = llama_get_model(cparams.ctx_other);
 
-        LM_GGML_ASSERT(model_other->output != nullptr && "EAGLE3 decoder requires an output projection (own or from target model)");
+        GGML_ASSERT(model_other->output != nullptr && "EAGLE3 decoder requires an output projection (own or from target model)");
         output = model_other->output;
     }
     cur = build_lora_mm(output, cur);
@@ -321,18 +321,18 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
         const int64_t n_outputs     = cur->ne[1];
         const int64_t n_vocab       = (int64_t) model.vocab.n_tokens();
 
-        LM_GGML_ASSERT(model.d2t->type == LM_GGML_TYPE_I64);
-        LM_GGML_ASSERT(model.d2t->ne[0] == n_draft_vocab);
+        GGML_ASSERT(model.d2t->type == GGML_TYPE_I64);
+        GGML_ASSERT(model.d2t->ne[0] == n_draft_vocab);
 
-        lm_ggml_tensor * logits = lm_ggml_fill(ctx0, lm_ggml_new_tensor_3d(ctx0, LM_GGML_TYPE_F32, 1, n_vocab, n_outputs), -INFINITY);
-        cur = lm_ggml_set_rows(ctx0, logits,
-                lm_ggml_reshape_3d(ctx0, cur,       1,             n_draft_vocab, n_outputs),
-                lm_ggml_reshape_3d(ctx0, model.d2t, n_draft_vocab, 1,             1));
-        cur = lm_ggml_reshape_2d(ctx0, cur, n_vocab, n_outputs);
+        ggml_tensor * logits = ggml_fill(ctx0, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, n_vocab, n_outputs), -INFINITY);
+        cur = ggml_set_rows(ctx0, logits,
+                ggml_reshape_3d(ctx0, cur,       1,             n_draft_vocab, n_outputs),
+                ggml_reshape_3d(ctx0, model.d2t, n_draft_vocab, 1,             1));
+        cur = ggml_reshape_2d(ctx0, cur, n_vocab, n_outputs);
     }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

@@ -3,7 +3,7 @@
 constant bool FC_upscale_aa [[function_constant(FC_UPSCALE + 0)]];
 
 kernel void kernel_upscale_nearest_f32(
-    constant lm_ggml_metal_kargs_upscale & args,
+    constant ggml_metal_kargs_upscale & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -33,7 +33,7 @@ static inline float bilinear_tri(float x) {
 }
 
 kernel void kernel_upscale_bilinear_f32(
-    constant lm_ggml_metal_kargs_upscale & args,
+    constant ggml_metal_kargs_upscale & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -122,7 +122,7 @@ static inline float bicubic_weight2(float x) {
 }
 
 kernel void kernel_upscale_bicubic_f32(
-    constant lm_ggml_metal_kargs_upscale & args,
+    constant ggml_metal_kargs_upscale & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],

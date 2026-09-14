@@ -13,8 +13,8 @@
 
 llama_kv_cache_dsa_iswa::llama_kv_cache_dsa_iswa(
         const llama_model & model,
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                      bool   offload,
                      bool   swa_full,
@@ -50,7 +50,7 @@ llama_kv_cache_dsa_iswa::llama_kv_cache_dsa_iswa(
 
     // note: the SWA cache is always padded to 256 for performance
     //       https://github.com/ggml-org/llama.cpp/issues/17037
-    uint32_t size_swa = LM_GGML_PAD(std::min(size_dsa, hparams.n_swa*(unified ? n_seq_max : 1) + n_ubatch), 256);
+    uint32_t size_swa = GGML_PAD(std::min(size_dsa, hparams.n_swa*(unified ? n_seq_max : 1) + n_ubatch), 256);
 
     // when using full-size SWA cache, we set the SWA cache size to be equal to the base cache size
     if (swa_full) {
@@ -118,8 +118,8 @@ llama_pos llama_kv_cache_dsa_iswa::seq_pos_max(llama_seq_id seq_id) const {
     return kv_swa->seq_pos_max(seq_id);
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_kv_cache_dsa_iswa::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> mb = kv_dsa->memory_breakdown();
+std::map<ggml_backend_buffer_type_t, size_t> llama_kv_cache_dsa_iswa::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> mb = kv_dsa->memory_breakdown();
     for (const auto & buft_size : kv_swa->memory_breakdown()) {
         mb[buft_size.first] += buft_size.second;
     }
@@ -127,7 +127,7 @@ std::map<lm_ggml_backend_buffer_type_t, size_t> llama_kv_cache_dsa_iswa::memory_
 }
 
 llama_memory_context_ptr llama_kv_cache_dsa_iswa::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
-    LM_GGML_UNUSED(embd_all);
+    GGML_UNUSED(embd_all);
 
     // first try simple split
     do {

@@ -25,8 +25,8 @@ struct clip_image_size {
     }
     int area() const {
         // avoid overflow when computing area
-        LM_GGML_ASSERT(width  >= 0 && width  <= 46000);
-        LM_GGML_ASSERT(height >= 0 && height <= 46000);
+        GGML_ASSERT(width  >= 0 && width  <= 46000);
+        GGML_ASSERT(height >= 0 && height <= 46000);
         return width * height;
     }
 };
@@ -48,12 +48,12 @@ enum clip_flash_attn_type {
 
 struct clip_context_params {
     bool use_gpu;
-    lm_ggml_backend_dev_t device;
+    ggml_backend_dev_t device;
     enum clip_flash_attn_type flash_attn_type;
     int image_min_tokens;
     int image_max_tokens;
     bool warmup;
-    lm_ggml_backend_sched_eval_callback cb_eval;
+    ggml_backend_sched_eval_callback cb_eval;
     void * cb_eval_user_data;
     bool no_alloc;
     mtmd_progress_callback progress_callback;
@@ -130,7 +130,7 @@ bool clip_support_batch(const struct clip_ctx * ctx);
 
 int clip_model_n_temporal_merge(const struct clip_ctx * ctx); // TODO @ngxson : remove, refactor this
 
-std::map<lm_ggml_backend_dev_t, size_t> clip_get_mem_usage(const struct clip_ctx * ctx);
+std::map<ggml_backend_dev_t, size_t> clip_get_mem_usage(const struct clip_ctx * ctx);
 
 struct clip_cap {
     bool has_vision;

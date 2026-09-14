@@ -44,15 +44,15 @@ struct phd_impl {
     int32_t audio_embed_dim = 0;
 
     // Tensor pointers into codec->weights, resolved at init.
-    std::vector<lm_ggml_tensor *> heads;       // [n_codebook]
-    std::vector<lm_ggml_tensor *> audio_embds; // [n_codebook]
+    std::vector<ggml_tensor *> heads;       // [n_codebook]
+    std::vector<ggml_tensor *> audio_embds; // [n_codebook]
 
     // Optional learned per-step positional embedding.  Chatterbox T3
     // stores `lm.chatterbox.speech_pos_emb.weight` of shape
     // (hidden, max_speech_tokens) — added on top of the audio embed
     // for the next backbone input (Type B / embed-override).  Loaded
     // opportunistically at init; absent for plain TTS variants.
-    lm_ggml_tensor *      pos_emb     = nullptr;
+    ggml_tensor *      pos_emb     = nullptr;
     int32_t            pos_emb_dim = 0;   // hidden_dim of pos table
     int32_t            pos_emb_max = 0;   // max position
     std::vector<float> pos_emb_f32;       // lazy-dequanted full table; cached on first use
@@ -87,7 +87,7 @@ struct phd_compose_build_data {
 // Graph builders
 // ---------------------------------------------------------------------
 
-bool phd_build_logits(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out_terminal) {
+bool phd_build_logits(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out_terminal) {
     phd_logits_build_data * b = static_cast<phd_logits_build_data *>(user_data);
     if (ctx_eval == nullptr || b == nullptr || b->impl == nullptr || out_terminal == nullptr) {
         return false;
@@ -95,29 +95,29 @@ bool phd_build_logits(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tens
     phd_impl * impl = b->impl;
 
     // Input: backbone hidden state, shape [hidden, 1].
-    lm_ggml_tensor * t_h = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, b->hidden_dim, 1);
-    lm_ggml_set_name(t_h, "lm.step.h_in");
+    ggml_tensor * t_h = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, b->hidden_dim, 1);
+    ggml_set_name(t_h, "lm.step.h_in");
 
-    // For each codebook, compute logits = head @ h.  lm_ggml_mul_mat
+    // For each codebook, compute logits = head @ h.  ggml_mul_mat
     // contracts on ne[0] of both operands; head has ne=[hidden, vocab],
     // h has ne=[hidden, 1], so result is [vocab, 1].  Mark every per-cb
     // logits tensor as a graph output so galloc keeps each row pinned
     // (only the terminal is auto-flagged by the runtime; the other N-1
     // would otherwise be reused after their last graph use).
-    lm_ggml_tensor * last = nullptr;
+    ggml_tensor * last = nullptr;
     char buf[64];
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
-        lm_ggml_tensor * head = impl->heads[(size_t) i];
+        ggml_tensor * head = impl->heads[(size_t) i];
         // Keep stored dtype (F16/F32/BF16) — mul_mat handles all of those
         // as src[0] without an extra dequant pass.  Casting unconditionally
         // bakes a full vocab-sized F16→F32 dequant into the cached graph
         // that runs every step (Chatterbox / WavTokenizer etc. hit this
         // path per AR step × n_codebook heads).
-        lm_ggml_tensor * head_in_ctx = codec_graph_mat_lhs(ctx_eval, head);
-        lm_ggml_tensor * logits = lm_ggml_mul_mat(ctx_eval, head_in_ctx, t_h);
+        ggml_tensor * head_in_ctx = codec_graph_mat_lhs(ctx_eval, head);
+        ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_in_ctx, t_h);
         std::snprintf(buf, sizeof(buf), "lm.step.logits_%d", i);
-        lm_ggml_set_name(logits, buf);
-        lm_ggml_set_output(logits);
+        ggml_set_name(logits, buf);
+        ggml_set_output(logits);
         last = logits;
     }
     if (last == nullptr) {
@@ -127,7 +127,7 @@ bool phd_build_logits(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tens
     return true;
 }
 
-bool phd_build_compose(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out_terminal) {
+bool phd_build_compose(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out_terminal) {
     phd_compose_build_data * b = static_cast<phd_compose_build_data *>(user_data);
     if (ctx_eval == nullptr || b == nullptr || b->impl == nullptr || out_terminal == nullptr) {
         return false;
@@ -135,31 +135,31 @@ bool phd_build_compose(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_ten
     phd_impl * impl = b->impl;
 
     // Input: codes for each codebook, [n_codebook] i32.
-    lm_ggml_tensor * t_codes = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, impl->n_codebook);
-    lm_ggml_set_name(t_codes, "lm.compose.codes");
+    ggml_tensor * t_codes = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, impl->n_codebook);
+    ggml_set_name(t_codes, "lm.compose.codes");
 
-    // Sum across n_codebook get_rows results.  lm_ggml_get_rows takes a
+    // Sum across n_codebook get_rows results.  ggml_get_rows takes a
     // 1D index tensor; we view a single element of t_codes per call.
-    lm_ggml_tensor * acc = nullptr;
+    ggml_tensor * acc = nullptr;
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
-        lm_ggml_tensor * embd = impl->audio_embds[(size_t) i];
-        lm_ggml_tensor * idx_view = lm_ggml_view_1d(
+        ggml_tensor * embd = impl->audio_embds[(size_t) i];
+        ggml_tensor * idx_view = ggml_view_1d(
             ctx_eval, t_codes, /*ne0=*/1, /*offset=*/(size_t) i * sizeof(int32_t));
-        lm_ggml_tensor * row = lm_ggml_get_rows(ctx_eval, embd, idx_view);
+        ggml_tensor * row = ggml_get_rows(ctx_eval, embd, idx_view);
         // row has ne=[hidden, 1]; cast to F32 if the embed table is
-        // F16/quantized.  lm_ggml_get_rows itself dequants for some types,
+        // F16/quantized.  ggml_get_rows itself dequants for some types,
         // but be explicit so the accumulator type is always F32.
         row = codec_graph_cast_f32(ctx_eval, row);
         if (acc == nullptr) {
             acc = row;
         } else {
-            acc = lm_ggml_add(ctx_eval, acc, row);
+            acc = ggml_add(ctx_eval, acc, row);
         }
     }
     if (acc == nullptr) {
         return false;
     }
-    lm_ggml_set_name(acc, "lm.compose.out");
+    ggml_set_name(acc, "lm.compose.out");
     *out_terminal = acc;
     return true;
 }
@@ -202,7 +202,7 @@ bool init(codec_lm * lm) {
     char buf[64];
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
         std::snprintf(buf, sizeof(buf), "lm.audio_embd_%d.weight", i);
-        lm_ggml_tensor * embd = lm_ggml_get_tensor(lm->codec->weights, buf);
+        ggml_tensor * embd = ggml_get_tensor(lm->codec->weights, buf);
         impl->audio_embds[(size_t) i] = embd;
 
         if (tied_heads) {
@@ -210,7 +210,7 @@ bool init(codec_lm * lm) {
             impl->heads[(size_t) i] = embd;
         } else {
             std::snprintf(buf, sizeof(buf), "lm.heads_%d.weight", i);
-            impl->heads[(size_t) i] = lm_ggml_get_tensor(lm->codec->weights, buf);
+            impl->heads[(size_t) i] = ggml_get_tensor(lm->codec->weights, buf);
         }
         if (impl->heads[(size_t) i] == nullptr || impl->audio_embds[(size_t) i] == nullptr) {
             // Already validated via codec_lm_check_unfused_audio_tables, but
@@ -225,7 +225,7 @@ bool init(codec_lm * lm) {
     // codec_lm_compose_next_embd for the next backbone-input embed
     // (`speech_emb[code] + speech_pos_emb[step]`).  Absent for plain TTS
     // variants — compose_next_embd then degrades to compose_audio_embd.
-    impl->pos_emb = lm_ggml_get_tensor(lm->codec->weights, "lm.chatterbox.speech_pos_emb.weight");
+    impl->pos_emb = ggml_get_tensor(lm->codec->weights, "lm.chatterbox.speech_pos_emb.weight");
     if (impl->pos_emb != nullptr) {
         // ne[0] = hidden, ne[1] = max_pos (PyTorch nn.Embedding saved
         // row-major (V, H) lands in ggml as ne[0]=H, ne[1]=V).
@@ -325,7 +325,7 @@ enum codec_status step_begin(codec_lm_state * st, const float * h_in) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.step.h_in");
+    ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.step.h_in");
     if (t_h == nullptr) {
         st->last_error = "logits graph missing input tensor";
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -349,7 +349,7 @@ enum codec_status step_begin(codec_lm_state * st, const float * h_in) {
     char buf[64];
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
         std::snprintf(buf, sizeof(buf), "lm.step.logits_%d", i);
-        lm_ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, buf);
+        ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, buf);
         if (t_lg == nullptr) {
             st->last_error = std::string("logits graph missing output: ") + buf;
             return CODEC_STATUS_INTERNAL_ERROR;
@@ -417,7 +417,7 @@ const float * audio_embd(codec_lm * lm, int32_t cb_idx, int32_t code) {
     if (cb_idx < 0 || cb_idx >= impl->n_codebook) {
         return nullptr;
     }
-    lm_ggml_tensor * embd = impl->audio_embds[(size_t) cb_idx];
+    ggml_tensor * embd = impl->audio_embds[(size_t) cb_idx];
     if (embd == nullptr) {
         return nullptr;
     }
@@ -454,7 +454,7 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
     // typically called outside step_begin by the caller (post-finish),
     // so we'd race with step_begin's eval ctx if we shared.  For
     // simplicity, build a fresh codec_context-less path: use a
-    // standalone lm_ggml_init + alloc + compute, all on CPU backend.
+    // standalone ggml_init + alloc + compute, all on CPU backend.
     //
     // Implementation note: we delegate to a dedicated small codec_context
     // owned by the codec_lm itself for compose graphs.  See
@@ -502,8 +502,8 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_codes = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.codes");
-    lm_ggml_tensor * t_out   = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.out");
+    ggml_tensor * t_codes = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.codes");
+    ggml_tensor * t_out   = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.out");
     if (t_codes == nullptr || t_out == nullptr) {
         lm->last_error = "compose graph missing input/output tensor";
         return CODEC_STATUS_INTERNAL_ERROR;

@@ -4,7 +4,7 @@
 #include <HAP_farf.h>
 #include <HAP_perf.h>
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "ggml.h"
 
@@ -300,33 +300,33 @@ static inline void bitonic_sort_generic_hvx(uint8_t * values, uint8_t * indices,
 }
 
 __attribute__((always_inline))
-static inline void sort32_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 1, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort32_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 1, order == GGML_SORT_ORDER_ASC);
 }
 
 __attribute__((always_inline))
-static inline void sort64_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 2, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort64_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 2, order == GGML_SORT_ORDER_ASC);
 }
 
 __attribute__((always_inline))
-static inline void sort128_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 4, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort128_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 4, order == GGML_SORT_ORDER_ASC);
 }
 
 __attribute__((always_inline))
-static inline void sort256_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 8, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort256_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 8, order == GGML_SORT_ORDER_ASC);
 }
 
 __attribute__((always_inline))
-static inline void sort512_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 16, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort512_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 16, order == GGML_SORT_ORDER_ASC);
 }
 
 __attribute__((always_inline))
-static inline void sort1024_f32_hvx(uint8_t * values, uint8_t * indices, enum lm_ggml_sort_order order) {
-    bitonic_sort_generic_hvx(values, indices, 32, order == LM_GGML_SORT_ORDER_ASC);
+static inline void sort1024_f32_hvx(uint8_t * values, uint8_t * indices, enum ggml_sort_order order) {
+    bitonic_sort_generic_hvx(values, indices, 32, order == GGML_SORT_ORDER_ASC);
 }
 
 #define HTP_ARGSORT_FN(ne00, order_name, order_enum, sort_fn)                                                  \
@@ -360,18 +360,18 @@ static void htp_argsort_f32_##ne00##_##order_name(unsigned int n, unsigned int i
     htp_trace_event_stop(tr, HTP_TRACE_EVT_HVX_COMP, start_row);                                               \
 }
 
-HTP_ARGSORT_FN(32,   asc, LM_GGML_SORT_ORDER_ASC,  sort32_f32_hvx)
-HTP_ARGSORT_FN(32,   dsc, LM_GGML_SORT_ORDER_DESC, sort32_f32_hvx)
-HTP_ARGSORT_FN(64,   asc, LM_GGML_SORT_ORDER_ASC,  sort64_f32_hvx)
-HTP_ARGSORT_FN(64,   dsc, LM_GGML_SORT_ORDER_DESC, sort64_f32_hvx)
-HTP_ARGSORT_FN(128,  asc, LM_GGML_SORT_ORDER_ASC,  sort128_f32_hvx)
-HTP_ARGSORT_FN(128,  dsc, LM_GGML_SORT_ORDER_DESC, sort128_f32_hvx)
-HTP_ARGSORT_FN(256,  asc, LM_GGML_SORT_ORDER_ASC,  sort256_f32_hvx)
-HTP_ARGSORT_FN(256,  dsc, LM_GGML_SORT_ORDER_DESC, sort256_f32_hvx)
-HTP_ARGSORT_FN(512,  asc, LM_GGML_SORT_ORDER_ASC,  sort512_f32_hvx)
-HTP_ARGSORT_FN(512,  dsc, LM_GGML_SORT_ORDER_DESC, sort512_f32_hvx)
-HTP_ARGSORT_FN(1024, asc, LM_GGML_SORT_ORDER_ASC,  sort1024_f32_hvx)
-HTP_ARGSORT_FN(1024, dsc, LM_GGML_SORT_ORDER_DESC, sort1024_f32_hvx)
+HTP_ARGSORT_FN(32,   asc, GGML_SORT_ORDER_ASC,  sort32_f32_hvx)
+HTP_ARGSORT_FN(32,   dsc, GGML_SORT_ORDER_DESC, sort32_f32_hvx)
+HTP_ARGSORT_FN(64,   asc, GGML_SORT_ORDER_ASC,  sort64_f32_hvx)
+HTP_ARGSORT_FN(64,   dsc, GGML_SORT_ORDER_DESC, sort64_f32_hvx)
+HTP_ARGSORT_FN(128,  asc, GGML_SORT_ORDER_ASC,  sort128_f32_hvx)
+HTP_ARGSORT_FN(128,  dsc, GGML_SORT_ORDER_DESC, sort128_f32_hvx)
+HTP_ARGSORT_FN(256,  asc, GGML_SORT_ORDER_ASC,  sort256_f32_hvx)
+HTP_ARGSORT_FN(256,  dsc, GGML_SORT_ORDER_DESC, sort256_f32_hvx)
+HTP_ARGSORT_FN(512,  asc, GGML_SORT_ORDER_ASC,  sort512_f32_hvx)
+HTP_ARGSORT_FN(512,  dsc, GGML_SORT_ORDER_DESC, sort512_f32_hvx)
+HTP_ARGSORT_FN(1024, asc, GGML_SORT_ORDER_ASC,  sort1024_f32_hvx)
+HTP_ARGSORT_FN(1024, dsc, GGML_SORT_ORDER_DESC, sort1024_f32_hvx)
 
 static void htp_argsort_f32_fallback(unsigned int n, unsigned int i, void * data) {
     struct htp_argsort_context * actx = (struct htp_argsort_context *)data;
@@ -395,7 +395,7 @@ static void htp_argsort_f32_fallback(unsigned int n, unsigned int i, void * data
     uint32_t nb1 = dst->nb[1];
 
     // Sort order
-    enum lm_ggml_sort_order order = (enum lm_ggml_sort_order) octx->op_params[0];
+    enum ggml_sort_order order = (enum ggml_sort_order) octx->op_params[0];
 
     // Rows to process
     uint32_t total_rows = ne01 * ne02 * ne03;
@@ -432,7 +432,7 @@ static void htp_argsort_f32_fallback(unsigned int n, unsigned int i, void * data
         }
 
         // Sort values and mirror swaps to indices
-        if (order == LM_GGML_SORT_ORDER_ASC) {
+        if (order == GGML_SORT_ORDER_ASC) {
             quicksort_values_indices_asc(values_buf, indices_buf, 0, ne00 - 1);
         } else {
             quicksort_values_indices_desc(values_buf, indices_buf, 0, ne00 - 1);
@@ -482,10 +482,10 @@ int op_argsort(struct htp_ops_context * octx) {
     actx.vtcm_base = (uint8_t *) octx->ctx->vtcm_base;
     actx.vtcm_per_thread = spad_per_thread;
 
-    enum lm_ggml_sort_order order = (enum lm_ggml_sort_order) octx->op_params[0];
+    enum ggml_sort_order order = (enum ggml_sort_order) octx->op_params[0];
     worker_callback_t job_func = htp_argsort_f32_fallback;
 
-    if (order == LM_GGML_SORT_ORDER_ASC) {
+    if (order == GGML_SORT_ORDER_ASC) {
         switch (ne00) {
             case 1024: job_func = htp_argsort_f32_1024_asc; break;
             case 512:  job_func = htp_argsort_f32_512_asc;  break;

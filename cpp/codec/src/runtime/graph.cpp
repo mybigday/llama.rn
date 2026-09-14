@@ -16,12 +16,12 @@ static bool codec_graph_key_equal(const codec_graph_cache_key & a, const codec_g
 }
 
 struct codec_graph_count_state {
-    std::vector<lm_ggml_tensor *> visited;
+    std::vector<ggml_tensor *> visited;
     size_t n_nodes = 0;
     size_t n_leafs = 0;
 };
 
-static void codec_graph_count_visit(lm_ggml_tensor * node, codec_graph_count_state * state) {
+static void codec_graph_count_visit(ggml_tensor * node, codec_graph_count_state * state) {
     if (node == nullptr || state == nullptr) {
         return;
     }
@@ -31,18 +31,18 @@ static void codec_graph_count_visit(lm_ggml_tensor * node, codec_graph_count_sta
     }
     state->visited.push_back(node);
 
-    for (int i = 0; i < LM_GGML_MAX_SRC; ++i) {
+    for (int i = 0; i < GGML_MAX_SRC; ++i) {
         codec_graph_count_visit(node->src[i], state);
     }
 
-    if (node->op == LM_GGML_OP_NONE && (node->flags & LM_GGML_TENSOR_FLAG_PARAM) == 0) {
+    if (node->op == GGML_OP_NONE && (node->flags & GGML_TENSOR_FLAG_PARAM) == 0) {
         ++state->n_leafs;
     } else {
         ++state->n_nodes;
     }
 }
 
-static codec_graph_count_state codec_graph_count_exact(lm_ggml_tensor * out) {
+static codec_graph_count_state codec_graph_count_exact(ggml_tensor * out) {
     codec_graph_count_state state;
     codec_graph_count_visit(out, &state);
     return state;
@@ -52,7 +52,7 @@ size_t codec_graph_size_exact(
     const struct codec_model * /*model*/,
     const struct codec_graph_cache_key * /*key*/,
     const void * /*user_data*/,
-    lm_ggml_tensor * out) {
+    ggml_tensor * out) {
 
     const codec_graph_count_state state = codec_graph_count_exact(out);
     return std::max<size_t>(1, std::max(state.n_nodes, state.n_leafs));
@@ -71,16 +71,16 @@ void codec_graph_release(codec_context * ctx) {
     if (ctx->sched != nullptr && ctx->eval_graph_allocated) {
         if (ctx->eval_entry != nullptr &&
             ctx->eval_entry->key.kind == CODEC_GRAPH_CHATTERBOX_S3G_DECODE) {
-            lm_ggml_backend_sched_free(ctx->sched);
+            ggml_backend_sched_free(ctx->sched);
             ctx->sched = nullptr;
             ctx->sched_reserved_graph_size = 0;
         } else {
-            lm_ggml_backend_sched_reset(ctx->sched);
+            ggml_backend_sched_reset(ctx->sched);
         }
     }
 
     if (ctx->eval_ctx != nullptr) {
-        lm_ggml_free(ctx->eval_ctx);
+        ggml_free(ctx->eval_ctx);
         ctx->eval_ctx = nullptr;
     }
     ctx->eval_graph = nullptr;
@@ -115,7 +115,7 @@ static bool codec_graph_ensure_eval_arena(codec_context * ctx, size_t required_s
     return true;
 }
 
-// Default arena size for ggml metadata.  lm_ggml_init in no_alloc mode
+// Default arena size for ggml metadata.  ggml_init in no_alloc mode
 // pre-allocates this many bytes for the eval context's tensor / op /
 // graph metadata; the actual data lives in the scheduler's galloc-managed
 // buffer.  Largest observed usage across all models is chatterbox_s3g's
@@ -217,13 +217,13 @@ bool codec_graph_cache_get_or_build(
         return false;
     }
 
-    lm_ggml_init_params p = {
+    ggml_init_params p = {
         /*.mem_size   =*/ ctx->eval_arena_size,
         /*.mem_buffer =*/ ctx->eval_arena_buf,
         /*.no_alloc   =*/ true,
     };
 
-    ctx->eval_ctx = lm_ggml_init(p);
+    ctx->eval_ctx = ggml_init(p);
     if (ctx->eval_ctx == nullptr) {
         if (error != nullptr) {
             *error = "failed to create eval context";
@@ -232,7 +232,7 @@ bool codec_graph_cache_get_or_build(
         return false;
     }
 
-    lm_ggml_tensor * out = nullptr;
+    ggml_tensor * out = nullptr;
     void * build_data = cached->build_user_data.empty() ? nullptr : cached->build_user_data.data();
     if (!cached->build_fn(ctx->eval_ctx, build_data, &out) || out == nullptr) {
         if (error != nullptr) {
@@ -257,29 +257,29 @@ bool codec_graph_cache_get_or_build(
     // tensor, so the heuristic flags hundreds of intermediate tensors and
     // bloats the persistent buffer (xcodec2 encode: 1340 names → 5.8 GB
     // pinned).  Models that read non-terminal outputs must call
-    // lm_ggml_set_output explicitly inside their build_fn (see snac.cpp).
-    for (lm_ggml_tensor * t = lm_ggml_get_first_tensor(ctx->eval_ctx); t != nullptr;
-         t = lm_ggml_get_next_tensor(ctx->eval_ctx, t)) {
-        if (t->op == LM_GGML_OP_NONE && t->buffer == nullptr && t->view_src == nullptr) {
-            lm_ggml_set_input(t);
+    // ggml_set_output explicitly inside their build_fn (see snac.cpp).
+    for (ggml_tensor * t = ggml_get_first_tensor(ctx->eval_ctx); t != nullptr;
+         t = ggml_get_next_tensor(ctx->eval_ctx, t)) {
+        if (t->op == GGML_OP_NONE && t->buffer == nullptr && t->view_src == nullptr) {
+            ggml_set_input(t);
         }
     }
-    lm_ggml_set_output(out);
+    ggml_set_output(out);
 
     size_t graph_size = 0;
     if (ctx->model != nullptr && ctx->model->vtable != nullptr && ctx->model->vtable->graph_size != nullptr) {
         graph_size = ctx->model->vtable->graph_size(ctx->model, &cached->key, build_data, out);
     }
 
-    // Side-output tensors (extra lm_ggml_set_output calls inside build_fn,
+    // Side-output tensors (extra ggml_set_output calls inside build_fn,
     // not reachable from `out`) need to be expanded into the graph as
     // separate roots — without that, sched_alloc_graph never sees them
     // and their `t->buffer` stays NULL, making the runtime fail on
     // codec_runtime_read_tensor.  Walk eval_ctx, collect them.
-    std::vector<lm_ggml_tensor *> side_outputs;
-    for (lm_ggml_tensor * t = lm_ggml_get_first_tensor(ctx->eval_ctx); t != nullptr;
-         t = lm_ggml_get_next_tensor(ctx->eval_ctx, t)) {
-        if ((t->flags & LM_GGML_TENSOR_FLAG_OUTPUT) && t != out) {
+    std::vector<ggml_tensor *> side_outputs;
+    for (ggml_tensor * t = ggml_get_first_tensor(ctx->eval_ctx); t != nullptr;
+         t = ggml_get_next_tensor(ctx->eval_ctx, t)) {
+        if ((t->flags & GGML_TENSOR_FLAG_OUTPUT) && t != out) {
             side_outputs.push_back(t);
         }
     }
@@ -292,14 +292,14 @@ bool codec_graph_cache_get_or_build(
     // visits — so the count matches the actual graph hash-set demand.
     codec_graph_count_state counts;
     codec_graph_count_visit(out, &counts);
-    for (lm_ggml_tensor * t : side_outputs) {
+    for (ggml_tensor * t : side_outputs) {
         codec_graph_count_visit(t, &counts);
     }
     // ggml's internal hash set sizes from this; sum (rather than max)
-    // of nodes + leafs is the correct bound for what lm_ggml_visit_parents
+    // of nodes + leafs is the correct bound for what ggml_visit_parents
     // will insert.  Take the larger of (vtable hint, side-output-aware
     // count) — the vtable hint typically only walks from `out` and so
-    // undercounts when build_fn flagged extra lm_ggml_set_output side
+    // undercounts when build_fn flagged extra ggml_set_output side
     // branches (e.g. parallel_heads_delay's N parallel logit roots).
     {
         const size_t side_aware = std::max<size_t>(1, counts.n_nodes + counts.n_leafs);
@@ -307,10 +307,10 @@ bool codec_graph_cache_get_or_build(
             graph_size = side_aware;
         }
     }
-    ctx->eval_graph = lm_ggml_new_graph_custom(ctx->eval_ctx, graph_size, false);
-    lm_ggml_build_forward_expand(ctx->eval_graph, out);
-    for (lm_ggml_tensor * t : side_outputs) {
-        lm_ggml_build_forward_expand(ctx->eval_graph, t);
+    ctx->eval_graph = ggml_new_graph_custom(ctx->eval_ctx, graph_size, false);
+    ggml_build_forward_expand(ctx->eval_graph, out);
+    for (ggml_tensor * t : side_outputs) {
+        ggml_build_forward_expand(ctx->eval_graph, t);
     }
     ctx->eval_output = out;
     ctx->eval_entry = cached;
@@ -320,7 +320,7 @@ bool codec_graph_cache_get_or_build(
     // never shrink: the eval arena is reused across cache entries and a
     // realloc-down would just churn since the next entry might want the
     // larger size again.
-    const size_t used_mem = lm_ggml_used_mem(ctx->eval_ctx);
+    const size_t used_mem = ggml_used_mem(ctx->eval_ctx);
     if (used_mem > cached->required_mem_size) {
         cached->required_mem_size = used_mem;
     }
@@ -330,9 +330,9 @@ bool codec_graph_cache_get_or_build(
     return true;
 }
 
-lm_ggml_tensor * codec_graph_get_tensor(codec_context * ctx, codec_graph_cache_entry * entry, const char * name) {
+ggml_tensor * codec_graph_get_tensor(codec_context * ctx, codec_graph_cache_entry * entry, const char * name) {
     if (ctx == nullptr || entry == nullptr || name == nullptr || ctx->eval_entry != entry || ctx->eval_ctx == nullptr) {
         return nullptr;
     }
-    return lm_ggml_get_tensor(ctx->eval_ctx, name);
+    return ggml_get_tensor(ctx->eval_ctx, name);
 }

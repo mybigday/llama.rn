@@ -163,7 +163,7 @@ struct audio_lm_context {
 static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
     uint32_t mask = 0;
 
-    const codec_lm_gguf_metadata * meta = codec_model_metadata(ctx->model);
+    const codec_gguf_metadata * meta = codec_model_metadata(ctx->model);
     bool saw_explicit = false;
 
     if (meta != nullptr) {
@@ -171,7 +171,7 @@ static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
             const char * key = meta->items[i].key;
             const char * val = meta->items[i].value;
             if (key == nullptr || val == nullptr) continue;
-            // Match "true" loosely — codec_lm_gguf_metadata serialises
+            // Match "true" loosely — codec_gguf_metadata serialises
             // bools as the strings "true" / "false".
             const bool on = (std::strcmp(val, "true") == 0 ||
                              std::strcmp(val, "1")    == 0);
@@ -998,7 +998,7 @@ observe_action audio_lm_observe_hidden(audio_lm_context * ctx,
 // absent.  Used to key model-specific prompt assembly off host_arch / kind.
 static const char * meta_str(const audio_lm_context * ctx, const char * key) {
     if (ctx == nullptr || ctx->model == nullptr) return nullptr;
-    const codec_lm_gguf_metadata * meta = codec_model_metadata(ctx->model);
+    const codec_gguf_metadata * meta = codec_model_metadata(ctx->model);
     if (meta == nullptr) return nullptr;
     for (size_t i = 0; i < meta->n_items; ++i) {
         if (meta->items[i].key && std::strcmp(meta->items[i].key, key) == 0) {

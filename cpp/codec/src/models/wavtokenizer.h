@@ -12,7 +12,7 @@ struct codec_wavtokenizer_large {
     bool has_encoder = false;
     bool has_decoder = false;
 
-    struct lm_ggml_tensor * vq_embed = nullptr;
+    struct ggml_tensor * vq_embed = nullptr;
 };
 
 enum codec_status codec_wavtokenizer_init(struct codec_model * model);

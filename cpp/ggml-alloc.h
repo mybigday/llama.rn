@@ -6,80 +6,80 @@
 extern "C" {
 #endif
 
-typedef struct lm_ggml_backend_buffer_type * lm_ggml_backend_buffer_type_t;
-typedef struct      lm_ggml_backend_buffer * lm_ggml_backend_buffer_t;
-typedef struct             lm_ggml_backend * lm_ggml_backend_t;
+typedef struct ggml_backend_buffer_type * ggml_backend_buffer_type_t;
+typedef struct      ggml_backend_buffer * ggml_backend_buffer_t;
+typedef struct             ggml_backend * ggml_backend_t;
 
 // Tensor allocator
-struct lm_ggml_tallocr {
-    lm_ggml_backend_buffer_t buffer;
+struct ggml_tallocr {
+    ggml_backend_buffer_t buffer;
     void * base;
     size_t alignment;
     size_t offset;
 };
 
-LM_GGML_API struct lm_ggml_tallocr lm_ggml_tallocr_new(lm_ggml_backend_buffer_t buffer);
-LM_GGML_API enum lm_ggml_status    lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tensor * tensor);
+GGML_API struct ggml_tallocr ggml_tallocr_new(ggml_backend_buffer_t buffer);
+GGML_API enum ggml_status    ggml_tallocr_alloc(struct ggml_tallocr * talloc, struct ggml_tensor * tensor);
 
 // Graph allocator
 /*
   Example usage:
-    lm_ggml_gallocr_t galloc = lm_ggml_gallocr_new(lm_ggml_backend_cpu_buffer_type());
+    ggml_gallocr_t galloc = ggml_gallocr_new(ggml_backend_cpu_buffer_type());
 
     // optional: create a worst-case graph and reserve the buffers to avoid reallocations
-    lm_ggml_gallocr_reserve(galloc, build_graph(max_batch));
+    ggml_gallocr_reserve(galloc, build_graph(max_batch));
 
     // allocate the graph
-    struct lm_ggml_cgraph * graph = build_graph(batch);
-    lm_ggml_gallocr_alloc_graph(galloc, graph);
+    struct ggml_cgraph * graph = build_graph(batch);
+    ggml_gallocr_alloc_graph(galloc, graph);
 
-    printf("compute buffer size: %zu bytes\n", lm_ggml_gallocr_get_buffer_size(galloc, 0));
+    printf("compute buffer size: %zu bytes\n", ggml_gallocr_get_buffer_size(galloc, 0));
 
     // evaluate the graph
-    lm_ggml_backend_graph_compute(backend, graph);
+    ggml_backend_graph_compute(backend, graph);
 */
 
 // special tensor flags for use with the graph allocator:
-//   lm_ggml_set_input(): all input tensors are allocated at the beginning of the graph in non-overlapping addresses
-//   lm_ggml_set_output(): output tensors are never freed and never overwritten
+//   ggml_set_input(): all input tensors are allocated at the beginning of the graph in non-overlapping addresses
+//   ggml_set_output(): output tensors are never freed and never overwritten
 
-typedef struct lm_ggml_gallocr * lm_ggml_gallocr_t;
+typedef struct ggml_gallocr * ggml_gallocr_t;
 
-LM_GGML_API lm_ggml_gallocr_t lm_ggml_gallocr_new(lm_ggml_backend_buffer_type_t buft);
-LM_GGML_API lm_ggml_gallocr_t lm_ggml_gallocr_new_n(lm_ggml_backend_buffer_type_t * bufts, int n_bufs);
-LM_GGML_API void           lm_ggml_gallocr_free(lm_ggml_gallocr_t galloc);
+GGML_API ggml_gallocr_t ggml_gallocr_new(ggml_backend_buffer_type_t buft);
+GGML_API ggml_gallocr_t ggml_gallocr_new_n(ggml_backend_buffer_type_t * bufts, int n_bufs);
+GGML_API void           ggml_gallocr_free(ggml_gallocr_t galloc);
 
 // pre-allocate buffers from a measure graph - does not allocate or modify the graph
 // call with a worst-case graph to avoid buffer reallocations
-// not strictly required for single buffer usage: lm_ggml_gallocr_alloc_graph will reallocate the buffers automatically if needed
+// not strictly required for single buffer usage: ggml_gallocr_alloc_graph will reallocate the buffers automatically if needed
 // returns false if the buffer allocation failed
-// lm_ggml_gallocr_resrve_n_size writes the buffer sizes per galloc buffer that would be allocated by lm_ggml_gallocr_reserve_n to sizes
-LM_GGML_API bool lm_ggml_gallocr_reserve(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph);
-LM_GGML_API void lm_ggml_gallocr_reserve_n_size(
-    lm_ggml_gallocr_t galloc,
-    struct lm_ggml_cgraph * graph,
+// ggml_gallocr_resrve_n_size writes the buffer sizes per galloc buffer that would be allocated by ggml_gallocr_reserve_n to sizes
+GGML_API bool ggml_gallocr_reserve(ggml_gallocr_t galloc, struct ggml_cgraph * graph);
+GGML_API void ggml_gallocr_reserve_n_size(
+    ggml_gallocr_t galloc,
+    struct ggml_cgraph * graph,
     const int * node_buffer_ids,
     const int * leaf_buffer_ids,
     size_t * sizes);
-LM_GGML_API bool lm_ggml_gallocr_reserve_n(
-    lm_ggml_gallocr_t galloc,
-    struct lm_ggml_cgraph * graph,
+GGML_API bool ggml_gallocr_reserve_n(
+    ggml_gallocr_t galloc,
+    struct ggml_cgraph * graph,
     const int * node_buffer_ids,
     const int * leaf_buffer_ids);
 
 // automatic reallocation if the topology changes when using a single buffer
-// returns false if using multiple buffers and a re-allocation is needed (call lm_ggml_gallocr_reserve_n first to set the node buffers)
-LM_GGML_API bool lm_ggml_gallocr_alloc_graph(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph);
+// returns false if using multiple buffers and a re-allocation is needed (call ggml_gallocr_reserve_n first to set the node buffers)
+GGML_API bool ggml_gallocr_alloc_graph(ggml_gallocr_t galloc, struct ggml_cgraph * graph);
 
-LM_GGML_API size_t lm_ggml_gallocr_get_buffer_size(lm_ggml_gallocr_t galloc, int buffer_id);
+GGML_API size_t ggml_gallocr_get_buffer_size(ggml_gallocr_t galloc, int buffer_id);
 
 // Utils
-// Create a buffer and allocate all the tensors in a lm_ggml_context
-// lm_ggml_backend_alloc_ctx_tensors_from_buft_size returns the size of the buffer that would be allocated by lm_ggml_backend_alloc_ctx_tensors_from_buft
-// lm_ggml_backend_alloc_ctx_tensors_from_buft returns NULL on failure or if all tensors in ctx are already allocated or zero-sized
-LM_GGML_API size_t                       lm_ggml_backend_alloc_ctx_tensors_from_buft_size(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors(struct lm_ggml_context * ctx, lm_ggml_backend_t backend);
+// Create a buffer and allocate all the tensors in a ggml_context
+// ggml_backend_alloc_ctx_tensors_from_buft_size returns the size of the buffer that would be allocated by ggml_backend_alloc_ctx_tensors_from_buft
+// ggml_backend_alloc_ctx_tensors_from_buft returns NULL on failure or if all tensors in ctx are already allocated or zero-sized
+GGML_API size_t                       ggml_backend_alloc_ctx_tensors_from_buft_size(struct ggml_context * ctx, ggml_backend_buffer_type_t buft);
+GGML_API struct ggml_backend_buffer * ggml_backend_alloc_ctx_tensors_from_buft(struct ggml_context * ctx, ggml_backend_buffer_type_t buft);
+GGML_API struct ggml_backend_buffer * ggml_backend_alloc_ctx_tensors(struct ggml_context * ctx, ggml_backend_t backend);
 
 #ifdef  __cplusplus
 }

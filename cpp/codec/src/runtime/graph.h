@@ -77,7 +77,7 @@ bool codec_graph_prepare_io(
     std::string * error);
 
 void codec_graph_release(codec_context * ctx);
-lm_ggml_tensor * codec_graph_get_tensor(codec_context * ctx, codec_graph_cache_entry * entry, const char * name);
+ggml_tensor * codec_graph_get_tensor(codec_context * ctx, codec_graph_cache_entry * entry, const char * name);
 
 // RAII cleanup for the per-call eval graph.  By default the guard releases the
 // eval graph (freeing eval_ctx + clearing the galloc allocation) when it goes

@@ -2,7 +2,7 @@
 
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
 #include "../ops/rope.h"
 #include "../runtime/graph.h"
@@ -54,9 +54,9 @@ const char * pm_name_mu()    { return "pocket_mimi.encode.mu"; }
 // One LayerScale transformer block operating on channel-major x_ct [c, t].
 // Matches mimi.cpp's decode/encode transformer block (LN -> RoPE causal attn
 // -> LayerScale add ; LN -> fc1 -> GELU -> fc2 -> LayerScale add).
-lm_ggml_tensor * pm_transformer_block(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * x_ct,
+ggml_tensor * pm_transformer_block(
+    ggml_context * ctx_eval,
+    ggml_tensor * x_ct,
     const codec_model * model,
     const std::string & prefix,     // e.g. "pocket_mimi.dtr.l0"
     int32_t head_dim,
@@ -67,82 +67,82 @@ lm_ggml_tensor * pm_transformer_block(
 
     auto W = [&](const std::string & n) { return codec_graph_weight(ctx_eval, model, n); };
 
-    lm_ggml_tensor * inln_w = W(prefix + ".inln.w");
-    lm_ggml_tensor * inln_b = W(prefix + ".inln.b");
-    lm_ggml_tensor * paln_w = W(prefix + ".paln.w");
-    lm_ggml_tensor * paln_b = W(prefix + ".paln.b");
-    lm_ggml_tensor * q_w = W(prefix + ".attn.q_proj.w");
-    lm_ggml_tensor * k_w = W(prefix + ".attn.k_proj.w");
-    lm_ggml_tensor * v_w = W(prefix + ".attn.v_proj.w");
-    lm_ggml_tensor * o_w = W(prefix + ".attn.o_proj.w");
-    lm_ggml_tensor * fc1_w = W(prefix + ".mlp.fc1.w");
-    lm_ggml_tensor * fc2_w = W(prefix + ".mlp.fc2.w");
-    lm_ggml_tensor * sa_scale = W(prefix + ".sa_ls.scale");
-    lm_ggml_tensor * mlp_scale = W(prefix + ".mlp_ls.scale");
+    ggml_tensor * inln_w = W(prefix + ".inln.w");
+    ggml_tensor * inln_b = W(prefix + ".inln.b");
+    ggml_tensor * paln_w = W(prefix + ".paln.w");
+    ggml_tensor * paln_b = W(prefix + ".paln.b");
+    ggml_tensor * q_w = W(prefix + ".attn.q_proj.w");
+    ggml_tensor * k_w = W(prefix + ".attn.k_proj.w");
+    ggml_tensor * v_w = W(prefix + ".attn.v_proj.w");
+    ggml_tensor * o_w = W(prefix + ".attn.o_proj.w");
+    ggml_tensor * fc1_w = W(prefix + ".mlp.fc1.w");
+    ggml_tensor * fc2_w = W(prefix + ".mlp.fc2.w");
+    ggml_tensor * sa_scale = W(prefix + ".sa_ls.scale");
+    ggml_tensor * mlp_scale = W(prefix + ".mlp_ls.scale");
     if (inln_w == nullptr || inln_b == nullptr || paln_w == nullptr || paln_b == nullptr ||
         q_w == nullptr || k_w == nullptr || v_w == nullptr || o_w == nullptr ||
         fc1_w == nullptr || fc2_w == nullptr || sa_scale == nullptr || mlp_scale == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * h = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, inln_w, inln_b);
+    ggml_tensor * h = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, inln_w, inln_b);
     if (h == nullptr) return nullptr;
     const int64_t t_cur = h->ne[1];
 
-    lm_ggml_tensor * q = lm_ggml_mul_mat(ctx_eval, q_w, h);
-    lm_ggml_tensor * k = lm_ggml_mul_mat(ctx_eval, k_w, h);
-    lm_ggml_tensor * v = lm_ggml_mul_mat(ctx_eval, v_w, h);
+    ggml_tensor * q = ggml_mul_mat(ctx_eval, q_w, h);
+    ggml_tensor * k = ggml_mul_mat(ctx_eval, k_w, h);
+    ggml_tensor * v = ggml_mul_mat(ctx_eval, v_w, h);
     if (q == nullptr || k == nullptr || v == nullptr) return nullptr;
 
-    lm_ggml_tensor * q_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, q, head_dim, n_heads, t_cur), 0, 2, 1, 3);
-    lm_ggml_tensor * k_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, k, head_dim, n_heads, t_cur), 0, 2, 1, 3);
-    lm_ggml_tensor * v_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, v, head_dim, n_heads, t_cur), 0, 2, 1, 3);
+    ggml_tensor * q_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, q, head_dim, n_heads, t_cur), 0, 2, 1, 3);
+    ggml_tensor * k_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, k, head_dim, n_heads, t_cur), 0, 2, 1, 3);
+    ggml_tensor * v_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, v, head_dim, n_heads, t_cur), 0, 2, 1, 3);
 
-    lm_ggml_tensor * q_rope = codec_op_rope(ctx_eval, q_dth, head_dim, max_period, 1.0f, CODEC_ROPE_MODE_NORMAL);
-    lm_ggml_tensor * k_rope = codec_op_rope(ctx_eval, k_dth, head_dim, max_period, 1.0f, CODEC_ROPE_MODE_NORMAL);
+    ggml_tensor * q_rope = codec_op_rope(ctx_eval, q_dth, head_dim, max_period, 1.0f, CODEC_ROPE_MODE_NORMAL);
+    ggml_tensor * k_rope = codec_op_rope(ctx_eval, k_dth, head_dim, max_period, 1.0f, CODEC_ROPE_MODE_NORMAL);
     if (q_rope == nullptr || k_rope == nullptr) return nullptr;
 
     codec_lm_attn_params attn_p = {};
     attn_p.scale = 1.0f / std::sqrt((float) head_dim);
     attn_p.causal = true;
     attn_p.window = context > 0 ? context : 0;
-    lm_ggml_tensor * attn_ctx = codec_op_lm_attn_ctx_dth(ctx_eval, q_rope, k_rope, v_dth, &attn_p);
+    ggml_tensor * attn_ctx = codec_op_lm_attn_ctx_dth(ctx_eval, q_rope, k_rope, v_dth, &attn_p);
     if (attn_ctx == nullptr) return nullptr;
 
-    lm_ggml_tensor * attn_ct = lm_ggml_reshape_2d(
-        ctx_eval, lm_ggml_cont(ctx_eval, lm_ggml_permute(ctx_eval, attn_ctx, 0, 2, 1, 3)), c, t_cur);
-    lm_ggml_tensor * attn_proj = lm_ggml_mul_mat(ctx_eval, o_w, attn_ct);
+    ggml_tensor * attn_ct = ggml_reshape_2d(
+        ctx_eval, ggml_cont(ctx_eval, ggml_permute(ctx_eval, attn_ctx, 0, 2, 1, 3)), c, t_cur);
+    ggml_tensor * attn_proj = ggml_mul_mat(ctx_eval, o_w, attn_ct);
     if (attn_proj == nullptr) return nullptr;
-    x_ct = lm_ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, attn_proj, sa_scale));
+    x_ct = ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, attn_proj, sa_scale));
 
-    lm_ggml_tensor * m = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, paln_w, paln_b);
+    ggml_tensor * m = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, paln_w, paln_b);
     if (m == nullptr) return nullptr;
-    m = lm_ggml_mul_mat(ctx_eval, fc1_w, m);
+    m = ggml_mul_mat(ctx_eval, fc1_w, m);
     if (m == nullptr) return nullptr;
-    m = lm_ggml_gelu_erf(ctx_eval, m);
-    m = lm_ggml_mul_mat(ctx_eval, fc2_w, m);
+    m = ggml_gelu_erf(ctx_eval, m);
+    m = ggml_mul_mat(ctx_eval, fc2_w, m);
     if (m == nullptr) return nullptr;
-    x_ct = lm_ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, m, mlp_scale));
+    x_ct = ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, m, mlp_scale));
     return x_ct;
 }
 
 // SEANet residual block: x + Conv1x1(ELU(Conv_k3(ELU(x)))).  Both convs
 // causal, length-preserving.  x is time-major [t, c].
-lm_ggml_tensor * pm_seanet_resblock(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * x,
-    lm_ggml_tensor * c1_w, lm_ggml_tensor * c1_b,
-    lm_ggml_tensor * c2_w, lm_ggml_tensor * c2_b) {
+ggml_tensor * pm_seanet_resblock(
+    ggml_context * ctx_eval,
+    ggml_tensor * x,
+    ggml_tensor * c1_w, ggml_tensor * c1_b,
+    ggml_tensor * c2_w, ggml_tensor * c2_b) {
     if (x == nullptr || c1_w == nullptr || c1_b == nullptr || c2_w == nullptr || c2_b == nullptr) {
         return nullptr;
     }
-    lm_ggml_tensor * h = lm_ggml_elu(ctx_eval, x);
+    ggml_tensor * h = ggml_elu(ctx_eval, x);
     h = codec_conv1d_causal(ctx_eval, h, c1_w, c1_b, 1, 1);
     if (h == nullptr) return nullptr;
-    h = lm_ggml_elu(ctx_eval, h);
+    h = ggml_elu(ctx_eval, h);
     h = codec_conv1d_causal(ctx_eval, h, c2_w, c2_b, 1, 1);
     if (h == nullptr) return nullptr;
-    return lm_ggml_cont(ctx_eval, lm_ggml_add(ctx_eval, x, h));
+    return ggml_cont(ctx_eval, ggml_add(ctx_eval, x, h));
 }
 
 struct pm_decode_build {
@@ -152,7 +152,7 @@ struct pm_decode_build {
     const codec_model * model = nullptr;
 };
 
-bool pm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+bool pm_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     pm_decode_build * p = static_cast<pm_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) return false;
     if (p->n_frames <= 0 || p->latent_dim <= 0) return false;
@@ -162,11 +162,11 @@ bool pm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tenso
 
     // Latent input: ne=(t, latent_dim); buffer is [latent_dim, n_frames]
     // row-major (= PyTorch z[D, T]).
-    lm_ggml_tensor * t_lat = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_frames, p->latent_dim);
-    lm_ggml_set_name(t_lat, pm_name_lat());
+    ggml_tensor * t_lat = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_frames, p->latent_dim);
+    ggml_set_name(t_lat, pm_name_lat());
 
     // quantizer.output_proj: Conv1d k1, 32 -> 512 (pointwise, no bias).
-    lm_ggml_tensor * x = codec_conv1d(ctx_eval, t_lat, W("pocket_mimi.quant.out_proj.w"), nullptr, 1, 1, 0);
+    ggml_tensor * x = codec_conv1d(ctx_eval, t_lat, W("pocket_mimi.quant.out_proj.w"), nullptr, 1, 1, 0);
     if (x == nullptr) return false;   // [t, 512]
 
     // upsample: depthwise ConvTranspose1d (dense-expanded), stride 16, k32.
@@ -174,37 +174,37 @@ bool pm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tenso
     if (x == nullptr) return false;   // [t*16, 512]
 
     // decoder_transformer (channel-major).
-    lm_ggml_tensor * x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x));  // [512, t*16]
+    ggml_tensor * x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x));  // [512, t*16]
     for (int32_t li = 0; li < m.tf_layers; ++li) {
         x_ct = pm_transformer_block(ctx_eval, x_ct, p->model, "pocket_mimi.dtr.l" + std::to_string(li),
                                     m.tf_head_dim, m.tf_heads, m.outer_dim, m.tf_max_period, m.tf_context);
         if (x_ct == nullptr) return false;
     }
-    x = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_ct));  // [t*16, 512]
+    x = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_ct));  // [t*16, 512]
 
     // SEANet decoder conv stack.
-    lm_ggml_tensor * l0_w = W("pocket_mimi.dec.l0.w");
-    lm_ggml_tensor * l0_b = W("pocket_mimi.dec.l0.b");
-    lm_ggml_tensor * l2_w = W("pocket_mimi.dec.l2.w");
-    lm_ggml_tensor * l2_b = W("pocket_mimi.dec.l2.b");
-    lm_ggml_tensor * r0c1_w = W("pocket_mimi.dec.r0.c1.w");
-    lm_ggml_tensor * r0c1_b = W("pocket_mimi.dec.r0.c1.b");
-    lm_ggml_tensor * r0c2_w = W("pocket_mimi.dec.r0.c2.w");
-    lm_ggml_tensor * r0c2_b = W("pocket_mimi.dec.r0.c2.b");
-    lm_ggml_tensor * l5_w = W("pocket_mimi.dec.l5.w");
-    lm_ggml_tensor * l5_b = W("pocket_mimi.dec.l5.b");
-    lm_ggml_tensor * r1c1_w = W("pocket_mimi.dec.r1.c1.w");
-    lm_ggml_tensor * r1c1_b = W("pocket_mimi.dec.r1.c1.b");
-    lm_ggml_tensor * r1c2_w = W("pocket_mimi.dec.r1.c2.w");
-    lm_ggml_tensor * r1c2_b = W("pocket_mimi.dec.r1.c2.b");
-    lm_ggml_tensor * l8_w = W("pocket_mimi.dec.l8.w");
-    lm_ggml_tensor * l8_b = W("pocket_mimi.dec.l8.b");
-    lm_ggml_tensor * r2c1_w = W("pocket_mimi.dec.r2.c1.w");
-    lm_ggml_tensor * r2c1_b = W("pocket_mimi.dec.r2.c1.b");
-    lm_ggml_tensor * r2c2_w = W("pocket_mimi.dec.r2.c2.w");
-    lm_ggml_tensor * r2c2_b = W("pocket_mimi.dec.r2.c2.b");
-    lm_ggml_tensor * l11_w = W("pocket_mimi.dec.l11.w");
-    lm_ggml_tensor * l11_b = W("pocket_mimi.dec.l11.b");
+    ggml_tensor * l0_w = W("pocket_mimi.dec.l0.w");
+    ggml_tensor * l0_b = W("pocket_mimi.dec.l0.b");
+    ggml_tensor * l2_w = W("pocket_mimi.dec.l2.w");
+    ggml_tensor * l2_b = W("pocket_mimi.dec.l2.b");
+    ggml_tensor * r0c1_w = W("pocket_mimi.dec.r0.c1.w");
+    ggml_tensor * r0c1_b = W("pocket_mimi.dec.r0.c1.b");
+    ggml_tensor * r0c2_w = W("pocket_mimi.dec.r0.c2.w");
+    ggml_tensor * r0c2_b = W("pocket_mimi.dec.r0.c2.b");
+    ggml_tensor * l5_w = W("pocket_mimi.dec.l5.w");
+    ggml_tensor * l5_b = W("pocket_mimi.dec.l5.b");
+    ggml_tensor * r1c1_w = W("pocket_mimi.dec.r1.c1.w");
+    ggml_tensor * r1c1_b = W("pocket_mimi.dec.r1.c1.b");
+    ggml_tensor * r1c2_w = W("pocket_mimi.dec.r1.c2.w");
+    ggml_tensor * r1c2_b = W("pocket_mimi.dec.r1.c2.b");
+    ggml_tensor * l8_w = W("pocket_mimi.dec.l8.w");
+    ggml_tensor * l8_b = W("pocket_mimi.dec.l8.b");
+    ggml_tensor * r2c1_w = W("pocket_mimi.dec.r2.c1.w");
+    ggml_tensor * r2c1_b = W("pocket_mimi.dec.r2.c1.b");
+    ggml_tensor * r2c2_w = W("pocket_mimi.dec.r2.c2.w");
+    ggml_tensor * r2c2_b = W("pocket_mimi.dec.r2.c2.b");
+    ggml_tensor * l11_w = W("pocket_mimi.dec.l11.w");
+    ggml_tensor * l11_b = W("pocket_mimi.dec.l11.b");
     if (l0_w == nullptr || l0_b == nullptr || l2_w == nullptr || l2_b == nullptr ||
         r0c1_w == nullptr || r0c1_b == nullptr || r0c2_w == nullptr || r0c2_b == nullptr ||
         l5_w == nullptr || l5_b == nullptr ||
@@ -217,24 +217,24 @@ bool pm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tenso
 
     x = codec_conv1d_causal(ctx_eval, x, l0_w, l0_b, 1, 1);          // conv 512->512 k7
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_convtr1d_causal(ctx_eval, x, l2_w, l2_b, m.decoder_ratios[0], 1);   // convtr s6
     x = pm_seanet_resblock(ctx_eval, x, r0c1_w, r0c1_b, r0c2_w, r0c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_convtr1d_causal(ctx_eval, x, l5_w, l5_b, m.decoder_ratios[1], 1);   // convtr s5
     x = pm_seanet_resblock(ctx_eval, x, r1c1_w, r1c1_b, r1c2_w, r1c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_convtr1d_causal(ctx_eval, x, l8_w, l8_b, m.decoder_ratios[2], 1);   // convtr s4
     x = pm_seanet_resblock(ctx_eval, x, r2c1_w, r2c1_b, r2c2_w, r2c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
-    lm_ggml_tensor * t_pcm = codec_conv1d_causal(ctx_eval, x, l11_w, l11_b, 1, 1);   // conv 64->1 k3
+    x = ggml_elu(ctx_eval, x);
+    ggml_tensor * t_pcm = codec_conv1d_causal(ctx_eval, x, l11_w, l11_b, 1, 1);   // conv 64->1 k3
     if (t_pcm == nullptr) return false;
 
-    lm_ggml_tensor * t_out = lm_ggml_cont(ctx_eval, t_pcm);
-    lm_ggml_set_name(t_out, pm_name_audio());
+    ggml_tensor * t_out = ggml_cont(ctx_eval, t_pcm);
+    ggml_set_name(t_out, pm_name_audio());
     *out = t_out;
     return true;
 }
@@ -245,39 +245,39 @@ struct pm_encode_build {
     const codec_model * model = nullptr;
 };
 
-bool pm_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+bool pm_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     pm_encode_build * p = static_cast<pm_encode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr || p->n_pcm <= 0) return false;
     const codec_pocket_mimi & m = p->cfg;
 
     auto W = [&](const std::string & n) { return codec_graph_weight(ctx_eval, p->model, n); };
 
-    lm_ggml_tensor * t_pcm = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_pcm, 1);
-    lm_ggml_set_name(t_pcm, pm_name_pcm());
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_pcm, 1);
+    ggml_set_name(t_pcm, pm_name_pcm());
 
     // SEANet encoder conv stack.
-    lm_ggml_tensor * l0_w = W("pocket_mimi.enc.l0.w");
-    lm_ggml_tensor * l0_b = W("pocket_mimi.enc.l0.b");
-    lm_ggml_tensor * r0c1_w = W("pocket_mimi.enc.r0.c1.w");
-    lm_ggml_tensor * r0c1_b = W("pocket_mimi.enc.r0.c1.b");
-    lm_ggml_tensor * r0c2_w = W("pocket_mimi.enc.r0.c2.w");
-    lm_ggml_tensor * r0c2_b = W("pocket_mimi.enc.r0.c2.b");
-    lm_ggml_tensor * l3_w = W("pocket_mimi.enc.l3.w");
-    lm_ggml_tensor * l3_b = W("pocket_mimi.enc.l3.b");
-    lm_ggml_tensor * r1c1_w = W("pocket_mimi.enc.r1.c1.w");
-    lm_ggml_tensor * r1c1_b = W("pocket_mimi.enc.r1.c1.b");
-    lm_ggml_tensor * r1c2_w = W("pocket_mimi.enc.r1.c2.w");
-    lm_ggml_tensor * r1c2_b = W("pocket_mimi.enc.r1.c2.b");
-    lm_ggml_tensor * l6_w = W("pocket_mimi.enc.l6.w");
-    lm_ggml_tensor * l6_b = W("pocket_mimi.enc.l6.b");
-    lm_ggml_tensor * r2c1_w = W("pocket_mimi.enc.r2.c1.w");
-    lm_ggml_tensor * r2c1_b = W("pocket_mimi.enc.r2.c1.b");
-    lm_ggml_tensor * r2c2_w = W("pocket_mimi.enc.r2.c2.w");
-    lm_ggml_tensor * r2c2_b = W("pocket_mimi.enc.r2.c2.b");
-    lm_ggml_tensor * l9_w = W("pocket_mimi.enc.l9.w");
-    lm_ggml_tensor * l9_b = W("pocket_mimi.enc.l9.b");
-    lm_ggml_tensor * l11_w = W("pocket_mimi.enc.l11.w");
-    lm_ggml_tensor * l11_b = W("pocket_mimi.enc.l11.b");
+    ggml_tensor * l0_w = W("pocket_mimi.enc.l0.w");
+    ggml_tensor * l0_b = W("pocket_mimi.enc.l0.b");
+    ggml_tensor * r0c1_w = W("pocket_mimi.enc.r0.c1.w");
+    ggml_tensor * r0c1_b = W("pocket_mimi.enc.r0.c1.b");
+    ggml_tensor * r0c2_w = W("pocket_mimi.enc.r0.c2.w");
+    ggml_tensor * r0c2_b = W("pocket_mimi.enc.r0.c2.b");
+    ggml_tensor * l3_w = W("pocket_mimi.enc.l3.w");
+    ggml_tensor * l3_b = W("pocket_mimi.enc.l3.b");
+    ggml_tensor * r1c1_w = W("pocket_mimi.enc.r1.c1.w");
+    ggml_tensor * r1c1_b = W("pocket_mimi.enc.r1.c1.b");
+    ggml_tensor * r1c2_w = W("pocket_mimi.enc.r1.c2.w");
+    ggml_tensor * r1c2_b = W("pocket_mimi.enc.r1.c2.b");
+    ggml_tensor * l6_w = W("pocket_mimi.enc.l6.w");
+    ggml_tensor * l6_b = W("pocket_mimi.enc.l6.b");
+    ggml_tensor * r2c1_w = W("pocket_mimi.enc.r2.c1.w");
+    ggml_tensor * r2c1_b = W("pocket_mimi.enc.r2.c1.b");
+    ggml_tensor * r2c2_w = W("pocket_mimi.enc.r2.c2.w");
+    ggml_tensor * r2c2_b = W("pocket_mimi.enc.r2.c2.b");
+    ggml_tensor * l9_w = W("pocket_mimi.enc.l9.w");
+    ggml_tensor * l9_b = W("pocket_mimi.enc.l9.b");
+    ggml_tensor * l11_w = W("pocket_mimi.enc.l11.w");
+    ggml_tensor * l11_b = W("pocket_mimi.enc.l11.b");
     if (l0_w == nullptr || l0_b == nullptr ||
         r0c1_w == nullptr || r0c1_b == nullptr || r0c2_w == nullptr || r0c2_b == nullptr ||
         l3_w == nullptr || l3_b == nullptr ||
@@ -288,35 +288,35 @@ bool pm_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tenso
         return false;
     }
 
-    lm_ggml_tensor * x = codec_conv1d_causal(ctx_eval, t_pcm, l0_w, l0_b, 1, 1);    // conv 1->64 k7
+    ggml_tensor * x = codec_conv1d_causal(ctx_eval, t_pcm, l0_w, l0_b, 1, 1);    // conv 1->64 k7
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r0c1_w, r0c1_b, r0c2_w, r0c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_conv1d_causal(ctx_eval, x, l3_w, l3_b, m.encoder_ratios[0], 1);    // down s4
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r1c1_w, r1c1_b, r1c2_w, r1c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_conv1d_causal(ctx_eval, x, l6_w, l6_b, m.encoder_ratios[1], 1);    // down s5
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r2c1_w, r2c1_b, r2c2_w, r2c2_b);
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_conv1d_causal(ctx_eval, x, l9_w, l9_b, m.encoder_ratios[2], 1);    // down s6
     if (x == nullptr) return false;
-    x = lm_ggml_elu(ctx_eval, x);
+    x = ggml_elu(ctx_eval, x);
     x = codec_conv1d_causal(ctx_eval, x, l11_w, l11_b, 1, 1);                    // conv 512->512 k3
     if (x == nullptr) return false;
 
     // encoder_transformer (channel-major).
-    lm_ggml_tensor * x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x));  // [512, t]
+    ggml_tensor * x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x));  // [512, t]
     for (int32_t li = 0; li < m.tf_layers; ++li) {
         x_ct = pm_transformer_block(ctx_eval, x_ct, p->model, "pocket_mimi.etr.l" + std::to_string(li),
                                     m.tf_head_dim, m.tf_heads, m.outer_dim, m.tf_max_period, m.tf_context);
         if (x_ct == nullptr) return false;
     }
-    x = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_ct));  // [t, 512]
+    x = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_ct));  // [t, 512]
 
     // downsample: Conv1d 512 -> 32, stride 16, k32, replicate pad, no bias.
     x = codec_conv1d_causal_replicate(ctx_eval, x, W("pocket_mimi.downsample.w"), nullptr, m.resample_stride, 1);
@@ -324,7 +324,7 @@ bool pm_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tenso
 
     // x is [t_lat, ldim] (ne0=t_lat, ne1=ldim); its raw buffer is channel-major
     // [ldim, t_lat] (buffer[d*t_lat + t]), matching the decode latent input.
-    lm_ggml_set_name(x, pm_name_mu());
+    ggml_set_name(x, pm_name_mu());
     *out = x;
     return true;
 }
@@ -376,8 +376,8 @@ static enum codec_status codec_pocket_mimi_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_lat = codec_graph_get_tensor(ctx, entry, pm_name_lat());
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, pm_name_audio());
+    ggml_tensor * t_lat = codec_graph_get_tensor(ctx, entry, pm_name_lat());
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, pm_name_audio());
     if (t_lat == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached Pocket-Mimi decode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -396,7 +396,7 @@ static enum codec_status codec_pocket_mimi_decode_latent(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (t_out->type != LM_GGML_TYPE_F32 || t_out->ne[1] != 1) {
+    if (t_out->type != GGML_TYPE_F32 || t_out->ne[1] != 1) {
         codec_context_set_error(ctx, "unexpected Pocket-Mimi output shape/type");
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -468,8 +468,8 @@ static enum codec_status codec_pocket_mimi_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, pm_name_pcm());
-    lm_ggml_tensor * t_mu = codec_graph_get_tensor(ctx, entry, pm_name_mu());
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, pm_name_pcm());
+    ggml_tensor * t_mu = codec_graph_get_tensor(ctx, entry, pm_name_mu());
     if (t_pcm == nullptr || t_mu == nullptr) {
         codec_context_set_error(ctx, "cached Pocket-Mimi encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;

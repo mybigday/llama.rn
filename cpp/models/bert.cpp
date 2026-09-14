@@ -80,11 +80,11 @@ std::unique_ptr<llm_graph_context> llama_model_bert::build_arch_graph(const llm_
 llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
-    lm_ggml_tensor * inp_pos = nullptr;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
+    ggml_tensor * inp_pos = nullptr;
 
     if (model.arch != LLM_ARCH_JINA_BERT_V2) {
         inp_pos = build_inp_pos();
@@ -95,11 +95,11 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
 
     // token types are hardcoded to zero ("Sentence A")
     if (model.type_embd) {
-        lm_ggml_tensor * type_row0 = lm_ggml_view_1d(ctx0, model.type_embd, n_embd, 0);
-        inpL                    = lm_ggml_add(ctx0, inpL, type_row0);
+        ggml_tensor * type_row0 = ggml_view_1d(ctx0, model.type_embd, n_embd, 0);
+        inpL                    = ggml_add(ctx0, inpL, type_row0);
     }
     if (model.arch == LLM_ARCH_BERT) {
-        inpL = lm_ggml_add(ctx0, lm_ggml_get_rows(ctx0, model.pos_embd, inp_pos), inpL);
+        inpL = ggml_add(ctx0, ggml_get_rows(ctx0, model.pos_embd, inp_pos), inpL);
     }
     cb(inpL, "inp_embd", -1);
 
@@ -109,38 +109,38 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
 
     auto * inp_attn = build_attn_inp_no_cache();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * cur = inpL;
+        ggml_tensor * cur = inpL;
 
         {
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
             if (model.layers[il].attn_q_norm) {
-                Qcur = lm_ggml_reshape_2d(ctx0, Qcur, n_embd_head * n_head, n_tokens);
+                Qcur = ggml_reshape_2d(ctx0, Qcur, n_embd_head * n_head, n_tokens);
 
                 Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, model.layers[il].attn_q_norm_b, LLM_NORM, il);
 
-                Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
+                Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
             }
 
             if (model.layers[il].attn_k_norm) {
-                Kcur = lm_ggml_reshape_2d(ctx0, Kcur, n_embd_head * n_head_kv, n_tokens);
+                Kcur = ggml_reshape_2d(ctx0, Kcur, n_embd_head * n_head_kv, n_tokens);
 
                 Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, model.layers[il].attn_k_norm_b, LLM_NORM, il);
 
-                Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+                Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
             }
 
             // RoPE
             if (model.arch == LLM_ARCH_NOMIC_BERT || model.arch == LLM_ARCH_NOMIC_BERT_MOE ||
                 model.arch == LLM_ARCH_JINA_BERT_V3) {
-                Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                      ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                      ext_factor, attn_factor, beta_fast, beta_slow);
             }
 
@@ -155,22 +155,22 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         // re-add the layer input
-        cur = lm_ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, inpL);
 
         // attention layer norm
         cur = build_norm(cur, model.layers[il].attn_out_norm, model.layers[il].attn_out_norm_b, LLM_NORM, il);
 
         if (model.layers[il].attn_norm_2 != nullptr) {
-            cur = lm_ggml_add(ctx0, cur, inpL);  // re-add the layer input
+            cur = ggml_add(ctx0, cur, inpL);  // re-add the layer input
             cur = build_norm(cur, model.layers[il].attn_norm_2, model.layers[il].attn_norm_2_b, LLM_NORM, il);
         }
 
-        lm_ggml_tensor * ffn_inp = cur;
+        ggml_tensor * ffn_inp = cur;
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
@@ -215,7 +215,7 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
         }
 
         // attentions bypass the intermediate layer
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         // output layer norm
         cur = build_norm(cur, model.layers[il].layer_out_norm, model.layers[il].layer_out_norm_b, LLM_NORM, il);
@@ -229,5 +229,5 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
     cb(cur, "result_embd", -1);
     res->t_embd = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
