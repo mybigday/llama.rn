@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <climits>
+#include <cstdlib>
 #include <stdexcept>
 #include <cerrno>
 #include <algorithm>
@@ -491,22 +492,22 @@ struct llama_mmap::impl {
             if (beg >= end) {
                 return;
             }
-            if (madvise((char *) addr + beg, end - beg, advice)) {
-                fprintf(stderr, "warning: madvise(.., %s) failed: %s\n", name, strerror(errno));
+            if (posix_madvise((char *) addr + beg, end - beg, advice)) {
+                LLAMA_LOG_WARN("warning: posix_madvise(.., %s) failed: %s\n", name, strerror(errno));
             }
         };
 
         if (prefetch > 0) {
             for (const auto & range : ranges_complement(lazy_ranges, std::min(file->size(), prefetch))) {
-                advise(range.first, range.second, MADV_WILLNEED, "MADV_WILLNEED");
+                advise(range.first, range.second, POSIX_MADV_WILLNEED, "POSIX_MADV_WILLNEED");
             }
         }
         for (const auto & range : lazy_ranges) {
-            advise(range.first, range.second, MADV_RANDOM, "MADV_RANDOM");
+            advise(range.first, range.second, POSIX_MADV_RANDOM, "POSIX_MADV_RANDOM");
         }
         if (numa) {
-            if (madvise(addr, file->size(), MADV_RANDOM)) {
-                fprintf(stderr, "warning: madvise(.., MADV_RANDOM) failed: %s\n",
+            if (posix_madvise(addr, file->size(), POSIX_MADV_RANDOM)) {
+                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_RANDOM) failed: %s\n",
                         strerror(errno));
             }
         }

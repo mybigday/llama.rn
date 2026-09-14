@@ -37,9 +37,6 @@ struct common_chat_tool_call {
 struct common_chat_msg_content_part {
     std::string type;
     std::string text;
-    // Preserves non-standard fields from the original JSON (e.g. source_lang_code,
-    // target_lang_code for TranslateGemma) so they survive the parse/serialize round-trip.
-    common_json extra_fields;
 
     // TODO @ngxson : no known chat templates support reasoning_content in content parts yet
     //                this can be useful for models with interleaved thinking (like Kimi-K2)
@@ -47,7 +44,7 @@ struct common_chat_msg_content_part {
     // std::string reasoning_content;
 
     bool operator==(const common_chat_msg_content_part & other) const {
-        return type == other.type && text == other.text && extra_fields == other.extra_fields;
+        return type == other.type && text == other.text;
     }
 };
 
@@ -351,20 +348,6 @@ common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::strin
 
 bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
 
-// Template capabilities structure (for exposing capabilities to external code)
-struct common_chat_template_caps {
-    bool supports_tools = true;
-    bool supports_tool_calls = true;
-    bool supports_system_role = true;
-    bool supports_parallel_tool_calls = true;
-};
-
-// Get template capabilities for a specific variant ("" for default, "tool_use" for tool_use template)
-common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant);
-
-// Check if a template variant exists
-bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant);
-
 // Parses a JSON array of messages in OpenAI's chat completion API format.
 std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const common_json & messages);
 
@@ -376,6 +359,9 @@ common_chat_continuation common_chat_continuation_parse(const common_json & valu
 common_json common_chat_msgs_to_json_oaicompat(const std::vector<common_chat_msg> & msgs, bool concat_typed_text = false);
 
 common_json common_chat_tools_to_json_oaicompat(const std::vector<common_chat_tool> & tools);
+
+// The parameters schema of a function tool. A tool without parameters, or with an empty {}, takes zero arguments.
+common_json common_chat_tool_parameters(const common_json & function);
 
 // get template caps, useful for reporting to server /props endpoint
 std::map<std::string, bool> common_chat_templates_get_caps(const common_chat_templates * chat_templates);

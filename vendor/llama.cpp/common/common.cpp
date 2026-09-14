@@ -1586,6 +1586,11 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
         return COMMON_CONTEXT_SEQ_RM_TYPE_NO;
     }
 
+    if (llama_n_rs_seq(ctx) > 0) {
+        COM_TRC("%s", "the context supports bounded partial sequence removal\n");
+        return COMMON_CONTEXT_SEQ_RM_TYPE_RS;
+    }
+
     common_context_seq_rm_type res = COMMON_CONTEXT_SEQ_RM_TYPE_PART;
 
     llama_memory_clear(mem, true);
@@ -1599,12 +1604,6 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
     if (ret != 0) {
         COM_ERR("llama_decode() failed: %d\n", ret);
         res = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
-        goto done;
-    }
-
-    if (llama_n_rs_seq(ctx) > 0) {
-        COM_TRC("%s", "the context supports bounded partial sequence removal\n");
-        res = COMMON_CONTEXT_SEQ_RM_TYPE_RS;
         goto done;
     }
 
@@ -1684,7 +1683,6 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
         mparams.devices = params.devices.data();
     }
 
-    mparams.vocab_only      = params.vocab_only;
     mparams.n_gpu_layers    = params.n_gpu_layers;
     mparams.main_gpu        = params.main_gpu;
     mparams.split_mode      = params.split_mode;
@@ -1713,11 +1711,6 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.progress_callback_user_data = params.load_progress_callback_user_data;
     mparams.no_alloc                    = params.no_alloc;
     mparams.load_mtp                    = std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
-
-    if (params.progress_callback != nullptr) {
-        mparams.progress_callback = params.progress_callback;
-        mparams.progress_callback_user_data = params.progress_callback_user_data;
-    }
 
     return mparams;
 }
