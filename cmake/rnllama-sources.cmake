@@ -86,12 +86,16 @@ set(RNLLAMA_GGML_HEXAGON_DIR "${_ggml}/ggml-hexagon")
 # no llama.rn build uses. Keep them in sync with llama-rn.podspec.
 file(GLOB RNLLAMA_LLAMA_SOURCES  CONFIGURE_DEPENDS ${_llama}/*.cpp ${_llama}/models/*.cpp)
 # Model quantization is not exposed by llama.rn.
-list(FILTER RNLLAMA_LLAMA_SOURCES EXCLUDE REGEX "/llama-quant\\.cpp$")
-file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS ${_common}/*.cpp ${_common}/jinja/*.cpp)
+list(FILTER RNLLAMA_LLAMA_SOURCES EXCLUDE REGEX "/llama-quant\.cpp$")
+file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS
+    ${_common}/*.cpp
+    ${_common}/jinja/*.cpp
+    ${_common}/parsers/*.cpp
+)
 # CLI argument parsing, model download (cpp-httplib), console and subprocess
 # helpers are only used by upstream's tools.
 list(FILTER RNLLAMA_COMMON_SOURCES EXCLUDE REGEX
-    "/(arg|console|debug|download|hf-cache|imatrix-loader|llguidance|preset|subproc)\\.cpp$")
+    "/(arg|console|debug|download|hf-cache|imatrix-loader|llguidance|preset|subproc)\.cpp$")
 # tools/mtmd/debug is the mtmd debug CLI.
 file(GLOB RNLLAMA_MTMD_SOURCES   CONFIGURE_DEPENDS ${_mtmd}/*.cpp ${_mtmd}/models/*.cpp)
 # mtmd hashes media inputs with the vendored SHA-256 helper.
