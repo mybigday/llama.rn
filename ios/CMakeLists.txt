@@ -28,140 +28,40 @@ if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64;x86_64")
     add_definitions(-DGGML_CPU_GENERIC)
 endif ()
 
-set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
-
-# Collect source files using glob patterns
-file(GLOB MODEL_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/*.c)
-file(GLOB GGML_CPU_CPP_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/*.cpp)
-file(GLOB GGML_CPU_AMX_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
-file(GLOB GGML_METAL_CPP_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.cpp)
-file(GLOB GGML_METAL_M_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.m)
-file(GLOB GGML_METAL_S_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.s)
-set_source_files_properties(${GGML_METAL_S_FILES} PROPERTIES LANGUAGE ASM)
-file(GLOB GGML_BLAS_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-blas/*.cpp)
-file(GLOB LLAMA_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/llama*.cpp)
-file(GLOB MTMD_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/*.cpp)
-file(GLOB MTMD_MODEL_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
-file(GLOB COMMON_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/*.cpp)
-file(GLOB JINJA_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/jinja/*.cpp)
-file(GLOB CODEC_FILES CONFIGURE_DEPENDS
-    ${SOURCE_DIR}/codec/src/*.cpp
-    ${SOURCE_DIR}/codec/src/batch/*.cpp
-    ${SOURCE_DIR}/codec/src/models/*.cpp
-    ${SOURCE_DIR}/codec/src/ops/*.cpp
-    ${SOURCE_DIR}/codec/src/runtime/*.cpp
-    ${SOURCE_DIR}/codec/src/lm/*.cpp
-    ${SOURCE_DIR}/codec/common/*.cpp
-)
-# tts_runner{,_flow}.cpp are codec.cpp's reference host loop; they pull in
-# codec_example_* helpers from examples/utils (not shipped here) and un-prefixed
-# common_* symbols. rn-tts drives its own AR loop via codec_lm_*, so drop them —
-# matching tests/CMakeLists.txt (keeps only audio_lm.cpp from codec/common).
-list(REMOVE_ITEM CODEC_FILES
-    ${SOURCE_DIR}/codec/common/tts_runner.cpp
-    ${SOURCE_DIR}/codec/common/tts_runner_flow.cpp
-)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/rnllama-sources.cmake)
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
     set(SOURCE_FILES_ARCH
-        ${SOURCE_DIR}/ggml-cpu/arch/arm/quants.c
-        ${SOURCE_DIR}/ggml-cpu/arch/arm/repack.cpp
+        ${RNLLAMA_GGML_CPU_ARCH_DIR}/arm/quants.c
+        ${RNLLAMA_GGML_CPU_ARCH_DIR}/arm/repack.cpp
     )
 endif ()
 
 # Define public headers
 set(PUBLIC_HEADERS
-    ${SOURCE_DIR}/rn-llama.h
-    ${SOURCE_DIR}/rn-completion.h
-    ${SOURCE_DIR}/rn-slot.h
-    ${SOURCE_DIR}/rn-slot-manager.h
-    ${SOURCE_DIR}/rn-tts.h
-    ${SOURCE_DIR}/llama.h
-    ${SOURCE_DIR}/llama-impl.h
-    ${SOURCE_DIR}/common/speculative.h
-    ${SOURCE_DIR}/ggml.h
+    ${RNLLAMA_CPP_DIR}/rn-llama.h
+    ${RNLLAMA_CPP_DIR}/rn-completion.h
+    ${RNLLAMA_CPP_DIR}/rn-slot.h
+    ${RNLLAMA_CPP_DIR}/rn-slot-manager.h
+    ${RNLLAMA_CPP_DIR}/rn-tts.h
+    ${RNLLAMA_LLAMA_CPP_DIR}/include/llama.h
+    ${RNLLAMA_LLAMA_CPP_DIR}/src/llama-impl.h
+    ${RNLLAMA_LLAMA_CPP_DIR}/common/speculative.h
+    ${RNLLAMA_LLAMA_CPP_DIR}/ggml/include/ggml.h
 )
 
 # Create library target
 add_library(rnllama SHARED
-    # Core GGML files
-    ${SOURCE_DIR}/ggml.c
-    ${SOURCE_DIR}/ggml-alloc.c
-    ${SOURCE_DIR}/ggml-backend.cpp
-    ${SOURCE_DIR}/ggml-backend-dl.cpp
-    ${SOURCE_DIR}/ggml-backend-meta.cpp
-    ${SOURCE_DIR}/ggml-backend-reg.cpp
-    ${SOURCE_DIR}/ggml-opt.cpp
-    ${SOURCE_DIR}/ggml-threading.cpp
-    ${SOURCE_DIR}/ggml-quants.c
-    ${SOURCE_DIR}/gguf.cpp
-
-    # GGML CPU files (globbed)
-    ${GGML_CPU_C_FILES}
-    ${GGML_CPU_CPP_FILES}
-    ${GGML_CPU_AMX_FILES}
-
-    # GGML Metal files (globbed)
-    ${GGML_METAL_CPP_FILES}
-    ${GGML_METAL_M_FILES}
-    ${GGML_METAL_S_FILES}
-
-    # GGML BLAS files (globbed)
-    ${GGML_BLAS_FILES}
-
-    # Llama files (globbed)
-    ${LLAMA_FILES}
-    ${SOURCE_DIR}/unicode-data.cpp
-    ${SOURCE_DIR}/unicode.cpp
-
-    # Common utilities
-    ${COMMON_FILES}
-
-    ${SOURCE_DIR}/anyascii.c
-    ${SOURCE_DIR}/hash/hash.cpp
-    ${SOURCE_DIR}/hash/sha256/sha256.c
-
-    # Jinja template engine
-    ${JINJA_FILES}
-
-    # codec.cpp sources
-    ${CODEC_FILES}
-
-    # Headers (needed for build)
-    ${SOURCE_DIR}/common/chat.h
-    ${SOURCE_DIR}/common/common.h
-    ${SOURCE_DIR}/common/speculative.h
-
-    # Multimodal support (globbed)
-    ${MTMD_MODEL_FILES}
-    ${MTMD_FILES}
-
-    # React Native llama APIs
-    ${SOURCE_DIR}/rn-llama.cpp
-    ${SOURCE_DIR}/rn-completion.cpp
-    ${SOURCE_DIR}/rn-slot.cpp
-    ${SOURCE_DIR}/rn-slot-manager.cpp
-    ${SOURCE_DIR}/rn-tts.cpp
-
-    # Model implementations (globbed)
-    ${MODEL_FILES}
-
-    # Architecture-specific files
+    ${RNLLAMA_CORE_SOURCES}
+    ${RNLLAMA_GGML_METAL_SOURCES}
+    ${RNLLAMA_GGML_BLAS_SOURCES}
     ${SOURCE_FILES_ARCH}
 )
 
 # Setup include directories
 target_include_directories(rnllama
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/hash>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common>
+        "$<BUILD_INTERFACE:${RNLLAMA_INCLUDE_DIRS}>"
         $<INSTALL_INTERFACE:include>
 )
 

@@ -22,71 +22,27 @@ option(ENABLE_HEXAGON "Build with the Hexagon (HTP/NPU) backend" OFF)
 # the heavy compute goes to the GPU via RNLLAMA_NGL anyway.
 add_definitions(-DNDEBUG -DO3 -DGGML_USE_CPU -DGGML_CPU_GENERIC -D_GNU_SOURCE)
 
-set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
-set(SOURCE_DIR ${REPO_ROOT}/cpp)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/rnllama-sources.cmake)
 
-file(GLOB MODEL_FILES        ${SOURCE_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES   ${SOURCE_DIR}/ggml-cpu/*.c)
-file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
-file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
-file(GLOB LLAMA_FILES        ${SOURCE_DIR}/llama*.cpp)
-file(GLOB MTMD_FILES         ${SOURCE_DIR}/tools/mtmd/*.cpp)
-file(GLOB MTMD_MODEL_FILES   ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
-file(GLOB COMMON_FILES       ${SOURCE_DIR}/common/*.cpp)
-file(GLOB JINJA_FILES        ${SOURCE_DIR}/common/jinja/*.cpp)
-
-set(RNLLAMA_COMMON_SOURCES
-    ${SOURCE_DIR}/ggml.c
-    ${SOURCE_DIR}/ggml-alloc.c
-    ${SOURCE_DIR}/ggml-backend.cpp
-    ${SOURCE_DIR}/ggml-backend-dl.cpp
-    ${SOURCE_DIR}/ggml-backend-meta.cpp
-    ${SOURCE_DIR}/ggml-backend-reg.cpp
-    ${SOURCE_DIR}/ggml-opt.cpp
-    ${SOURCE_DIR}/ggml-threading.cpp
-    ${SOURCE_DIR}/ggml-quants.c
-    ${SOURCE_DIR}/gguf.cpp
-    ${GGML_CPU_C_FILES}
-    ${GGML_CPU_CPP_FILES}
-    ${GGML_CPU_AMX_FILES}
-    ${LLAMA_FILES}
-    ${SOURCE_DIR}/unicode-data.cpp
-    ${SOURCE_DIR}/unicode.cpp
-    ${COMMON_FILES}
-    ${JINJA_FILES}
-    ${SOURCE_DIR}/anyascii.c
-    ${MTMD_MODEL_FILES}
-    ${MTMD_FILES}
-    ${SOURCE_DIR}/rn-llama.cpp
-    ${SOURCE_DIR}/rn-completion.cpp
-    ${SOURCE_DIR}/rn-tts.cpp
-    ${SOURCE_DIR}/rn-slot.cpp
-    ${SOURCE_DIR}/rn-slot-manager.cpp
-    ${MODEL_FILES}
-)
+set(REPO_ROOT ${RNLLAMA_ROOT_DIR})
+set(RNLLAMA_COMMON_SOURCES ${RNLLAMA_CORE_SOURCES})
 
 add_executable(kv_cache_reuse_test
     ${CMAKE_CURRENT_SOURCE_DIR}/../kv_cache_reuse_test.cpp
     ${RNLLAMA_COMMON_SOURCES}
 )
 
-target_include_directories(kv_cache_reuse_test PRIVATE
-    ${SOURCE_DIR}
-    ${SOURCE_DIR}/common
-    ${SOURCE_DIR}/common/jinja
-    ${SOURCE_DIR}/ggml-cpu
-    ${SOURCE_DIR}/tools/mtmd
-)
+target_include_directories(kv_cache_reuse_test PRIVATE ${RNLLAMA_INCLUDE_DIRS})
 
 # --- OpenCL (Adreno GPU) backend, mirroring android/src/main/rnllama ----------
 if(ENABLE_OPENCL)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     target_include_directories(kv_cache_reuse_test PRIVATE
-        ${REPO_ROOT}/third_party/OpenCL-Headers)
+        ${RNLLAMA_OPENCL_HEADERS_DIR})
 
     # Embed every kernel: ggml-opencl.cpp #includes the ones it needs; the rest
     # are harmless. Generated .cl.h land in the build dir.
-    file(GLOB GGML_OPENCL_KERNEL_FILES ${SOURCE_DIR}/ggml-opencl/kernels/*.cl)
+    file(GLOB GGML_OPENCL_KERNEL_FILES ${RNLLAMA_GGML_OPENCL_DIR}/kernels/*.cl)
     set(GGML_OPENCL_KERNEL_HEADERS "")
     foreach(cl ${GGML_OPENCL_KERNEL_FILES})
         get_filename_component(kname ${cl} NAME_WE)
@@ -97,17 +53,17 @@ if(ENABLE_OPENCL)
         set(out ${CMAKE_CURRENT_BINARY_DIR}/${kname}.cl.h)
         add_custom_command(
             OUTPUT ${out}
-            COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${SOURCE_DIR}/ggml-opencl/kernels
-                    ${Python3_EXECUTABLE} ${SOURCE_DIR}/ggml-opencl/kernels/embed_kernel.py
+            COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${RNLLAMA_GGML_OPENCL_DIR}/kernels
+                    ${Python3_EXECUTABLE} ${RNLLAMA_GGML_OPENCL_DIR}/kernels/embed_kernel.py
                     ${cl} ${out}
-            DEPENDS ${cl} ${SOURCE_DIR}/ggml-opencl/kernels/embed_kernel.py
+            DEPENDS ${cl} ${RNLLAMA_GGML_OPENCL_DIR}/kernels/embed_kernel.py
             COMMENT "Embedding OpenCL kernel: ${kname}.cl")
         list(APPEND GGML_OPENCL_KERNEL_HEADERS ${out})
     endforeach()
 
     target_sources(kv_cache_reuse_test PRIVATE
-        ${SOURCE_DIR}/ggml-opencl/ggml-opencl.cpp
-        ${SOURCE_DIR}/ggml-opencl/cl-program-cache.cpp
+        ${RNLLAMA_GGML_OPENCL_DIR}/ggml-opencl.cpp
+        ${RNLLAMA_GGML_OPENCL_DIR}/cl-program-cache.cpp
         ${GGML_OPENCL_KERNEL_HEADERS})
     target_include_directories(kv_cache_reuse_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_reuse_test PRIVATE
@@ -135,21 +91,21 @@ if(ENABLE_HEXAGON)
         set(HEXAGON_SDK_ROOT "$ENV{HOME}/.hexagon-sdk/6.4.0.2")
     endif()
     set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
-    set(HTP_STUB_DIR "${SOURCE_DIR}/ggml-hexagon/htp/v73")
+    set(HTP_STUB_DIR "${RNLLAMA_GGML_HEXAGON_DIR}/htp/v73")
     if(NOT EXISTS ${CDSPRPC_LIB} OR NOT EXISTS ${HTP_STUB_DIR}/htp_iface_stub.c)
         message(FATAL_ERROR "Hexagon requested but SDK / QAIC stubs missing (run scripts/build-hexagon-htp.sh)")
     endif()
     target_sources(kv_cache_reuse_test PRIVATE
-        ${SOURCE_DIR}/ggml-hexagon/ggml-hexagon.cpp
-        ${SOURCE_DIR}/ggml-hexagon/htp-drv.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_reuse_test PRIVATE
         ${HEXAGON_SDK_ROOT}/incs
         ${HEXAGON_SDK_ROOT}/incs/stddef
         ${HEXAGON_SDK_ROOT}/ipc/fastrpc/rpcmem/inc
         ${HEXAGON_SDK_ROOT}/utils/examples
-        ${SOURCE_DIR}/ggml-hexagon
-        ${SOURCE_DIR}/ggml-hexagon/htp
+        ${RNLLAMA_GGML_HEXAGON_DIR}
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp
         ${HTP_STUB_DIR})
     target_compile_definitions(kv_cache_reuse_test PRIVATE GGML_USE_HEXAGON)
     target_link_libraries(kv_cache_reuse_test PRIVATE ${CDSPRPC_LIB})
@@ -165,20 +121,14 @@ add_executable(kv_cache_bench
     ${CMAKE_CURRENT_SOURCE_DIR}/../kv_cache_bench.cpp
     ${RNLLAMA_COMMON_SOURCES}
 )
-target_include_directories(kv_cache_bench PRIVATE
-    ${SOURCE_DIR}
-    ${SOURCE_DIR}/common
-    ${SOURCE_DIR}/common/jinja
-    ${SOURCE_DIR}/ggml-cpu
-    ${SOURCE_DIR}/tools/mtmd
-)
+target_include_directories(kv_cache_bench PRIVATE ${RNLLAMA_INCLUDE_DIRS})
 target_compile_definitions(kv_cache_bench PRIVATE KV_BENCH_HAS_STATE_CACHE)
 if(ENABLE_OPENCL)
     target_sources(kv_cache_bench PRIVATE
-        ${SOURCE_DIR}/ggml-opencl/ggml-opencl.cpp
-        ${SOURCE_DIR}/ggml-opencl/cl-program-cache.cpp)
+        ${RNLLAMA_GGML_OPENCL_DIR}/ggml-opencl.cpp
+        ${RNLLAMA_GGML_OPENCL_DIR}/cl-program-cache.cpp)
     target_include_directories(kv_cache_bench PRIVATE
-        ${REPO_ROOT}/third_party/OpenCL-Headers ${CMAKE_CURRENT_BINARY_DIR})
+        ${RNLLAMA_OPENCL_HEADERS_DIR} ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_bench PRIVATE
         GGML_USE_OPENCL
         GGML_OPENCL_USE_ADRENO_KERNELS
@@ -191,16 +141,16 @@ if(ENABLE_OPENCL)
 endif()
 if(ENABLE_HEXAGON)
     target_sources(kv_cache_bench PRIVATE
-        ${SOURCE_DIR}/ggml-hexagon/ggml-hexagon.cpp
-        ${SOURCE_DIR}/ggml-hexagon/htp-drv.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_bench PRIVATE
         ${HEXAGON_SDK_ROOT}/incs
         ${HEXAGON_SDK_ROOT}/incs/stddef
         ${HEXAGON_SDK_ROOT}/ipc/fastrpc/rpcmem/inc
         ${HEXAGON_SDK_ROOT}/utils/examples
-        ${SOURCE_DIR}/ggml-hexagon
-        ${SOURCE_DIR}/ggml-hexagon/htp
+        ${RNLLAMA_GGML_HEXAGON_DIR}
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp
         ${HTP_STUB_DIR})
     target_compile_definitions(kv_cache_bench PRIVATE GGML_USE_HEXAGON)
     target_link_libraries(kv_cache_bench PRIVATE ${CDSPRPC_LIB})

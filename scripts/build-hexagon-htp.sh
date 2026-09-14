@@ -35,7 +35,7 @@ if [ "$IN_DOCKER" = false ] && [ "${USE_DOCKER:-auto}" != "no" ]; then
     fi
 fi
 
-HTP_SOURCE_DIR="${ROOT_DIR}/cpp/ggml-hexagon/htp"
+HTP_SOURCE_DIR="${ROOT_DIR}/vendor/llama.cpp/ggml/src/ggml-hexagon/htp"
 HTP_BUILD_DIR="${ROOT_DIR}/build-hexagon-htp"
 HTP_OUTPUT_DIR="${ROOT_DIR}/bin/arm64-v8a"
 
@@ -181,10 +181,11 @@ ls -lh "$HTP_OUTPUT_DIR"/libggml-htp-*.so 2>/dev/null || echo "Warning: Some lib
 echo ""
 
 
-mkdir -p cpp/ggml-hexagon/htp/v73/
-cp build-hexagon-htp/v73/htp_iface_stub.c cpp/ggml-hexagon/htp/v73/htp_iface_stub.c
-cp build-hexagon-htp/v73/htp_iface.h cpp/ggml-hexagon/htp/v73/htp_iface.h
-echo "✓ Copied htp_iface_stub.c to cpp/ggml-hexagon/htp/v73/htp_iface_stub.c"
-echo "✓ Copied htp_iface.h to cpp/ggml-hexagon/htp/v73/htp_iface.h"
+# The Android host build compiles the generated FastRPC stub; keep it next to
+# the HTP sources (gitignored, preserved by scripts/sync-vendor.sh).
+mkdir -p "${HTP_SOURCE_DIR}/v73/"
+cp build-hexagon-htp/v73/htp_iface_stub.c "${HTP_SOURCE_DIR}/v73/htp_iface_stub.c"
+cp build-hexagon-htp/v73/htp_iface.h "${HTP_SOURCE_DIR}/v73/htp_iface.h"
+echo "✓ Copied htp_iface_stub.c and htp_iface.h to ${HTP_SOURCE_DIR}/v73/"
 
 rm -rf build-hexagon-htp

@@ -1,0 +1,9 @@
+prefix=@PKGCONFIG_PREFIX@
+exec_prefix=${prefix}
+libdir=@OPENCL_LIBDIR_PC@
+
+Name: OpenCL
+Description: Khronos OpenCL ICD Loader
+Requires: OpenCL-Headers
+Version: 3.0
+Libs: -L${libdir} -lOpenCL

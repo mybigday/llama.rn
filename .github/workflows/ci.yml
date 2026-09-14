@@ -153,15 +153,6 @@ jobs:
         with:
           gradle-version: wrapper
 
-      # libOpenCL.so is built from submodules that checkout does not fetch, so the
-      # pinned commits have to go into the cache key explicitly.
-      - name: Resolve OpenCL submodule pins
-        id: opencl-pin
-        run: |
-          echo "sha=$(git rev-parse HEAD:third_party/OpenCL-ICD-Loader)-$(git rev-parse HEAD:third_party/OpenCL-Headers)" >> "$GITHUB_OUTPUT"
-
-      # Placed after Setup: bootstrap regenerates cpp/ggml-hexagon, so the key has
-      # to be computed from the post-bootstrap sources.
       - name: Cache Hexagon HTP & OpenCL artifacts
         id: htp-cache
         uses: actions/cache@v4
@@ -169,8 +160,8 @@ jobs:
         with:
           path: |
             bin
-            cpp/ggml-hexagon/htp/v73
-          key: ${{ runner.os }}-htp-${{ steps.opencl-pin.outputs.sha }}-${{ hashFiles('scripts/build-hexagon-htp.sh', 'scripts/build-opencl.sh', 'scripts/docker-build-wrapper.sh', 'cpp/ggml-hexagon/htp/**') }}
+            vendor/llama.cpp/ggml/src/ggml-hexagon/htp/v73
+          key: ${{ runner.os }}-htp-${{ hashFiles('scripts/build-hexagon-htp.sh', 'scripts/build-opencl.sh', 'scripts/docker-build-wrapper.sh', 'vendor/llama.cpp/ggml/src/ggml-hexagon/htp/**', 'vendor/OpenCL-Headers/**', 'vendor/OpenCL-ICD-Loader/**') }}
 
       - name: Cache ccache
         uses: actions/cache@v4

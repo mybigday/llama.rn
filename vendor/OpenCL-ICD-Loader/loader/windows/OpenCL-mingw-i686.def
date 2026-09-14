@@ -1,0 +1,162 @@
+;
+; Copyright (c) 2022 The Khronos Group Inc.
+;
+; Licensed under the Apache License, Version 2.0 (the "License");
+; you may not use this file except in compliance with the License.
+; You may obtain a copy of the License at
+;
+;     http://www.apache.org/licenses/LICENSE-2.0
+;
+; Unless required by applicable law or agreed to in writing, software
+; distributed under the License is distributed on an "AS IS" BASIS,
+; WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+; See the License for the specific language governing permissions and
+; limitations under the License.
+;
+; OpenCL is a trademark of Apple Inc. used under license by Khronos.
+
+EXPORTS
+
+;
+; Note: This is a special .def file that should only be needed for i686
+; (32-bit) mingw builds.  In this case we need to export the stdcall-
+; decorated functions. In all other cases we can use the standard .def
+; file that does not have decorated functions.
+;
+
+; OpenCL 1.0 API
+clBuildProgram@24 == clBuildProgram
+clCreateBuffer@24 == clCreateBuffer
+clCreateCommandQueue@20 == clCreateCommandQueue
+clCreateContext@24 == clCreateContext
+clCreateContextFromType@24 == clCreateContextFromType
+clCreateFromGLBuffer@20 == clCreateFromGLBuffer
+clCreateFromGLRenderbuffer@20 == clCreateFromGLRenderbuffer
+clCreateFromGLTexture2D@28 == clCreateFromGLTexture2D
+clCreateFromGLTexture3D@28 == clCreateFromGLTexture3D
+clCreateImage2D@36 == clCreateImage2D
+clCreateImage3D@44 == clCreateImage3D
+clCreateKernel@12 == clCreateKernel
+clCreateKernelsInProgram@16 == clCreateKernelsInProgram
+clCreateProgramWithBinary@28 == clCreateProgramWithBinary
+clCreateProgramWithSource@20 == clCreateProgramWithSource
+clCreateSampler@20 == clCreateSampler
+clEnqueueAcquireGLObjects@24 == clEnqueueAcquireGLObjects
+clEnqueueBarrier@4 == clEnqueueBarrier
+clEnqueueCopyBuffer@36 == clEnqueueCopyBuffer
+clEnqueueCopyBufferToImage@36 == clEnqueueCopyBufferToImage
+clEnqueueCopyImage@36 == clEnqueueCopyImage
+clEnqueueCopyImageToBuffer@36 == clEnqueueCopyImageToBuffer
+clEnqueueMapBuffer@44 == clEnqueueMapBuffer
+clEnqueueMapImage@52 == clEnqueueMapImage
+clEnqueueMarker@8 == clEnqueueMarker
+clEnqueueNDRangeKernel@36 == clEnqueueNDRangeKernel
+clEnqueueNativeKernel@40 == clEnqueueNativeKernel
+clEnqueueReadBuffer@36 == clEnqueueReadBuffer
+clEnqueueReadImage@44 == clEnqueueReadImage
+clEnqueueReleaseGLObjects@24 == clEnqueueReleaseGLObjects
+clEnqueueTask@20 == clEnqueueTask
+clEnqueueUnmapMemObject@24 == clEnqueueUnmapMemObject
+clEnqueueWaitForEvents@12 == clEnqueueWaitForEvents
+clEnqueueWriteBuffer@36 == clEnqueueWriteBuffer
+clEnqueueWriteImage@44 == clEnqueueWriteImage
+clFinish@4 == clFinish
+clFlush@4 == clFlush
+clGetCommandQueueInfo@20 == clGetCommandQueueInfo
+clGetContextInfo@20 == clGetContextInfo
+clGetDeviceIDs@24 == clGetDeviceIDs
+clGetDeviceInfo@20 == clGetDeviceInfo
+clGetEventInfo@20 == clGetEventInfo
+clGetEventProfilingInfo@20 == clGetEventProfilingInfo
+clGetExtensionFunctionAddress@4 == clGetExtensionFunctionAddress
+clGetGLObjectInfo@12 == clGetGLObjectInfo
+clGetGLTextureInfo@20 == clGetGLTextureInfo
+clGetImageInfo@20 == clGetImageInfo
+clGetKernelInfo@20 == clGetKernelInfo
+clGetKernelWorkGroupInfo@24 == clGetKernelWorkGroupInfo
+clGetMemObjectInfo@20 == clGetMemObjectInfo
+clGetPlatformIDs@12 == clGetPlatformIDs
+clGetPlatformInfo@20 == clGetPlatformInfo
+clGetProgramBuildInfo@24 == clGetProgramBuildInfo
+clGetProgramInfo@20 == clGetProgramInfo
+clGetSamplerInfo@20 == clGetSamplerInfo
+clGetSupportedImageFormats@28 == clGetSupportedImageFormats
+clReleaseCommandQueue@4 == clReleaseCommandQueue
+clReleaseContext@4 == clReleaseContext
+clReleaseEvent@4 == clReleaseEvent
+clReleaseKernel@4 == clReleaseKernel
+clReleaseMemObject@4 == clReleaseMemObject
+clReleaseProgram@4 == clReleaseProgram
+clReleaseSampler@4 == clReleaseSampler
+clRetainCommandQueue@4 == clRetainCommandQueue
+clRetainContext@4 == clRetainContext
+clRetainEvent@4 == clRetainEvent
+clRetainKernel@4 == clRetainKernel
+clRetainMemObject@4 == clRetainMemObject
+clRetainProgram@4 == clRetainProgram
+clRetainSampler@4 == clRetainSampler
+clSetCommandQueueProperty@20 == clSetCommandQueueProperty
+clSetKernelArg@16 == clSetKernelArg
+clUnloadCompiler@0 == clUnloadCompiler
+clWaitForEvents@8 == clWaitForEvents
+
+; OpenCL 1.1 API
+clCreateSubBuffer@24 == clCreateSubBuffer
+clCreateUserEvent@8 == clCreateUserEvent
+clEnqueueCopyBufferRect@52 == clEnqueueCopyBufferRect
+clEnqueueReadBufferRect@56 == clEnqueueReadBufferRect
+clEnqueueWriteBufferRect@56 == clEnqueueWriteBufferRect
+clSetEventCallback@16 == clSetEventCallback
+clSetMemObjectDestructorCallback@12 == clSetMemObjectDestructorCallback
+clSetUserEventStatus@8 == clSetUserEventStatus
+
+; OpenCL 1.2 API
+clCompileProgram@36 == clCompileProgram
+clCreateFromGLTexture@28 == clCreateFromGLTexture
+clCreateImage@28 == clCreateImage
+clCreateProgramWithBuiltInKernels@20 == clCreateProgramWithBuiltInKernels
+clCreateSubDevices@20 == clCreateSubDevices
+clEnqueueBarrierWithWaitList@16 == clEnqueueBarrierWithWaitList
+clEnqueueFillBuffer@36 == clEnqueueFillBuffer
+clEnqueueFillImage@32 == clEnqueueFillImage
+clEnqueueMarkerWithWaitList@16 == clEnqueueMarkerWithWaitList
+clEnqueueMigrateMemObjects@32 == clEnqueueMigrateMemObjects
+clGetExtensionFunctionAddressForPlatform@8 == clGetExtensionFunctionAddressForPlatform
+clGetKernelArgInfo@24 == clGetKernelArgInfo
+clLinkProgram@36 == clLinkProgram
+clReleaseDevice@4 == clReleaseDevice
+clRetainDevice@4 == clRetainDevice
+clUnloadPlatformCompiler@4 == clUnloadPlatformCompiler
+
+; OpenCL 2.0 API
+clCreateCommandQueueWithProperties@16 == clCreateCommandQueueWithProperties
+clCreatePipe@28 == clCreatePipe
+clCreateSamplerWithProperties@12 == clCreateSamplerWithProperties
+clEnqueueSVMFree@32 == clEnqueueSVMFree
+clEnqueueSVMMap@36 == clEnqueueSVMMap
+clEnqueueSVMMemcpy@32 == clEnqueueSVMMemcpy
+clEnqueueSVMMemFill@32 == clEnqueueSVMMemFill
+clEnqueueSVMUnmap@20 == clEnqueueSVMUnmap
+clGetPipeInfo@20 == clGetPipeInfo
+clSetKernelArgSVMPointer@12 == clSetKernelArgSVMPointer
+clSetKernelExecInfo@16 == clSetKernelExecInfo
+clSVMAlloc@20 == clSVMAlloc
+clSVMFree@8 == clSVMFree
+
+; OpenCL 2.1 API
+clCloneKernel@8 == clCloneKernel
+clCreateProgramWithIL@16 == clCreateProgramWithIL
+clEnqueueSVMMigrateMem@36 == clEnqueueSVMMigrateMem
+clGetDeviceAndHostTimer@12 == clGetDeviceAndHostTimer
+clGetHostTimer@8 == clGetHostTimer
+clGetKernelSubGroupInfo@32 == clGetKernelSubGroupInfo
+clSetDefaultDeviceCommandQueue@12 == clSetDefaultDeviceCommandQueue
+
+; OpenCL 2.2 API
+clSetProgramReleaseCallback@12 == clSetProgramReleaseCallback
+clSetProgramSpecializationConstant@16 == clSetProgramSpecializationConstant
+
+; OpenCL 3.0 API
+clCreateBufferWithProperties@28 == clCreateBufferWithProperties
+clCreateImageWithProperties@32 == clCreateImageWithProperties
+clSetContextDestructorCallback@12 == clSetContextDestructorCallback

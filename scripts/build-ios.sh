@@ -20,24 +20,28 @@ trap cleanup EXIT
 
 copy_headers() {
   local framework_path="$1"
+  local headers="$framework_path/Headers"
+  local llama_cpp="$ROOT_DIR/vendor/llama.cpp"
 
-  mkdir -p "$framework_path/Headers"
-  cp "$ROOT_DIR"/cpp/*.h "$framework_path/Headers/"
+  # Flat layout: the JSI glue includes these as <rnllama/name.h>.
+  mkdir -p "$headers"
+  cp "$ROOT_DIR"/cpp/*.h "$headers/"
+  cp "$llama_cpp"/include/*.h "$headers/"
+  cp "$llama_cpp"/src/*.h "$headers/"
+  cp "$llama_cpp"/ggml/include/*.h "$headers/"
+  cp "$llama_cpp"/ggml/src/*.h "$headers/"
 
-  mkdir -p "$framework_path/Headers/jinja"
-  cp "$ROOT_DIR"/cpp/common/jinja/*.h "$framework_path/Headers/jinja/"
+  mkdir -p "$headers/jinja"
+  cp "$llama_cpp"/common/jinja/*.h "$headers/jinja/"
 
-  mkdir -p "$framework_path/Headers/nlohmann"
-  cp "$ROOT_DIR"/cpp/nlohmann/*.hpp "$framework_path/Headers/nlohmann/"
+  mkdir -p "$headers/nlohmann"
+  cp "$llama_cpp"/vendor/nlohmann/*.hpp "$headers/nlohmann/"
 
-  # Copy necessary common headers to Headers root (for includes without path prefix)
-  cp "$ROOT_DIR"/cpp/common/chat.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/common.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/sampling.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/speculative.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/json.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/json-schema-to-grammar.h "$framework_path/Headers/"
-  cp "$ROOT_DIR"/cpp/common/peg-parser.h "$framework_path/Headers/"
+  # common/ headers the glue needs, at the root (included without a path prefix)
+  local h
+  for h in chat.h common.h sampling.h speculative.h json.h json-schema-to-grammar.h peg-parser.h; do
+    cp "$llama_cpp/common/$h" "$headers/"
+  done
 }
 
 copy_framework_support_files() {
@@ -45,7 +49,7 @@ copy_framework_support_files() {
 
   copy_headers "$framework_path"
   # Metal sources are not shipped as framework resources: each split kernel is
-  # embedded via cpp/ggml-metal/ggml-metal-embed-*.s.
+  # embedded via vendor/llama.cpp/ggml/src/ggml-metal/ggml-metal-embed-*.s.
 }
 
 # ggml/gguf keep upstream names; they must stay internal to this framework so a

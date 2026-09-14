@@ -11,13 +11,15 @@
     "bin",
     "install/download-native-artifacts.js",
     "install/native-artifacts.json",
-    "third_party/OpenCL-Headers/CL",
     "src",
     "lib",
     "jest",
     "ios",
     "android",
     "cpp",
+    "cmake",
+    "vendor",
+    "!vendor/OpenCL-ICD-Loader",
     "app.plugin.js",
     "*.podspec",
     "!lib/typescript/example",
@@ -36,6 +38,7 @@
   ],
   "scripts": {
     "bootstrap": "./scripts/bootstrap.sh",
+    "sync:vendor": "./scripts/sync-vendor.sh",
     "docgen": "typedoc src/index.ts --plugin typedoc-plugin-markdown --readme none --out docs/API",
     "test": "jest",
     "typecheck": "tsc --noEmit",
@@ -117,11 +120,11 @@
     "modulePathIgnorePatterns": [
       "<rootDir>/example/node_modules",
       "<rootDir>/lib/",
-      "<rootDir>/third_party/"
+      "<rootDir>/vendor/"
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "<rootDir>/third_party/"
+      "<rootDir>/vendor/"
     ]
   },
   "commitlint": {
@@ -235,8 +238,7 @@
     "*.d.ts",
     "tests/build/",
     "tests/build-metal/",
-    "third_party/llama.cpp/",
-    "third_party/codec.cpp/",
+    "vendor/",
     "build/",
     "build-host/",
     ".scratch/"

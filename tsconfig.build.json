@@ -9,6 +9,6 @@
     "scripts",
     "build",
     "build-host",
-    "third_party"
+    "vendor"
   ],
 }
