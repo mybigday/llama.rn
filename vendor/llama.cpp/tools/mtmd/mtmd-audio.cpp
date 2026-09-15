@@ -12,8 +12,7 @@
 
 // some of the code here is copied from whisper.cpp
 
-// renamed to avoid conflict with Apple's DEBUG macro
-constexpr bool MTMD_AUDIO_DEBUG = false;
+constexpr bool DEBUG = false;
 
 void mtmd_audio_cache::fill_sin_cos_table(uint32_t n) {
     sin_vals.resize(n);
@@ -121,7 +120,7 @@ void mtmd_audio_cache::fill_mel_filterbank_matrix(int64_t n_mel,
     filters.n_fft = n_fft;
     filters.data  = std::move(out);
 
-    if (MTMD_AUDIO_DEBUG) {  // debug
+    if (DEBUG) {  // debug
         for (size_t i = 0; i < filters.data.size(); ++i) {
             if (filters.data[i] != 0.0f) {
                 printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
@@ -525,7 +524,7 @@ static bool log_mel_spectrogram(
     }
 
     // Dump log_mel_spectrogram
-    if (MTMD_AUDIO_DEBUG) {
+    if (DEBUG) {
         std::ofstream outFile("log_mel_spectrogram.json");
         outFile << "[";
         for (uint64_t i = 0; i < out.data.size() - 1; i++) {
@@ -592,7 +591,7 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
 
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
-    if (MTMD_AUDIO_DEBUG) {
+    if (DEBUG) {
         printf("output: n_mel = %d, n_len = %d\n", (int) out_full.n_mel, (int) out_full.n_len);
     }
     const size_t frames_per_chunk = 3000;

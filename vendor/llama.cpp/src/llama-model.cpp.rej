@@ -1,0 +1,10 @@
+--- src/llama-model.cpp
++++ src/llama-model.cpp
+@@ -3007,6 +3010,7 @@
+         case LLM_ARCH_SPARK2_5:
+         case LLM_ARCH_TALKIE:
+         case LLM_ARCH_MELLUM:
++        case LLM_ARCH_BARBET:
+             return LLAMA_ROPE_TYPE_NEOX;
+ 
+         case LLM_ARCH_DFLASH:

@@ -14,10 +14,6 @@
 #include <vector>
 #include <algorithm>
 
-#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-#include <android/log.h>
-#endif
-
 #if defined(_WIN32)
 #    define WIN32_LEAN_AND_MEAN
 #    ifndef NOMINMAX
@@ -105,36 +101,7 @@ struct common_log_entry {
 
     common_log_entry(size_t size = 256) : msg(size) { }
 
-    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-    void android_print() const {
-        int android_log_priority;
-        switch (level) {
-            case GGML_LOG_LEVEL_INFO:
-                android_log_priority = ANDROID_LOG_INFO;
-                break;
-            case GGML_LOG_LEVEL_WARN:
-                android_log_priority = ANDROID_LOG_WARN;
-                break;
-            case GGML_LOG_LEVEL_ERROR:
-                android_log_priority = ANDROID_LOG_ERROR;
-                break;
-            case GGML_LOG_LEVEL_DEBUG:
-                android_log_priority = ANDROID_LOG_DEBUG;
-                break;
-            default:
-                android_log_priority = ANDROID_LOG_DEFAULT;
-                break;
-        }
-
-        const char * tag = "RNLLAMA_LOG_ANDROID";
-        __android_log_print(android_log_priority, tag, "%s", msg.data());
-    }
-    #endif
-
     void print(FILE * file = nullptr) const {
-        #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-        android_print();
-        #else
         FILE * fcur = file;
         if (!fcur) {
             // stderr displays DBG messages only when their verbosity level is not higher than the threshold
@@ -197,7 +164,6 @@ struct common_log_entry {
         }
 
         fflush(fcur);
-        #endif
     }
 };
 

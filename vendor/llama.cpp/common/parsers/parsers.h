@@ -53,8 +53,6 @@ common_chat_params common_chat_params_init_deepseek_v3_2(const common_chat_templ
 
 common_chat_params common_chat_params_init_functionary_v3_2(const common_chat_template & tmpl, const autoparser::generation_params & inputs);
 
-common_chat_params common_chat_params_init_function_gemma(const common_chat_template & tmpl, const autoparser::generation_params & inputs);
-
 common_chat_params common_chat_params_init_gemma4(const common_chat_template & tmpl, const autoparser::generation_params & inputs);
 
 common_chat_params common_chat_params_init_gigachat_v3(const common_chat_template & tmpl, const autoparser::generation_params & inputs);
