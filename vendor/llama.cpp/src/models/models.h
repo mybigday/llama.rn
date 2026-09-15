@@ -945,6 +945,19 @@ struct llama_model_mamba2 : public llama_model_base {
 };
 
 
+struct llama_model_maple : public llama_model_base {
+    llama_model_maple(const struct llama_model_params & params) : llama_model_base(params) {}
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params);
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
+
 struct llama_model_jamba : public llama_model_base {
     llama_model_jamba(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;
@@ -1531,27 +1544,6 @@ struct llama_model_nemotron_h_moe : public llama_model_nemotron_h {
 
     struct graph_mtp : public llm_graph_context {
         graph_mtp(const llama_model & model, const llm_graph_params & params);
-    };
-
-    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
-};
-
-
-// Barbet — Open-Formosa R2 text-semantic LM (BlueMagpie-TTS backbone).
-// Mamba2 + attention hybrid: motif `global, sliding, sliding, mamba2` over 28
-// layers, per-head q/k RMSNorm on attention layers, SwiGLU FFN throughout.
-// Sliding-window attention is approximated by full causal attention — Barbet's
-// SWA size (8192) covers the entire TTS use, so the numeric result matches.
-struct llama_model_barbet : public llama_model_base {
-    llama_model_barbet(const struct llama_model_params & params) : llama_model_base(params) {}
-    void load_arch_hparams(llama_model_loader & ml) override;
-    void load_arch_tensors(llama_model_loader & ml) override;
-
-    struct graph : public llm_build_mamba_base {
-        graph(const llama_model & model, const llm_graph_params & params);
-        ggml_tensor * build_attention_layer(ggml_tensor * cur, ggml_tensor * inp_pos,
-            llm_graph_input_attn_kv * inp_attn, const llama_model & model,
-            int64_t n_embd_head, int il);
     };
 
     std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;

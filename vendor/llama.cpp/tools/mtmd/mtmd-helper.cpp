@@ -114,9 +114,8 @@ private:
     bool enabled_;
 };
 
-// Internal form of mtmd_helper_decode_image_chunk() that can request logits
-// from the final media embedding when called by the chunk-evaluation helpers.
-static int32_t mtmd_helper_decode_image_chunk_impl(
+// Helper function for decoding an image whose embeddings have already been calculated
+int32_t mtmd_helper_decode_image_chunk(
         mtmd_context * ctx,
         struct llama_context * lctx,
         const mtmd_input_chunk * chunk,
@@ -124,7 +123,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
         llama_pos n_past,
         llama_seq_id seq_id,
         int32_t n_batch,
-        bool logits_last,
         llama_pos * new_n_past,
         mtmd_helper_post_decode_callback callback,
         void * user_data) {
@@ -164,9 +162,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
     } else {
         batch_embd.set_position_normal(n_past, seq_id);
     }
-    if (logits_last) {
-        batch_embd.batch.logits[n_tokens - 1] = true;
-    }
 
     const bool use_non_causal = mtmd_decode_use_non_causal(ctx, chunk);
     const scope_non_causal non_causal(lctx, use_non_causal);
@@ -202,23 +197,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
     *new_n_past = n_past;
 
     return 0;
-}
-
-// Helper function for decoding an image whose embeddings have already been calculated
-int32_t mtmd_helper_decode_image_chunk(
-        mtmd_context * ctx,
-        struct llama_context * lctx,
-        const mtmd_input_chunk * chunk,
-        float * encoded_embd,
-        llama_pos n_past,
-        llama_seq_id seq_id,
-        int32_t n_batch,
-        llama_pos * new_n_past,
-        mtmd_helper_post_decode_callback callback,
-        void * user_data) {
-    return mtmd_helper_decode_image_chunk_impl(
-        ctx, lctx, chunk, encoded_embd, n_past, seq_id, n_batch,
-        false, new_n_past, callback, user_data);
 }
 
 int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
@@ -280,9 +258,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, ggml_time_ms() - t0);
 
         float * embd = mtmd_get_output_embd(ctx);
-        ret = mtmd_helper_decode_image_chunk_impl(
-            ctx, lctx, chunk, embd, n_past, seq_id, n_batch,
-            logits_last, new_n_past, nullptr, nullptr);
+        ret = mtmd_helper_decode_image_chunk(ctx, lctx, chunk, embd, n_past, seq_id, n_batch, new_n_past, nullptr, nullptr);
         if (ret != 0) {
             LOG_ERR("failed to decode %s\n", name);
             llama_batch_free(text_batch);

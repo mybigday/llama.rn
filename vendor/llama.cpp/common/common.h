@@ -287,7 +287,6 @@ struct common_params_sampling {
     // reasoning budget sampler parameters
     // these are populated by the server/CLI based on chat template params
     int32_t                   reasoning_budget_tokens   = -1;  // -1 = disabled, >= 0 = token budget
-    bool                      reasoning_budget_activate_immediately = false;
     std::vector<llama_token>  reasoning_budget_start;          // start tag token sequence
     std::vector<llama_tokens> reasoning_budget_end;            // end tag token sequences; the first tag is used as the forcing sequence
     std::vector<llama_token>  reasoning_budget_forced;         // forced sequence (message + first end tag)
@@ -447,7 +446,6 @@ struct lr_opt {
 struct ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
 
 struct common_params {
-    bool vocab_only               = false;
     int32_t n_predict             =    -1; // max. number of new tokens to predict, -1 == no limit
     int32_t n_ctx                 =     0; // context size, 0 == context the model was trained with
     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
@@ -585,9 +583,6 @@ struct common_params {
     bool no_host           = false; // bypass host buffer allowing extra buffers to be used
 
     bool single_turn       = false; // single turn chat conversation
-
-    llama_progress_callback progress_callback = nullptr;
-    void * progress_callback_user_data = nullptr;
 
     ggml_type cache_type_k = GGML_TYPE_F16; // KV cache data type for the K
     ggml_type cache_type_v = GGML_TYPE_F16; // KV cache data type for the V
