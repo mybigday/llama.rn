@@ -5,7 +5,7 @@
 # See vendor/README.md.
 
 LLAMA_CPP_REPO=https://github.com/ggml-org/llama.cpp
-LLAMA_CPP_REF=b10970
+LLAMA_CPP_REF=b10991
 LLAMA_CPP_COMMIT=093a2f86c3e37c54fa3e1f9efb17b304f3433abd
 
 CODEC_CPP_REPO=https://github.com/mybigday/codec.cpp
