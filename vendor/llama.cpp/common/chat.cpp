@@ -221,10 +221,16 @@ json common_chat_msg::to_json_oaicompat(bool concat_typed_text) const {
         } else {
             auto & parts = jmsg["content"] = json::array();
             for (const auto & part : content_parts) {
-                parts.push_back({
+                json jpart = {
                     {"type", part.type},
                     {"text", part.text},
-                });
+                };
+                if (part.extra_fields.is_object()) {
+                    for (const auto & [k, v] : part.extra_fields.items()) {
+                        jpart[k] = v;
+                    }
+                }
+                parts.push_back(jpart);
             }
         }
     } else {
@@ -407,6 +413,11 @@ std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const json & messa
                         common_chat_msg_content_part msg_part;
                         msg_part.type = type;
                         msg_part.text = part.at("text");
+                        for (const auto & [k, v] : part.items()) {
+                            if (k != "type" && k != "text") {
+                                msg_part.extra_fields[k] = v;
+                            }
+                        }
                         msg.content_parts.push_back(msg_part);
                     }
                 } else if (!content.is_null()) {
@@ -1118,6 +1129,12 @@ std::optional<common_chat_params> common_chat_try_specialized_template(
         return common_chat_params_init_functionary_v3_2(tmpl, params);
     }
 
+    // FunctionGemma - uses <start_function_call>call:name{...}<end_function_call>
+    if (src.find("<start_function_call>") != std::string::npos) {
+        LOG_DBG("Using specialized template: FunctionGemma\n");
+        return common_chat_params_init_function_gemma(tmpl, params);
+    }
+
     // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
     // Detection: template has "<|tool_calls_section_begin|>" and "functions." prefix in tool call IDs
     if (src.find("<|tool_calls_section_begin|>") != std::string::npos &&
@@ -1520,4 +1537,35 @@ std::map<std::string, bool> common_chat_templates_get_caps(const common_chat_tem
         return chat_templates->template_tool_use->caps.to_map();
     }
     return chat_templates->template_default->caps.to_map();
+}
+
+common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
+    common_chat_template_caps result;
+    const common_chat_template * tmpl = nullptr;
+
+    if (!variant.empty() && variant == "tool_use") {
+        tmpl = tmpls->template_tool_use.get();
+    } else {
+        tmpl = tmpls->template_default.get();
+    }
+
+    if (tmpl) {
+        auto caps = tmpl->original_caps();
+        result.supports_tools = caps.supports_tools;
+        result.supports_tool_calls = caps.supports_tool_calls;
+        result.supports_system_role = caps.supports_system_role;
+        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
+    }
+
+    return result;
+}
+
+bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
+    if (variant.empty() || variant == "default") {
+        return tmpls->template_default != nullptr;
+    }
+    if (variant == "tool_use") {
+        return tmpls->template_tool_use != nullptr;
+    }
+    return false;
 }

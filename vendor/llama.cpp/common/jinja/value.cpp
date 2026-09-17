@@ -1,5 +1,5 @@
 #include "runtime.h"
-#include "unicode.h"
+#include "../unicode.h"
 #include "value.h"
 
 // for converting from JSON to jinja values
