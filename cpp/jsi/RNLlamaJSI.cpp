@@ -9,6 +9,9 @@
 #include "JSIRequestManager.h"
 #include "JSITaskManager.h"
 #include "JSINativeHeaders.h"
+#ifdef __APPLE__
+#include "AutoreleasePool.h"
+#endif
 #include "JSIJson.h"
 
 #include <algorithm>
@@ -652,7 +655,13 @@ namespace rnllama_jsi {
                          ctx->attachThreadpoolsIfAvailable();
 
                          if (ctx->params.embedding && llama_model_has_encoder(ctx->model) && llama_model_has_decoder(ctx->model)) {
+                             #ifdef __APPLE__
+                             rnllama_run_in_autorelease_pool([ctx]() {
+                                 delete ctx;
+                             });
+                             #else
                              delete ctx;
+                             #endif
                              throw std::runtime_error("Embedding is not supported in encoder-decoder models");
                          }
 
@@ -711,7 +720,13 @@ namespace rnllama_jsi {
                              return fromJson(rt, result);
                          };
                     } else {
+                        #ifdef __APPLE__
+                        rnllama_run_in_autorelease_pool([ctx]() {
+                            delete ctx;
+                        });
+                        #else
                         delete ctx;
+                        #endif
                         throw std::runtime_error("Failed to load model");
                     }
                 }, contextId);
@@ -1676,7 +1691,13 @@ namespace rnllama_jsi {
                          // This ensures any concurrent lookups via g_llamaContexts.get()
                          // will return 0 (not found) rather than a dangling pointer.
                          removeContext(contextId);
+                         #ifdef __APPLE__
+                         rnllama_run_in_autorelease_pool([ctx]() {
+                             delete ctx;
+                         });
+                         #else
                          delete ctx;
+                         #endif
                      }
                      return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                  }, contextId, false);  // trackTask=false - release should not count itself
@@ -1715,7 +1736,13 @@ namespace rnllama_jsi {
                      g_llamaContexts.clear([](long ptr) {
                         if (ptr) {
                             auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ptr);
+                            #ifdef __APPLE__
+                            rnllama_run_in_autorelease_pool([ctx]() {
+                                delete ctx;
+                            });
+                            #else
                             delete ctx;
+                            #endif
                         }
                      });
                      return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
@@ -2256,7 +2283,13 @@ namespace rnllama_jsi {
         g_llamaContexts.clear([](long ptr) {
             if (ptr) {
                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ptr);
+                #ifdef __APPLE__
+                rnllama_run_in_autorelease_pool([ctx]() {
+                    delete ctx;
+                });
+                #else
                 delete ctx;
+                #endif
             }
         });
         g_context_limit.store(-1);

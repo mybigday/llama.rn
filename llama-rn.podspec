@@ -38,7 +38,7 @@ Pod::Spec.new do |s|
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     # ios/*: not ios/**, or the prebuilt xcframework's flat Headers/ would join
     # the header map and shadow the vendored headers with the same basenames.
-    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c}",
+    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,mm}",
       "#{llama_cpp}/include/*.h",
       "#{llama_cpp}/src/**/*.{h,cpp}",
       "#{llama_cpp}/ggml/include/*.h",
@@ -84,7 +84,7 @@ Pod::Spec.new do |s|
     ].each { |dir| header_search_paths << "\"$(PODS_TARGET_SRCROOT)/#{dir}\"" }
   else
     # JSI bindings always compiled from source (must match RN version)
-    s.source_files = "ios/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"
+    s.source_files = "ios/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp,mm}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
     base_compiler_flags += " -DRNLLAMA_USE_FRAMEWORK_HEADERS"
     # Header-only JSON dependency needed by JSI when using the prebuilt xcframework
