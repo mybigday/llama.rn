@@ -705,7 +705,9 @@ export class LlamaContext {
     options?: { tokenSize: number },
   ): Promise<number> {
     const { llamaSaveSession } = getJsi()
-    return llamaSaveSession(this.id, filepath, options?.tokenSize || -1)
+    let path = filepath
+    if (path.startsWith('file://')) path = path.slice(7)
+    return llamaSaveSession(this.id, path, options?.tokenSize || -1)
   }
 
   isLlamaChatSupported(): boolean {
