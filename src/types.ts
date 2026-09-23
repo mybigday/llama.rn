@@ -283,11 +283,19 @@ export type NativeCompletionParams = {
    */
   n_predict?: number
   /**
-   * If greater than 0, the response also contains the probabilities of top N tokens for each generated token given the sampling settings.
-   * Note that for temperature < 0 the tokens are sampled greedily but token probabilities are still being calculated via a simple softmax of the logits without considering any other sampler settings.
+   * If greater than 0, the response also contains the probabilities of top N tokens for each generated token.
+   * By default these are the sampler chain's candidate probabilities, i.e. after `top_k` / `top_p` / `min_p` / `temperature` / `grammar` / ... have been applied and renormalised.
+   * Set `post_sampling_probs: false` to get a plain softmax of the raw logits instead.
    * Default: `0`
    */
   n_probs?: number
+  /**
+   * Controls what `n_probs` reports.
+   * `true`: probabilities from the sampler chain's candidates (post-sampling).
+   * `false`: softmax of the raw logits, ignoring every sampler setting. Use this for calibrated readouts / thresholds.
+   * Default: `true`
+   */
+  post_sampling_probs?: boolean
   /**
    * Per-completion speculative decoding override. For MTP on recurrent/hybrid
    * models, load the model with matching MTP options first.
@@ -454,6 +462,7 @@ export type NativeParallelCompletionParams = NativeCompletionParams & {
 }
 
 export type NativeCompletionTokenProbItem = {
+  tok_id: number
   tok_str: string
   prob: number
 }

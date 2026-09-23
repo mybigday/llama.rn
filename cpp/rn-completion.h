@@ -57,6 +57,13 @@ struct completion_token_output
     int32_t request_id = -1;  // Request ID for parallel processing
 };
 
+// Top-n token probabilities for a decoded position, taken from the sampler
+// chain's candidates (post_sampling = true, i.e. after top_k / min_p / grammar
+// / ... have been applied and renormalised) or from a plain softmax over the
+// raw logits at batch index `idx` (post_sampling = false).
+std::vector<completion_token_output::token_prob> get_token_probabilities(
+    llama_context *ctx, common_sampler *sampler, int idx, int n_probs, bool post_sampling);
+
 struct completion_chat_output
 {
   std::string content;

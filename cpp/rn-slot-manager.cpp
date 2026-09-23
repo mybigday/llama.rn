@@ -209,6 +209,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.request_id = request_id;
     request.task_type = SLOT_TASK_TYPE_COMPLETION;
     request.params = params;
+    request.post_sampling_probs = parent_ctx->post_sampling_probs;
     request.prompt_tokens = prompt;
     request.media_paths = media_paths;
     request.prompt_text = prompt_text;
@@ -593,6 +594,7 @@ void llama_rn_slot_manager::process_pending_queue() {
             case SLOT_TASK_TYPE_COMPLETION: {
                 slot->params_storage = request.params;
                 slot->params = &slot->params_storage;
+                slot->post_sampling_probs = request.post_sampling_probs;
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, slot->params->sampling);
 
                 // Assign state parameters
@@ -1237,14 +1239,14 @@ void llama_rn_slot_manager::sample_and_callback() {
                 token_output.text = token_text;
                 token_output.request_id = slot.request_id;
 
-                const int32_t n_probs = slot.params->sampling.n_probs;
-                if (n_probs > 0) {
-                  llama_token_data_array cur_p = *common_sampler_get_candidates(slot.ctx_sampling, true);
-                  for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
-                  {
-                      token_output.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
-                  }
-                }
+                // A media-pending token was sampled while the context logits still
+                // belonged to this slot; those logits are gone now, so only the
+                // sampler's own candidates are available for it
+                const bool raw_logits_available = slot.i_batch != -1;
+                token_output.probs = get_token_probabilities(
+                    parent_ctx->ctx, slot.ctx_sampling, slot.i_batch,
+                    slot.params->sampling.n_probs,
+                    slot.post_sampling_probs || !raw_logits_available);
 
                 slot.generated_tokens.push_back(new_token_id);
                 slot.n_decoded++;

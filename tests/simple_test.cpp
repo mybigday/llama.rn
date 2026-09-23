@@ -334,6 +334,67 @@ bool test_completion_probabilities_reset_between_completions() {
     }
 }
 
+// #401 (3): post_sampling_probs=false must report a raw softmax over the logits
+// even when the sampler chain truncates candidates (top_k = 1 here), while the
+// default post-sampling mode reflects that truncation.
+bool test_n_probs_post_sampling_vs_raw() {
+    try {
+        llama_rn_context ctx;
+        if (!setup_completion_context(ctx)) return false;
+
+        ctx.params.sampling.n_probs = 4;
+        ctx.params.sampling.top_k = 1;
+        ctx.params.sampling.temp = 1.0f;
+
+        // Post-sampling: top_k = 1 leaves a single candidate with p == 1
+        ctx.post_sampling_probs = true;
+        if (run_classic_completion(ctx, "Hello", 2) <= 0) return false;
+        for (const auto& entry : ctx.completion->generated_token_probs) {
+            if (entry.probs.size() != 1 || std::fabs(entry.probs[0].prob - 1.0f) > 1e-4f) {
+                std::cout << "post-sampling: expected 1 candidate with p=1, got "
+                          << entry.probs.size() << " (p0=" << (entry.probs.empty() ? -1.f : entry.probs[0].prob) << ")" << std::endl;
+                return false;
+            }
+        }
+
+        // Raw: full top-4 softmax, sorted descending, sum < 1 over a large vocab
+        ctx.post_sampling_probs = false;
+        if (run_classic_completion(ctx, "Hello", 2) <= 0) return false;
+        for (const auto& entry : ctx.completion->generated_token_probs) {
+            if (entry.probs.size() != 4) {
+                std::cout << "raw: expected 4 entries, got " << entry.probs.size() << std::endl;
+                return false;
+            }
+            float sum = 0.0f;
+            for (size_t i = 0; i < entry.probs.size(); ++i) {
+                const float p = entry.probs[i].prob;
+                if (p <= 0.0f || p > 1.0f || (i > 0 && p > entry.probs[i - 1].prob)) {
+                    std::cout << "raw: bad ordering / range at " << i << std::endl;
+                    return false;
+                }
+                sum += p;
+            }
+            if (sum > 1.0f + 1e-4f) {
+                std::cout << "raw: top-4 probabilities sum to " << sum << std::endl;
+                return false;
+            }
+            // The greedy pick (top_k = 1) must be the raw argmax as well
+            if (entry.probs[0].tok != entry.tok) {
+                std::cout << "raw: argmax " << entry.probs[0].tok << " != sampled " << entry.tok << std::endl;
+                return false;
+            }
+        }
+        ctx.params.sampling.top_k = 40;
+        return true;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cout << "Unknown exception" << std::endl;
+        return false;
+    }
+}
+
 // Regression test for #401 (1): logit_bias is a std::vector<llama_logit_bias> and
 // must be populated with push_back (indexing an empty vector is an OOB write).
 // A huge positive bias on one token must make the sampler pick it every time.
@@ -491,6 +552,7 @@ int main() {
     results.run_test("Completion Generation Timing", test_completion_generation_timing());
     results.run_test("Completion Probabilities Reset Between Completions", test_completion_probabilities_reset_between_completions());
     results.run_test("Logit Bias Forces Token", test_logit_bias_forces_token());
+    results.run_test("n_probs Post-Sampling vs Raw", test_n_probs_post_sampling_vs_raw());
     results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());
 

@@ -111,6 +111,9 @@ struct llama_rn_context {
     float loading_progress = 0;
     bool is_load_interrupted = false;
     common_params params;
+    // n_probs readout mode for the next completion (see get_token_probabilities);
+    // false = softmax of the raw logits, true = the sampler chain's candidates
+    bool post_sampling_probs = true;
     common_init_result_ptr llama_init;
     llama_context *ctx = nullptr;
     common_chat_templates_ptr templates;

@@ -112,6 +112,7 @@ struct llama_rn_slot {
     // Sampling context (per-slot)
     common_params params_storage;
     common_params* params;
+    bool post_sampling_probs = true;
     common_sampler* ctx_sampling;
 
     // Speculative decoding context for MTP.

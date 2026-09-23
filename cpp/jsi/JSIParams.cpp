@@ -434,6 +434,7 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 
         sparams.temp = getPropertyAsDouble(params, "temperature", sparams.temp);
         sparams.n_probs = getPropertyAsInt(params, "n_probs", sparams.n_probs);
+        ctx->post_sampling_probs = getPropertyAsBool(params, "post_sampling_probs", true);
 
         sparams.penalty_last_n = getPropertyAsInt(params, "penalty_last_n", sparams.penalty_last_n);
         sparams.penalty_repeat = getPropertyAsDouble(params, "penalty_repeat", sparams.penalty_repeat);

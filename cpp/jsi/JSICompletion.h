@@ -56,6 +56,7 @@ namespace rnllama_jsi {
             json probsForToken = json::array();
             for (const auto& p : prob.probs) {
                 probsForToken.push_back(json::object({
+                    {"tok_id", (int) p.tok},
                     {"tok_str", tokenPiece(ctx, p.tok)},
                     {"prob", (double) p.prob},
                 }));
@@ -76,7 +77,7 @@ namespace rnllama_jsi {
             json probsWithText = json::array();
             for (const auto& p : token.probs) {
                 probs.push_back(json::object({{"tok", (int) p.tok}, {"prob", (double) p.prob}}));
-                probsWithText.push_back(json::object({{"tok_str", tokenPiece(ctx, p.tok)}, {"prob", (double) p.prob}}));
+                probsWithText.push_back(json::object({{"tok_id", (int) p.tok}, {"tok_str", tokenPiece(ctx, p.tok)}, {"prob", (double) p.prob}}));
             }
             res["probs"] = std::move(probs);
             res["completion_probabilities"] = json::array({

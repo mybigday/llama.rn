@@ -23,41 +23,41 @@ if (!NativeModules.RNLlama) {
       {
         content: ' *',
         probs: [
-          { prob: 0.9658700227737427, tok_str: ' *' },
-          { prob: 0.021654844284057617, tok_str: ' Hi' },
-          { prob: 0.012475099414587021, tok_str: ' Hello' },
+          { prob: 0.9658700227737427, tok_id: 0, tok_str: ' *' },
+          { prob: 0.021654844284057617, tok_id: 0, tok_str: ' Hi' },
+          { prob: 0.012475099414587021, tok_id: 0, tok_str: ' Hello' },
         ],
       },
       {
         content: 'g',
         probs: [
-          { prob: 0.5133139491081238, tok_str: 'g' },
-          { prob: 0.3046242296695709, tok_str: 'ch' },
-          { prob: 0.18206188082695007, tok_str: 'bl' },
+          { prob: 0.5133139491081238, tok_id: 0, tok_str: 'g' },
+          { prob: 0.3046242296695709, tok_id: 0, tok_str: 'ch' },
+          { prob: 0.18206188082695007, tok_id: 0, tok_str: 'bl' },
         ],
       },
       {
         content: 'igg',
         probs: [
-          { prob: 0.9886618852615356, tok_str: 'igg' },
-          { prob: 0.008458126336336136, tok_str: 'ig' },
-          { prob: 0.002879939740523696, tok_str: 'reet' },
+          { prob: 0.9886618852615356, tok_id: 0, tok_str: 'igg' },
+          { prob: 0.008458126336336136, tok_id: 0, tok_str: 'ig' },
+          { prob: 0.002879939740523696, tok_id: 0, tok_str: 'reet' },
         ],
       },
       {
         content: 'les',
         probs: [
-          { prob: 1, tok_str: 'les' },
-          { prob: 1.8753286923356427e-8, tok_str: 'ling' },
-          { prob: 3.312444318837038e-9, tok_str: 'LES' },
+          { prob: 1, tok_id: 0, tok_str: 'les' },
+          { prob: 1.8753286923356427e-8, tok_id: 0, tok_str: 'ling' },
+          { prob: 3.312444318837038e-9, tok_id: 0, tok_str: 'LES' },
         ],
       },
       {
         content: '*',
         probs: [
-          { prob: 1, tok_str: '*' },
-          { prob: 4.459857905203535e-8, tok_str: '*.' },
-          { prob: 3.274198334679568e-8, tok_str: '**' },
+          { prob: 1, tok_id: 0, tok_str: '*' },
+          { prob: 4.459857905203535e-8, tok_id: 0, tok_str: '*.' },
+          { prob: 3.274198334679568e-8, tok_id: 0, tok_str: '**' },
         ],
       },
     ]

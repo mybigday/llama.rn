@@ -6,6 +6,7 @@
 #include "llama-ext.h"  // llama_get_ctx_other (mem-shared MTP draft detection)
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <limits>
@@ -29,6 +30,53 @@ llama_rn_context_completion::~llama_rn_context_completion() {
         common_sampler_free(ctx_sampling);
         ctx_sampling = nullptr;
     }
+}
+
+std::vector<completion_token_output::token_prob> get_token_probabilities(
+    llama_context *ctx, common_sampler *sampler, int idx, int n_probs, bool post_sampling)
+{
+    std::vector<completion_token_output::token_prob> out;
+    if (n_probs <= 0) {
+        return out;
+    }
+
+    if (post_sampling) {
+        const llama_token_data_array *cur_p = common_sampler_get_candidates(sampler, true);
+        const size_t n = std::min(cur_p->size, (size_t) n_probs);
+        out.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            out.push_back({cur_p->data[i].id, cur_p->data[i].p});
+        }
+        return out;
+    }
+
+    // Raw softmax over the full vocabulary, ignoring every sampler setting
+    const float *logits = llama_get_logits_ith(ctx, idx);
+    if (logits == nullptr) {
+        return out;
+    }
+    const llama_vocab *vocab = llama_model_get_vocab(llama_get_model(ctx));
+    const int n_vocab = llama_vocab_n_tokens(vocab);
+
+    std::vector<llama_token_data> cur(n_vocab);
+    float max_l = -INFINITY;
+    for (llama_token id = 0; id < n_vocab; ++id) {
+        cur[id] = {id, logits[id], 0.0f};
+        max_l = std::max(max_l, logits[id]);
+    }
+    float sum = 0.0f;
+    for (auto &c : cur) {
+        c.p = expf(c.logit - max_l);
+        sum += c.p;
+    }
+    const size_t n = std::min((size_t) n_vocab, (size_t) n_probs);
+    std::partial_sort(cur.begin(), cur.begin() + n, cur.end(),
+        [](const llama_token_data &a, const llama_token_data &b) { return a.p > b.p; });
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        out.push_back({cur[i].id, cur[i].p / sum});
+    }
+    return out;
 }
 
 void llama_rn_context_completion::rewind() {
@@ -1635,14 +1683,9 @@ completion_token_output llama_rn_context_completion::nextToken()
 
         llama_token new_token_id = common_sampler_sample(ctx_sampling, parent_ctx->ctx, -1);
 
-        const int32_t n_probs = parent_ctx->params.sampling.n_probs;
-        if (n_probs > 0) {
-          llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
-          for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
-          {
-              result.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
-          }
-        }
+        result.probs = get_token_probabilities(
+            parent_ctx->ctx, ctx_sampling, -1,
+            parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
 
         if (llama_vocab_is_eog(vocab, new_token_id)) {
             has_next_token = false;
