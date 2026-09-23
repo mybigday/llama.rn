@@ -582,8 +582,7 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         sparams.logit_bias.clear();
         const llama_model * model = llama_get_model(ctx->ctx);
         const llama_vocab * vocab = llama_model_get_vocab(model);
-        const int n_vocab = llama_vocab_n_tokens(vocab);
-
+      
         if (ctx->params.sampling.ignore_eos) {
             sparams.logit_bias.push_back({ llama_vocab_eos(vocab), -INFINITY });
         }
@@ -594,9 +593,6 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
                     continue;
                 }
                 llama_token tok = (llama_token) el[0].get<double>();
-                if (tok < 0 || tok >= n_vocab) {
-                    continue;
-                }
                 const json& val = el[1];
                 if (val.is_number()) {
                     sparams.logit_bias.push_back({ tok, (float) val.get<double>() });
