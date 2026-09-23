@@ -50,6 +50,7 @@ void llama_rn_context_completion::rewind() {
     generated_text.reserve(parent_ctx->params.n_ctx);
     embeddings.clear();
     embedding_dim = 0;
+    generated_token_probs.clear();
     utf8_gate.reset();
     truncated = false;
     context_full = false;

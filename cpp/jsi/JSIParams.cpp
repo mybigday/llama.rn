@@ -581,9 +581,10 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         sparams.logit_bias.clear();
         const llama_model * model = llama_get_model(ctx->ctx);
         const llama_vocab * vocab = llama_model_get_vocab(model);
+        const int n_vocab = llama_vocab_n_tokens(vocab);
 
         if (ctx->params.sampling.ignore_eos) {
-            sparams.logit_bias[llama_vocab_eos(vocab)].bias = -INFINITY;
+            sparams.logit_bias.push_back({ llama_vocab_eos(vocab), -INFINITY });
         }
 
         if (const json* logitBias = findProperty(params, "logit_bias"); logitBias && logitBias->is_array()) {
@@ -591,12 +592,15 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
                 if (!el.is_array() || el.size() != 2 || !el[0].is_number()) {
                     continue;
                 }
-                int tok = (int) el[0].get<double>();
+                llama_token tok = (llama_token) el[0].get<double>();
+                if (tok < 0 || tok >= n_vocab) {
+                    continue;
+                }
                 const json& val = el[1];
                 if (val.is_number()) {
-                    sparams.logit_bias[tok].bias = val.get<double>();
+                    sparams.logit_bias.push_back({ tok, (float) val.get<double>() });
                 } else if (val.is_boolean() && !val.get<bool>()) {
-                    sparams.logit_bias[tok].bias = -INFINITY;
+                    sparams.logit_bias.push_back({ tok, -INFINITY });
                 }
             }
         }

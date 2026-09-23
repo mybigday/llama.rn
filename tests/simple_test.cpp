@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <vector>
 #include <string>
@@ -242,6 +243,147 @@ bool test_completion() {
     }
 }
 
+// Shared helper: run one classic (non-parallel) completion of up to `max_tokens`
+// tokens through the same rewind -> loadPrompt -> beginCompletion -> doCompletion
+// -> endCompletion sequence the JSI completion() binding uses.
+static int run_classic_completion(llama_rn_context& ctx, const std::string& prompt, int max_tokens) {
+    std::vector<std::string> empty_media;
+    ctx.completion->rewind();
+    if (!ctx.completion->initSampling()) {
+        return -1;
+    }
+    ctx.params.prompt = prompt;
+    ctx.completion->loadPrompt(empty_media);
+    ctx.completion->beginCompletion();
+
+    int generated = 0;
+    while (ctx.completion->has_next_token && generated < max_tokens) {
+        completion_token_output out = ctx.completion->doCompletion();
+        if (out.tok == -1) break;
+        generated++;
+    }
+    ctx.completion->is_interrupted = true;
+    ctx.completion->endCompletion();
+    return generated;
+}
+
+static bool setup_completion_context(llama_rn_context& ctx) {
+    common_params params;
+    params.model.path = "../tiny-random-llama.gguf";
+    params.n_ctx = 512;
+    params.n_batch = 128;
+    params.cpuparams.n_threads = 1;
+    params.n_gpu_layers = 0;
+    params.no_kv_offload = true;
+    params.n_predict = -1;
+    if (!ctx.loadModel(params)) {
+        std::cout << "Failed to load model" << std::endl;
+        return false;
+    }
+    if (ctx.completion == nullptr) {
+        ctx.completion = new llama_rn_context_completion(&ctx);
+    }
+    return true;
+}
+
+// Regression test for #401 (2): generated_token_probs must be reset by rewind(),
+// otherwise completion_probabilities accumulates across completion() calls.
+bool test_completion_probabilities_reset_between_completions() {
+    try {
+        llama_rn_context ctx;
+        if (!setup_completion_context(ctx)) return false;
+
+        ctx.params.sampling.n_probs = 3;
+
+        const int first = run_classic_completion(ctx, "Hello", 4);
+        if (first <= 0) {
+            std::cout << "First completion generated no tokens" << std::endl;
+            return false;
+        }
+        const size_t first_probs = ctx.completion->generated_token_probs.size();
+        if (first_probs != (size_t) first) {
+            std::cout << "First completion: expected " << first << " prob entries, got " << first_probs << std::endl;
+            return false;
+        }
+
+        const int second = run_classic_completion(ctx, "World", 4);
+        if (second <= 0) {
+            std::cout << "Second completion generated no tokens" << std::endl;
+            return false;
+        }
+        const size_t second_probs = ctx.completion->generated_token_probs.size();
+        if (second_probs != (size_t) second) {
+            std::cout << "Second completion: expected " << second << " prob entries, got " << second_probs
+                      << " (stale entries from the first completion leaked)" << std::endl;
+            return false;
+        }
+
+        for (const auto& entry : ctx.completion->generated_token_probs) {
+            if (entry.probs.empty() || entry.probs.size() > 3) {
+                std::cout << "Unexpected probs size " << entry.probs.size() << std::endl;
+                return false;
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cout << "Unknown exception" << std::endl;
+        return false;
+    }
+}
+
+// Regression test for #401 (1): logit_bias is a std::vector<llama_logit_bias> and
+// must be populated with push_back (indexing an empty vector is an OOB write).
+// A huge positive bias on one token must make the sampler pick it every time.
+bool test_logit_bias_forces_token() {
+    try {
+        llama_rn_context ctx;
+        if (!setup_completion_context(ctx)) return false;
+
+        const llama_vocab * vocab = llama_model_get_vocab(ctx.model);
+        const llama_token eos = llama_vocab_eos(vocab);
+        // Pick a regular token that is not EOS so generation keeps going.
+        llama_token forced = 5;
+        if (forced == eos) forced = 6;
+
+        ctx.params.sampling.logit_bias.clear();
+        ctx.params.sampling.logit_bias.push_back({ forced, 1000.0f });
+        ctx.params.sampling.logit_bias.push_back({ eos, -INFINITY });
+
+        std::vector<std::string> empty_media;
+        ctx.completion->rewind();
+        if (!ctx.completion->initSampling()) return false;
+        ctx.params.prompt = "Hello";
+        ctx.completion->loadPrompt(empty_media);
+        ctx.completion->beginCompletion();
+
+        int generated = 0;
+        while (ctx.completion->has_next_token && generated < 4) {
+            completion_token_output out = ctx.completion->doCompletion();
+            if (out.tok == -1) break;
+            if (out.tok != forced) {
+                std::cout << "Expected biased token " << forced << ", got " << out.tok << std::endl;
+                ctx.completion->is_interrupted = true;
+                ctx.completion->endCompletion();
+                return false;
+            }
+            generated++;
+        }
+        ctx.completion->is_interrupted = true;
+        ctx.completion->endCompletion();
+        ctx.params.sampling.logit_bias.clear();
+        return generated == 4;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cout << "Unknown exception" << std::endl;
+        return false;
+    }
+}
+
 // Test that partial init failures return false instead of dereferencing a null context.
 bool test_context_init_failure_is_graceful() {
     try {
@@ -347,6 +489,8 @@ int main() {
     results.run_test("Tokenization", test_tokenization());
     results.run_test("Completion", test_completion());
     results.run_test("Completion Generation Timing", test_completion_generation_timing());
+    results.run_test("Completion Probabilities Reset Between Completions", test_completion_probabilities_reset_between_completions());
+    results.run_test("Logit Bias Forces Token", test_logit_bias_forces_token());
     results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());
 
