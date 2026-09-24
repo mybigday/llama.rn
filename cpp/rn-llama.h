@@ -1,6 +1,7 @@
 #ifndef RNLLAMA_H
 #define RNLLAMA_H
 
+#include <atomic>
 #include <sstream>
 #include <iostream>
 #include <thread>
@@ -130,6 +131,11 @@ struct llama_rn_context {
     // NEW: Slot manager for parallel decoding
     llama_rn_slot_manager *slot_manager = nullptr;
     bool parallel_mode_enabled = false;
+
+    // Held for the whole of a JSI op that touches the single-sequence state
+    // (completion, sampler, params, KV cache), so overlapping ops are rejected
+    // instead of racing on it. See ContextClaim in cpp/jsi/RNLlamaJSI.cpp.
+    std::atomic<bool> is_claimed{false};
 
     ggml_threadpool *threadpool = nullptr;
     ggml_threadpool *threadpool_batch = nullptr;

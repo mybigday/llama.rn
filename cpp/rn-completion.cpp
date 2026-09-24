@@ -118,6 +118,7 @@ void llama_rn_context_completion::rewind() {
 bool llama_rn_context_completion::initSampling() {
     if (ctx_sampling != nullptr) {
         common_sampler_free(ctx_sampling);
+        ctx_sampling = nullptr;
     }
     ctx_sampling = common_sampler_init(parent_ctx->model, parent_ctx->params.sampling);
     return ctx_sampling != nullptr;

@@ -181,11 +181,48 @@ namespace rnllama_jsi {
         return ctx->slot_manager && ctx->slot_manager->has_pending_work();
     }
 
-    static void throwIfContextBusy(rnllama::llama_rn_context* ctx) {
-        if (isContextBusy(ctx)) {
-            throw std::runtime_error("Context is busy");
+    // Exclusive claim on a context for the duration of one JSI op. Taking it is
+    // atomic, so of two overlapping ops on the same context one fails with
+    // "Context is busy" instead of both racing on the sampler, params and KV
+    // cache (a plain check of is_predicting left a window before
+    // beginCompletion(), see #403).
+    class ContextClaim {
+    public:
+        explicit ContextClaim(rnllama::llama_rn_context* ctx) : ctx_(ctx) {
+            bool expected = false;
+            if (!ctx_->is_claimed.compare_exchange_strong(expected, true)) {
+                throw std::runtime_error("Context is busy");
+            }
+            // Queued parallel work runs outside the claim
+            if (isContextBusy(ctx_)) {
+                ctx_->is_claimed.store(false);
+                throw std::runtime_error("Context is busy");
+            }
         }
-    }
+
+        // Take over a claim acquired on another thread (see detach)
+        static ContextClaim adopt(rnllama::llama_rn_context* ctx) {
+            return ContextClaim(ctx, AdoptTag{});
+        }
+
+        ContextClaim(ContextClaim&& other) noexcept : ctx_(other.ctx_) { other.ctx_ = nullptr; }
+        ContextClaim(const ContextClaim&) = delete;
+        ContextClaim& operator=(const ContextClaim&) = delete;
+        ContextClaim& operator=(ContextClaim&&) = delete;
+
+        ~ContextClaim() {
+            if (ctx_) ctx_->is_claimed.store(false);
+        }
+
+        // Stop owning the claim without releasing it; whoever adopts it releases it
+        void detach() { ctx_ = nullptr; }
+
+    private:
+        struct AdoptTag {};
+        ContextClaim(rnllama::llama_rn_context* ctx, AdoptTag) : ctx_(ctx) {}
+
+        rnllama::llama_rn_context* ctx_;
+    };
 
     static void ensureBackendInitialized() {
         std::call_once(backend_init_once, []() {
@@ -769,7 +806,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     json result = rnllama_jsi::loadSession(ctx, path);
                     return [result](jsi::Runtime& rt) {
                         return fromJson(rt, result);
@@ -789,7 +826,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path, size]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     int tokens_saved = rnllama_jsi::saveSession(ctx, path, size);
                     return [tokens_saved](jsi::Runtime& rt) {
                         return jsi::Value(tokens_saved);
@@ -952,7 +989,7 @@ namespace rnllama_jsi {
 
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
                     if (ctx->params.embedding != true) throw std::runtime_error("Embedding is not enabled");
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
 
                     common_params embdParams = ctx->params;
                     embdParams.embedding = true;
@@ -991,7 +1028,7 @@ namespace rnllama_jsi {
 
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
                     if (ctx->params.embedding != true) throw std::runtime_error("Embedding is not enabled");
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
 
                     std::vector<float> scores = ctx->completion->rerank(query, documents);
 
@@ -1017,6 +1054,7 @@ namespace rnllama_jsi {
                 return createPromiseTask(runtime, callInvoker, [contextId, pp, tg, pl, nr]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
+                    ContextClaim claim(ctx);
 
                     json res = ctx->completion->bench(pp, tg, pl, nr);
 
@@ -1048,7 +1086,10 @@ namespace rnllama_jsi {
                 bool emitPartial = getPropertyAsBool(params, "emit_partial_completion", false);
 
                 auto ctx = getContextOrThrow(contextId);
-                throwIfContextBusy(ctx);
+                // Claimed here, not in the worker, so rewind() and
+                // parseCompletionParams can't race an op already running on it.
+                // The task adopts the claim and releases it when it finishes.
+                ContextClaim claim(ctx);
                 ctx->completion->rewind();
 
                 parseCompletionParams(params, ctx);
@@ -1074,13 +1115,13 @@ namespace rnllama_jsi {
                 std::string chat_parser = getPropertyAsString(params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(params, "prefill_text");
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, callInvoker]() -> PromiseResultGenerator {
+                jsi::Value promise = createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
+                    auto claim = ContextClaim::adopt(ctx);
 
                     if (ctx->completion == nullptr) {
                         throw std::runtime_error("Completion not initialized");
                     }
-                    throwIfContextBusy(ctx);
 
                     if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
                         throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
@@ -1192,6 +1233,8 @@ namespace rnllama_jsi {
                         return result.toJsi(rt);
                     };
                 }, contextId);
+                claim.detach();
+                return promise;
             }
         );
         runtime.global().setProperty(runtime, "llamaCompletion", completion);
@@ -1747,7 +1790,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, lora_adapters]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     ctx->applyLoraAdapters(lora_adapters);
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -1762,7 +1805,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     ctx->removeLoraAdapters();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -1799,7 +1842,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     bool result = ctx->initMultimodal(opts.path, opts.use_gpu, opts.image_min_tokens, opts.image_max_tokens);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
@@ -1848,7 +1891,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     ctx->releaseMultimodal();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -1873,7 +1916,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     bool result = ctx->initVocoder(opts.path, opts.n_batch, opts.use_gpu);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
@@ -2197,7 +2240,7 @@ namespace rnllama_jsi {
                 bool clearData = count > 1 && arguments[1].isBool() ? arguments[1].asBool() : false;
                 return createPromiseTask(runtime, callInvoker, [contextId, clearData]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     ctx->clearCache(clearData);
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -2212,7 +2255,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    throwIfContextBusy(ctx);
+                    ContextClaim claim(ctx);
                     ctx->releaseVocoder();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
