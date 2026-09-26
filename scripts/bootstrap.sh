@@ -119,6 +119,10 @@ rm -f "$METAL_DIR"/ggml-metal-embed*.s
 
 for METAL_KERNEL in "$METAL_KERNEL_DIR"/*.metal; do
   METAL_KIND=$(basename "$METAL_KERNEL" .metal)
+  # These are included by the per-type Flash Attention kernels, not libraries.
+  case "$METAL_KIND" in
+    fa_common|fa_vec_common) continue ;;
+  esac
   METAL_KIND_SYMBOL=${METAL_KIND//-/_}
   METAL_TMP1="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.tmp1"
   METAL_TMP2="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.tmp2"
@@ -134,12 +138,19 @@ for METAL_KERNEL in "$METAL_KERNEL_DIR"/*.metal; do
     if grep -qF '#include "quantize.h"' "$METAL_KERNEL"; then
       cat "$METAL_KERNEL_DIR/quantize.h"
     fi
+    for METAL_SHARED in fa_common.metal fa_vec_common.metal; do
+      if grep -qF "#include \"$METAL_SHARED\"" "$METAL_KERNEL"; then
+        cat "$METAL_KERNEL_DIR/$METAL_SHARED"
+      fi
+    done
     cat "$METAL_KERNEL"
   } > "$METAL_TMP1"
 
   sed -e '/#include "common.h"/d' \
       -e '/#include "dequantize.h"/d' \
       -e '/#include "quantize.h"/d' \
+      -e '/#include "fa_common.metal"/d' \
+      -e '/#include "fa_vec_common.metal"/d' \
       -e '/#pragma once/d' \
       < "$METAL_TMP1" > "$METAL_TMP2"
   sed -e "/__embed_ggml-common.h__/r $METAL_COMMON" \
