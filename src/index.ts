@@ -761,6 +761,9 @@ export class LlamaContext {
               mediaPaths.push(path)
             } else if (audio.data) {
               mediaPaths.push(audio.data)
+            } else {
+              // A marker with no path is paired with the next file.
+              throw new Error('input_audio url or data is required')
             }
             return {
               type: 'text',

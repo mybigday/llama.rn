@@ -50,3 +50,43 @@ it('defaults parallel_tool_calls to false and leaves optional fields undefined',
   expect(opts.tools).toBeUndefined()
   expect(opts.json_schema).toBeUndefined()
 })
+
+it('pairs a wav url with its media marker', async () => {
+  const result = await ctx.getFormattedChat(
+    [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_audio',
+            input_audio: { format: 'wav', url: 'file:///tmp/a.wav' },
+          },
+        ],
+      },
+    ],
+    null,
+    { jinja: true },
+  )
+
+  const messages = JSON.parse(mockGetFormattedChat.mock.calls[0][1])
+  expect(messages[0].content).toEqual([{ type: 'text', text: '<__media__>' }])
+  expect(result.media_paths).toEqual(['/tmp/a.wav'])
+})
+
+it('does not bind the next media file to an audio part that has no bytes', async () => {
+  await expect(
+    ctx.getFormattedChat(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_audio', input_audio: { format: 'wav' } },
+            { type: 'image_url', image_url: { url: 'file:///tmp/a.png' } },
+          ],
+        },
+      ],
+      null,
+      { jinja: true },
+    ),
+  ).rejects.toThrow('input_audio url or data is required')
+})
