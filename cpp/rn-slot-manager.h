@@ -98,8 +98,8 @@ struct llama_rn_slot_manager {
     // Parent context reference
     llama_rn_context* parent_ctx;
 
-    // Slot pool
-    std::vector<llama_rn_slot> slots;
+    // Slots own non-copyable batches; grow the pool without relocating them.
+    std::deque<llama_rn_slot> slots;
     int32_t n_parallel;                    // Number of parallel slots
 
     // Request queue

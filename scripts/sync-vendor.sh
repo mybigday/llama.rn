@@ -80,8 +80,6 @@ LLAMA_CPP_PATHS=(
   ggml/src/ggml-cpu/ggml-cpu.cpp
   ggml/src/ggml-cpu/hbm.cpp
   ggml/src/ggml-cpu/hbm.h
-  ggml/src/ggml-cpu/iqp.cpp
-  ggml/src/ggml-cpu/iqp.h
   ggml/src/ggml-cpu/ops.cpp
   ggml/src/ggml-cpu/ops.h
   ggml/src/ggml-cpu/quants.c
@@ -90,6 +88,7 @@ LLAMA_CPP_PATHS=(
   ggml/src/ggml-cpu/repack.h
   ggml/src/ggml-cpu/simd-gemm.h
   ggml/src/ggml-cpu/simd-mappings.h
+  ggml/src/ggml-cpu/tiled
   ggml/src/ggml-cpu/traits.cpp
   ggml/src/ggml-cpu/traits.h
   ggml/src/ggml-cpu/unary-ops.cpp

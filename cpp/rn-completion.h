@@ -141,8 +141,7 @@ struct llama_rn_context_completion {
     // Speculative decoding context for MTP.
     common_speculative *spec = nullptr;
     llama_context_ptr spec_ctx;
-    llama_batch spec_batch = {};
-    bool spec_batch_initialized = false;
+    common_batch spec_batch;
     llama_tokens spec_prompt;
     llama_token spec_id_last = LLAMA_TOKEN_NULL;
     llama_pos spec_n_past = 0;
