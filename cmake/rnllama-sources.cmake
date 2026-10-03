@@ -47,6 +47,7 @@ file(GLOB RNLLAMA_GGML_CPU_SOURCES CONFIGURE_DEPENDS
     ${_ggml}/ggml-cpu/*.c
     ${_ggml}/ggml-cpu/*.cpp
     ${_ggml}/ggml-cpu/amx/*.cpp
+    ${_ggml}/ggml-cpu/tiled/*.cpp
 )
 # Intel HBM allocator (GGML_USE_CPU_HBM); never enabled here.
 list(FILTER RNLLAMA_GGML_CPU_SOURCES EXCLUDE REGEX "/hbm\\.cpp$")

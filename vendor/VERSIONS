@@ -6,7 +6,7 @@
 
 LLAMA_CPP_REPO=https://github.com/ggml-org/llama.cpp
 LLAMA_CPP_REF=b11366
-LLAMA_CPP_COMMIT=171e8846b4af9766c354064cb776cb34a50f053f
+LLAMA_CPP_COMMIT=2923cf2862ad0afa159444cf07fec7600d755fe1
 
 CODEC_CPP_REPO=https://github.com/mybigday/codec.cpp
 CODEC_CPP_REF=63ade8bf2fa3451f9eca7ebaa39f792cc529438e

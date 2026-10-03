@@ -25,7 +25,7 @@
          batch_embd.set_position_normal(n_past, seq_id);
      }
 +    if (logits_last) {
-+        batch_embd.batch.logits[n_tokens - 1] = true;
++        batch_embd.logits[n_tokens - 1] = true;
 +    }
  
      const bool use_non_causal = mtmd_decode_use_non_causal(ctx, chunk);
@@ -54,7 +54,7 @@
  }
  
  int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
-@@ -258,7 +280,9 @@
+@@ -255,7 +277,9 @@
          LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, ggml_time_ms() - t0);
  
          float * embd = mtmd_get_output_embd(ctx);
@@ -64,4 +64,4 @@
 +            logits_last, new_n_past, nullptr, nullptr);
          if (ret != 0) {
              LOG_ERR("failed to decode %s\n", name);
-             llama_batch_free(text_batch);
+             return ret;

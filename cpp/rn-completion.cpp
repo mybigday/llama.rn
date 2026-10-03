@@ -699,11 +699,7 @@ void llama_rn_context_completion::resetSpeculative() {
         spec = nullptr;
     }
     spec_ctx.reset();
-    if (spec_batch_initialized) {
-        llama_batch_free(spec_batch);
-        spec_batch = {};
-        spec_batch_initialized = false;
-    }
+    spec_batch = {};
     spec_prompt.clear();
     spec_id_last = LLAMA_TOKEN_NULL;
     spec_n_past = 0;
@@ -745,8 +741,7 @@ void llama_rn_context_completion::initMTP() {
         throw std::runtime_error("failed to initialize MTP speculative decoding");
     }
 
-    spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);
-    spec_batch_initialized = true;
+    spec_batch = common_batch(parent_ctx->ctx);
 
     // A mem-shared draft (e.g. gemma4/EAGLE3) shares the target's KV cells, where
     // upstream state save/restore is a no-op — restoring a checkpoint would leave
@@ -799,18 +794,18 @@ void llama_rn_context_completion::evalMTPPrompt() {
             }
         }
 
-        common_batch_clear(spec_batch);
+        spec_batch.clear();
 
         const size_t n_eval = std::min<size_t>(n_batch, decode_to - offset);
         for (size_t i = 0; i < n_eval; ++i) {
             // MTP consumes pre-norm embeddings from every target row, but prompt logits are unused.
             // Keep one output row per decode batch to preserve the usual llama.cpp graph shape.
             const bool needs_logits = i + 1 == n_eval;
-            common_batch_add(spec_batch, spec_prompt[offset + i],
-                             (llama_pos) (offset + i), { seq_id }, needs_logits);
+            spec_batch.add(spec_prompt[offset + i],
+                           (llama_pos) (offset + i), seq_id, needs_logits);
         }
 
-        const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+        const int ret = llama_process(parent_ctx->ctx, LLAMA_PROCESS_TYPE_DECODE, spec_batch.get());
         if (ret != 0) {
             // Memory holds only [0, offset); trim embd so a later prefix match
             // can't claim never-decoded cells (mirrors nextToken).
@@ -897,14 +892,14 @@ bool llama_rn_context_completion::refillMTPTokens() {
     const size_t n_draft = spec_draft.size();
     num_draft_tokens += n_draft;
 
-    common_batch_clear(spec_batch);
-    common_batch_add(spec_batch, spec_id_last, spec_n_past, { seq_id }, true);
+    spec_batch.clear();
+    spec_batch.add(spec_id_last, spec_n_past, seq_id, true);
     for (size_t i = 0; i < n_draft; ++i) {
-        common_batch_add(spec_batch, spec_draft[i],
-                         spec_n_past + (llama_pos) i + 1, { seq_id }, true);
+        spec_batch.add(spec_draft[i],
+                       spec_n_past + (llama_pos) i + 1, seq_id, true);
     }
 
-    const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+    const int ret = llama_process(parent_ctx->ctx, LLAMA_PROCESS_TYPE_DECODE, spec_batch.get());
     if (ret != 0) {
         throw std::runtime_error("failed to evaluate MTP target batch, ret=" + std::to_string(ret));
     }
