@@ -269,7 +269,16 @@ export const MODELS = {
     ranking: true,
     size: '636MB',
   },
-  // Typed decision models (decide()), see https://huggingface.co/blog/ggml-org/decision-models-in-llamacpp
+  // Typed decision models (decide()), small enough for a phone, smallest first.
+  // See https://huggingface.co/blog/ggml-org/decision-models-in-llamacpp
+  JULIA_1: {
+    name: 'Julia-1 (Q8_0)',
+    repo: 'ggml-org/Julia-1-GGUF',
+    filename: 'Julia-1-Q8_0.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '168MB',
+  },
   LAYA: {
     name: 'Laya (Q8_0)',
     repo: 'ggml-org/Laya-GGUF',
@@ -277,6 +286,30 @@ export const MODELS = {
     mmproj: undefined,
     decision: true,
     size: '449MB',
+  },
+  KEV_0_8B: {
+    name: 'Kev 0.8B (Q8_0)',
+    repo: 'ggml-org/Kev-0.8B-GGUF',
+    filename: 'Kev-0.8B-Q8_0.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '812MB',
+  },
+  JEVLING_0_8B: {
+    name: 'Jevling 0.8B v1 (Q8_0, F16 embeddings)',
+    repo: 'BricksDisplay/jevling-0.8b-v1-GGUF',
+    filename: 'jevling-0.8b-v1-q8_0-embf16.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '1.05GB',
+  },
+  LEV: {
+    name: 'lev (Q4_K_M)',
+    repo: 'ggml-org/lev-GGUF',
+    filename: 'lev-Q4_K_M.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '3.01GB',
   },
   KEV_4B: {
     name: 'Kev 4B (Q8_0)',
