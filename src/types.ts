@@ -605,7 +605,12 @@ export type DecisionContent =
 export type DecisionChoiceQuestion<K extends string = string> = {
   type: 'choice'
   instructions: DecisionContent
-  /** Maps each option to its description, in the order the options are shown. */
+  /**
+   * Maps each option to its description, in the order the options are shown.
+   * That is the order JavaScript enumerates the keys in: keys that are whole
+   * numbers (`'1'`, `'10'`) come first, in ascending order, wherever they were
+   * written. Give such options a prefix (`'n1'`) to keep them where they are.
+   */
   criteria: { [key in K]: string | null }
 }
 
