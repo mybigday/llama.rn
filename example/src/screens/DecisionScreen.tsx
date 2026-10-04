@@ -11,6 +11,7 @@ import {
 import Icon from '@react-native-vector-icons/material-design-icons'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { ExampleModelSetup } from '../components/ExampleModelSetup'
+import { ParameterSwitch } from '../components/ParameterFormFields'
 import { QuestionEditor } from '../components/decision/QuestionEditor'
 import { AnswerCard } from '../components/decision/AnswerCard'
 import { createThemedStyles } from '../styles/commonStyles'
@@ -73,6 +74,9 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [modelName, setModelName] = useState('')
   const [decisionInfo, setDecisionInfo] = useState<DecisionInfo | null>(null)
+  // a system_one model with a classification head is read through RANK pooling,
+  // which the caller sets up when it creates the context
+  const [rankPooling, setRankPooling] = useState(false)
 
   const [preset] = useState(() => DECISION_PRESETS[0]!())
   const [presetName, setPresetName] = useState(preset.name)
@@ -109,7 +113,12 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
       setInitProgress(0)
       const params = await loadContextParams()
       const llamaContext = await initLlama(
-        { ...params, model: modelPath, n_parallel: N_PARALLEL },
+        {
+          ...params,
+          model: modelPath,
+          n_parallel: N_PARALLEL,
+          ...(rankPooling ? { pooling_type: 'rank', embedding: true } : {}),
+        },
         (progress) => setInitProgress(progress),
       )
       const { decision } = llamaContext.model
@@ -118,8 +127,9 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
         Alert.alert(
           'Not a usable decision model',
           decision
-            ? 'This model declares a decision type that this build does not support.'
-            : 'This model has no decision metadata (<arch>.decision.type).',
+            ? decision.error ||
+                'This model declares a decision type that this build does not support.'
+            : 'This model has neither decision metadata (<arch>.decision.type) nor a system_one template.',
         )
         return
       }
@@ -214,7 +224,14 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
           isLoading={isLoading}
           initProgress={initProgress}
           progressText={`Initializing model... ${initProgress}%`}
-        />
+        >
+          <ParameterSwitch
+            label="Rank pooling"
+            description="For a system_one model with a classification head (rank_head readout): creates the context with pooling_type 'rank' and embeddings."
+            value={rankPooling}
+            onValueChange={setRankPooling}
+          />
+        </ExampleModelSetup>
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
@@ -423,7 +440,7 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
         </Text>
         {decisionInfo && (
           <Text style={styles.modelChip}>
-            {`${decisionInfo.type} · ≤${decisionInfo.nOptionsMax} options`}
+            {`${decisionInfo.readout || decisionInfo.type} · ≤${decisionInfo.nOptionsMax} options`}
           </Text>
         )}
       </View>

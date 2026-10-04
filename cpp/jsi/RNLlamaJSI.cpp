@@ -342,7 +342,7 @@ namespace rnllama_jsi {
             // Deprecated flag maintained for compatibility
             {"isChatTemplateSupported", llamaChat},
         });
-        if (ctx->decision.type != COMMON_DECISION_TYPE_NONE) {
+        if (ctx->decision.is_decision_model()) {
             info["decision"] = rnllama::from_common_json(ctx->decision.info());
         }
         return info;

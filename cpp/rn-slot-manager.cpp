@@ -426,11 +426,12 @@ int32_t llama_rn_slot_manager::queue_decision_request(
         throw std::runtime_error("Cannot queue decision: context not initialized");
     }
     const auto & decision = parent_ctx->decision;
-    if (decision.type == COMMON_DECISION_TYPE_NONE) {
+    if (!decision.is_decision_model()) {
         throw std::runtime_error("This model is not a decision model");
     }
 
     auto job = std::make_shared<llama_rn_decision_job>();
+    decision.check_context(parent_ctx->ctx);
     job->request   = decision.parse_request(to_common_json(body));
     job->prompts   = decision.fill_prompts(job->request, parent_ctx->decisionMtmdContext());
     job->on_result = [on_result = std::move(on_result)](int32_t id, const common_json & result) {

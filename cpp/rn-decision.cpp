@@ -99,6 +99,11 @@ void llama_rn_decision_context::init(const llama_model * model) {
 
     const common_decision_type model_type = common_get_decision_type(model);
     if (model_type == COMMON_DECISION_TYPE_NONE) {
+        // a declared type wins, a system_one template is the fallback
+        const char * legacy_src = llama_model_chat_template(model, "system_one");
+        if (legacy_src != nullptr) {
+            init_legacy(model, legacy_src);
+        }
         return;
     }
     if (!llama_rn_decision_profile_for(model_type, profile)) {
@@ -201,16 +206,254 @@ void llama_rn_decision_context::init(const llama_model * model) {
 }
 
 json llama_rn_decision_context::info() const {
-    if (type == COMMON_DECISION_TYPE_NONE) {
+    if (!is_decision_model()) {
         return nullptr;
     }
-    return json{
-        {"type",           llama_rn_decision_type_name(type)},
+    json out = json{
+        {"type",           legacy ? "system_one" : llama_rn_decision_type_name(type)},
         {"nOptionsMax",    n_options_max},
         {"imageInput",     profile.image_input},
         // the models that read the embeddings output run in embedding mode, they have no logits
-        {"textGeneration", is_supported() && profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS},
+        {"textGeneration", is_supported() && (profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS ||
+                                              profile.readout == LLAMA_RN_DECISION_READOUT_LETTER_SLOTS)},
     };
+    if (legacy) {
+        out["readout"] = profile.readout == LLAMA_RN_DECISION_READOUT_RANK_HEAD ? "rank_head" : "letter_slot";
+    }
+    if (!error.empty()) {
+        out["error"] = error;
+    }
+    return out;
+}
+
+//
+// system_one (legacy)
+//
+
+// The readout follows from what the model is, nothing declares it (system-one.cpp:
+// system_one_params_from_model): a classification head scores one sequence per option, a
+// causal model answers at the next token after each question. The other readouts the library
+// knows need graphs that only its own fork has.
+void llama_rn_decision_context::init_legacy(const llama_model * model, const char * tmpl_src) {
+    legacy = true;
+    vocab  = llama_model_get_vocab(model);
+    tmpl   = std::make_shared<const common_chat_template>(tmpl_src, "", "");
+
+    const std::string arch = decision_meta_str(model, "general.architecture");
+    const std::string causal_str = decision_meta_str(model, arch + ".attention.causal");
+    const bool causal = causal_str.empty() || causal_str == "true" || causal_str == "1";
+    const bool has_cls_head = llama_model_cls_label(model, 0) != nullptr;
+    const bool has_pointer  = !decision_meta_str(model, arch + ".decision_head.pointer_dim").empty();
+
+    if (has_cls_head) {
+        profile.readout = LLAMA_RN_DECISION_READOUT_RANK_HEAD;
+    } else if (has_pointer || !causal) {
+        legacy = false;
+        type   = COMMON_DECISION_TYPE_UNKNOWN;
+        error  = has_pointer
+            ? "this system_one model reads a pointer head (kev_pointer), which needs a graph llama.cpp does not have"
+            : "this system_one model is bidirectional (masked_slot / scored_slot), which needs a graph llama.cpp does not have";
+        return;
+    } else {
+        profile.readout = LLAMA_RN_DECISION_READOUT_LETTER_SLOTS;
+    }
+
+    const std::string sep = decision_meta_str(model, "system_one.segment_separator");
+    if (!sep.empty()) {
+        legacy_separator = sep;
+    }
+
+    // a comma-joined string, a label may begin with a space (system-one.cpp: split_array)
+    std::string labels_str = decision_meta_str(model, "system_one.labels");
+    const bool bracketed = labels_str.size() >= 2 && labels_str.front() == '[' && labels_str.back() == ']';
+    for (const auto & piece : string_split(bracketed ? labels_str.substr(1, labels_str.size() - 2) : labels_str, ",")) {
+        std::string label;
+        for (const char c : piece) {
+            if (c == '"' || (bracketed && c == ' ')) {
+                continue;
+            }
+            label += c;
+        }
+        if (!label.empty()) {
+            label_texts.push_back(label);
+        }
+    }
+    if (label_texts.empty()) {
+        labels_are_default = true;
+        for (char c = 'A'; c <= 'Z'; c++) label_texts.push_back(std::string(1, c));
+        for (char c = 'a'; c <= 'z'; c++) label_texts.push_back(std::string(1, c));
+    }
+
+    if (profile.readout == LLAMA_RN_DECISION_READOUT_LETTER_SLOTS) {
+        for (const auto & label : label_texts) {
+            const auto toks = common_tokenize(vocab, label, false, false);
+            if (toks.size() != 1) {
+                throw std::runtime_error("the answer label \"" + label + "\" is not a single token for this tokenizer" +
+                    (labels_are_default ? " (it is the default A-Za-z, set system_one.labels)" : ""));
+            }
+            labels.push_back(toks[0]);
+        }
+        n_options_max = labels.size();
+    } else {
+        n_options_max = 255;
+    }
+
+    // only what the model declares, the template writes them
+    auto piece = [&](llama_token id) {
+        const char * text = id >= 0 ? llama_vocab_get_text(vocab, id) : nullptr;
+        return text ? std::string(text) : std::string();
+    };
+    if (!decision_meta_str(model, "tokenizer.ggml.bos_token_id").empty()) {
+        bos_text = piece(llama_vocab_bos(vocab));
+    }
+    if (!decision_meta_str(model, "tokenizer.ggml.eos_token_id").empty()) {
+        eos_text = piece(llama_vocab_eos(vocab));
+    }
+}
+
+void llama_rn_decision_context::check_context(llama_context * ctx) const {
+    if (profile.readout == LLAMA_RN_DECISION_READOUT_RANK_HEAD && llama_pooling_type(ctx) != LLAMA_POOLING_TYPE_RANK) {
+        throw std::runtime_error("this model answers with its classification head: initialize the context "
+                                 "with pooling_type: 'rank' and embedding: true");
+    }
+}
+
+// render, then split on the separator, dropping empty segments (system-one.cpp: render_and_split)
+std::vector<std::string> llama_rn_decision_context::render_legacy(const common_json & inp) const {
+    std::string rendered;
+    try {
+        jinja::context ctx(tmpl->source());
+        jinja::global_from_json(ctx, inp, false);
+        jinja::runtime runtime(ctx);
+        rendered = jinja::runtime::gather_string_parts(runtime.execute(tmpl->prog))->as_string().str();
+    } catch (const std::exception & e) {
+        throw std::invalid_argument(std::string("system_one template failed to render: ") + e.what());
+    }
+    std::vector<std::string> segments;
+    for (auto & segment : string_split(rendered, legacy_separator)) {
+        if (!segment.empty()) {
+            segments.push_back(std::move(segment));
+        }
+    }
+    return segments;
+}
+
+static std::string decision_legacy_text(const common_json & val) {
+    return val.is_string() ? val.get<std::string>() : val.dump();
+}
+
+static const char * decision_legacy_kind(llama_rn_decision_question_type type) {
+    return type == LLAMA_RN_DECISION_QUESTION_NOUL ? "noul" : type == LLAMA_RN_DECISION_QUESTION_CHOICE ? "choice" : "score";
+}
+
+// The template namespace of the system_one library: an option is {label, option, desc}, where a
+// noul's sides are "no" and "yes", a choice's are its keys and a score's are its level texts
+static common_json decision_legacy_option(const llama_rn_decision_question & q, size_t i, const std::string & label) {
+    const auto & opt = q.options[i];
+    std::string text = opt.key;
+    std::string desc = opt.description.is_null() ? "" : decision_legacy_text(opt.description);
+    if (q.type == LLAMA_RN_DECISION_QUESTION_NOUL) {
+        text = opt.key == "true" ? "yes" : "no";
+    } else if (q.type == LLAMA_RN_DECISION_QUESTION_SCORE) {
+        text = desc;
+        desc.clear();
+    }
+    return common_json{
+        {"label",  label},
+        {"option", text},
+        {"desc",   desc.empty() ? common_json() : common_json(desc)},
+    };
+}
+
+std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts_legacy(const llama_rn_decision_request & request) const {
+    const std::string state = decision_legacy_text(request.state);
+    auto tokenize = [&](const std::string & segment) {
+        auto ids = common_tokenize(vocab, segment, false, true);
+        if (ids.empty()) {
+            throw std::invalid_argument("a segment of the system_one prompt tokenized to nothing");
+        }
+        return ids;
+    };
+    auto label_of = [&](size_t i) { return i < label_texts.size() ? label_texts[i] : std::string("?"); };
+
+    std::vector<llama_rn_decision_prompt> prompts;
+
+    if (profile.readout == LLAMA_RN_DECISION_READOUT_RANK_HEAD) {
+        // one sequence per option, the head scores it
+        for (size_t qi = 0; qi < request.questions.size(); qi++) {
+            const auto & q = request.questions[qi];
+            for (size_t oi = 0; oi < q.options.size(); oi++) {
+                common_json option = decision_legacy_option(q, oi, label_of(oi));
+                option["index"] = (int) oi;
+                const common_json inp = common_json{
+                    {"state",     state},
+                    {"question",  common_json{{"kind", decision_legacy_kind(q.type)}, {"text", decision_legacy_text(q.instructions)}}},
+                    {"option",    option},
+                    {"sep",       legacy_separator},
+                    {"mask",      ""},
+                    {"bos_token", bos_text},
+                    {"eos_token", eos_text},
+                };
+                llama_rn_decision_prompt prompt;
+                prompt.question = qi;
+                prompt.pooled   = true;
+                for (const auto & segment : render_legacy(inp)) {
+                    const auto ids = tokenize(segment);
+                    prompt.tokens.insert(prompt.tokens.end(), ids.begin(), ids.end());
+                }
+                if (prompt.tokens.empty()) {
+                    throw std::invalid_argument("the system_one template rendered nothing for a question/option pair");
+                }
+                prompts.push_back(std::move(prompt));
+            }
+        }
+        return prompts;
+    }
+
+    // letter_slot: every question in one sequence, the trailing segments are the question blocks
+    common_json questions = common_json::array();
+    for (size_t qi = 0; qi < request.questions.size(); qi++) {
+        const auto & q = request.questions[qi];
+        common_json options = common_json::array();
+        for (size_t oi = 0; oi < q.options.size(); oi++) {
+            options.push_back(decision_legacy_option(q, oi, label_of(oi)));
+        }
+        questions.push_back(common_json{
+            {"k",       (int) qi + 1},
+            {"key",     q.id},
+            {"kind",    decision_legacy_kind(q.type)},
+            {"text",    decision_legacy_text(q.instructions)},
+            {"options", options},
+        });
+    }
+    const std::vector<std::string> segments = render_legacy(common_json{
+        {"state",     state},
+        {"questions", questions},
+        {"sep",       legacy_separator},
+        {"mask",      ""},
+        {"bos_token", bos_text},
+        {"eos_token", eos_text},
+    });
+    if (segments.size() < request.questions.size()) {
+        throw std::invalid_argument("the system_one template produced " + std::to_string(segments.size()) +
+            " segments for " + std::to_string(request.questions.size()) +
+            " questions: the separator must precede every question block");
+    }
+
+    llama_rn_decision_prompt prompt;
+    prompt.labels = labels;
+    const size_t first_question = segments.size() - request.questions.size();
+    for (size_t i = 0; i < segments.size(); i++) {
+        const auto ids = tokenize(segments[i]);
+        prompt.tokens.insert(prompt.tokens.end(), ids.begin(), ids.end());
+        if (i >= first_question) {
+            // the answer is the next token after the question's block
+            prompt.slots.push_back((int32_t) prompt.tokens.size() - 1);
+            prompt.slot_n_labels.push_back((int32_t) request.questions[i - first_question].options.size());
+        }
+    }
+    prompts.push_back(std::move(prompt));
+    return prompts;
 }
 
 //
@@ -560,7 +803,13 @@ std::string llama_rn_decision_context::render(
 
 std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(const llama_rn_decision_request & request, mtmd_context * mctx) const {
     if (!is_supported()) {
-        throw std::runtime_error("this model is not a decision model of a supported type");
+        throw std::runtime_error(error.empty() ? "this model is not a decision model of a supported type" : error);
+    }
+    if (legacy) {
+        if (!request.images.empty()) {
+            throw std::runtime_error("image input is not supported for a system_one model");
+        }
+        return fill_prompts_legacy(request);
     }
     if (!request.images.empty() && !profile.image_input) {
         throw std::runtime_error("this decision model does not take images");
@@ -976,7 +1225,16 @@ json llama_rn_decision_context::format_result(
     } else {
         std::vector<std::vector<std::vector<float>>> per_question(request.questions.size());
         for (size_t i = 0; i < prompts.size(); i++) {
-            per_question[prompts[i].question].push_back(scores[i]);
+            auto & variants = per_question[prompts[i].question];
+            if (prompts[i].pooled) {
+                // one prompt per option, each scored to one number
+                if (variants.empty()) {
+                    variants.emplace_back();
+                }
+                variants[0].insert(variants[0].end(), scores[i].begin(), scores[i].end());
+                continue;
+            }
+            variants.push_back(scores[i]);
         }
         for (size_t i = 0; i < request.questions.size(); i++) {
             answers[request.questions[i].id] = format_answer(request.questions[i], per_question[i]);
@@ -1101,7 +1359,7 @@ std::vector<float> llama_rn_decision_eval(
     llama_memory_t mem    = llama_get_memory(ctx);
 
     // the outputs are read from the last batch, which holds every position that is read
-    const size_t first_read = prompt.need_embd() ? (size_t) prompt.pos_first() : n_tokens - 1;
+    const size_t first_read = prompt.need_embd() || !prompt.slots.empty() ? (size_t) prompt.pos_first() : n_tokens - 1;
     if (n_tokens - first_read > n_batch || (mem == nullptr && n_tokens > n_batch)) {
         throw std::runtime_error(string_format(
             "the decision prompt does not fit in one batch (%zu tokens, n_batch = %zu)",
@@ -1133,7 +1391,9 @@ std::vector<float> llama_rn_decision_eval(
         for (size_t j = i; j < end; j++) {
             // the embeddings output needs every token as an output, as llama-server marks them;
             // the logits are read at the last token only
-            const bool output = prompt.need_embd() || j + 1 == n_tokens;
+            const bool output = prompt.need_embd() ||
+                (prompt.slots.empty() ? j + 1 == n_tokens
+                                      : std::find(prompt.slots.begin(), prompt.slots.end(), (int32_t) j) != prompt.slots.end());
             const int32_t idx = batch.add(tokens[j], j, seq_id, output);
             if (!prompt.order.empty()) {
                 batch.tokens[idx].decision_order = prompt.order[j];
@@ -1158,13 +1418,27 @@ std::vector<float> llama_rn_decision_eval(
     std::vector<float> scores;
 
     if (!prompt.labels.empty()) {
-        const float * logits = llama_get_logits_ith(ctx, n_tokens - 1 - i_last);
-        if (logits == nullptr) {
-            throw std::runtime_error("failed to get logits");
+        // a slot per question reads its own options' labels, else the last token reads them all
+        const std::vector<int32_t> slots = prompt.slots.empty() ? std::vector<int32_t>{(int32_t) n_tokens - 1} : prompt.slots;
+        for (size_t s = 0; s < slots.size(); s++) {
+            const float * logits = llama_get_logits_ith(ctx, slots[s] - (int32_t) i_last);
+            if (logits == nullptr) {
+                throw std::runtime_error("failed to get logits");
+            }
+            const size_t n = prompt.slot_n_labels.empty() ? prompt.labels.size() : (size_t) prompt.slot_n_labels[s];
+            for (size_t i = 0; i < n; i++) {
+                scores.push_back(logits[prompt.labels[i]]);
+            }
         }
-        for (const llama_token label : prompt.labels) {
-            scores.push_back(logits[label]);
+        return scores;
+    }
+
+    if (prompt.pooled) {
+        const float * embd = llama_get_embeddings_seq(ctx, seq_id);
+        if (embd == nullptr) {
+            throw std::runtime_error("failed to get the pooled output, is the context in RANK pooling?");
         }
+        scores.push_back(embd[0]);
         return scores;
     }
 

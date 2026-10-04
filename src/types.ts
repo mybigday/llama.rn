@@ -565,7 +565,9 @@ export type NativeEmbeddingResult = {
 
 /**
  * The readout a decision model declares in `<arch>.decision.type`.
- * `unknown`: the model declares a type this build does not support.
+ * `system_one`: an older model that declares no type but carries a `system_one`
+ * template; its readout is derived from the model, see `readout`.
+ * `unknown`: the model is a decision model this build cannot serve, see `error`.
  */
 export type DecisionModelType =
   | 'openjev'
@@ -574,7 +576,16 @@ export type DecisionModelType =
   | 'nimble'
   | 'laya'
   | 'clef'
+  | 'system_one'
   | 'unknown'
+
+/**
+ * How a `system_one` model is read:
+ * `letter_slot`: a causal model, every question answered from one prompt.
+ * `rank_head`: a classification head scoring one prompt per option. The context
+ * must be initialized with `pooling_type: 'rank'` and `embedding: true`.
+ */
+export type DecisionReadout = 'letter_slot' | 'rank_head'
 
 /** Any JSON value */
 export type DecisionValue =
@@ -735,6 +746,10 @@ export type NativeLlamaContext = {
       imageInput: boolean
       /** If false, `completion()` rejects: the model only answers decisions (clef, for one) */
       textGeneration: boolean
+      /** Only for `system_one` models */
+      readout?: DecisionReadout
+      /** Why the model cannot be used, when `type` is `unknown` */
+      error?: string
     }
   }
   /**

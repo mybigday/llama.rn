@@ -623,7 +623,9 @@ bool llama_rn_context::loadModel(common_params &params_)
     } catch (const std::exception & e) {
         // the model stays usable for anything else, decide() reports that it cannot answer
         LOG_ERROR("failed to init decision model: %s", e.what());
-        decision.type = COMMON_DECISION_TYPE_UNKNOWN;
+        decision.type   = COMMON_DECISION_TYPE_UNKNOWN;
+        decision.legacy = false;
+        decision.error  = e.what();
     }
 
     // Initialize context shift flag
@@ -654,7 +656,7 @@ mtmd_context * llama_rn_context::decisionMtmdContext() const {
 }
 
 json llama_rn_context::decide(const json & body) {
-    if (decision.type == COMMON_DECISION_TYPE_NONE) {
+    if (!decision.is_decision_model()) {
         throw std::runtime_error("This model is not a decision model");
     }
     if (parallel_mode_enabled) {
@@ -662,6 +664,7 @@ json llama_rn_context::decide(const json & body) {
         throw std::runtime_error("Parallel mode is enabled, use parallel.decide()");
     }
     const auto request = decision.parse_request(to_common_json(body));
+    decision.check_context(ctx);
     mtmd_context * mctx = decisionMtmdContext();
     const auto prompts = decision.fill_prompts(request, mctx);
 

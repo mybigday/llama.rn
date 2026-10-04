@@ -23,6 +23,11 @@
 //     for every type, not only for the joint one
 //   - the decode loop is llama.rn's own (llama_rn_decision_eval), the server's
 //     task queue and its shared-prefix grouping are not ported
+//   - a model with no <arch>.decision.type but a `system_one` template is read the
+//     way mybigday's system-one library does (tools/system-one at feat/system-one):
+//     the readout is derived from what the model is rather than declared, see
+//     init_legacy(). Only the readouts upstream's graphs can serve are taken:
+//     letter_slot (causal) and rank_head (a classification head)
 
 #include "common.h"
 #include "chat.h"
@@ -30,6 +35,7 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <memory>
@@ -52,6 +58,9 @@ enum llama_rn_decision_readout {
     LLAMA_RN_DECISION_READOUT_MARKER_EMBD,  // embeddings[column] at one marker token per option, column = question type
     LLAMA_RN_DECISION_READOUT_POINTER,      // scaled dot of the last token's query and the key at each option's marker
     LLAMA_RN_DECISION_READOUT_JOINT,        // all questions in one prompt, the head writes option i's score in row i
+    // system_one (legacy) readouts
+    LLAMA_RN_DECISION_READOUT_LETTER_SLOTS, // all questions in one prompt, label logits at the end of each question's segment
+    LLAMA_RN_DECISION_READOUT_RANK_HEAD,    // one prompt per option, scored by the classification head (RANK pooling)
 };
 
 // the label tokens of LABEL_LOGITS
@@ -126,6 +135,9 @@ struct llama_rn_decision_prompt {
     }
 
     std::vector<llama_token> labels;  // LABEL_LOGITS: logits of these tokens, at the last token
+    std::vector<int32_t>     slots;   // LETTER_SLOTS: where each question's labels are read
+    std::vector<int32_t>     slot_n_labels; // LETTER_SLOTS: how many labels each slot reads
+    bool                     pooled = false; // RANK_HEAD: the score is the sequence's pooled output
     std::vector<int32_t>     markers; // MARKER_EMBD, POINTER: prompt positions of the options
     int32_t                  column  = 0;
     int32_t                  pointer = -1; // POINTER: prompt position of the query
@@ -134,13 +146,16 @@ struct llama_rn_decision_prompt {
     int32_t              n_scores = 0;
 
     bool need_embd() const {
-        return !markers.empty() || !order.empty();
+        return !markers.empty() || !order.empty() || pooled;
     }
 
     // first prompt position that is read, -1 if only the last token is
     int32_t pos_first() const {
-        if (!order.empty()) {
+        if (!order.empty() || pooled) {
             return 0;
+        }
+        if (!slots.empty()) {
+            return *std::min_element(slots.begin(), slots.end());
         }
         int32_t pos = pointer;
         for (const int32_t marker : markers) {
@@ -160,18 +175,29 @@ struct llama_rn_decision_context {
     common_decision_type      type = COMMON_DECISION_TYPE_NONE;
     llama_rn_decision_profile profile;
     size_t                    n_options_max = 0;
+    bool                      legacy = false; // a system_one model, see init_legacy()
+    std::string               error;          // why a decision model cannot be used, if type is UNKNOWN
 
     // read the "<arch>.decision.*" metadata, type stays NONE if the model has none
     // throws if the model is a decision model that cannot be used
     void init(const llama_model * model);
 
     bool is_supported() const {
-        return type != COMMON_DECISION_TYPE_NONE && type != COMMON_DECISION_TYPE_UNKNOWN;
+        return legacy || (type != COMMON_DECISION_TYPE_NONE && type != COMMON_DECISION_TYPE_UNKNOWN);
     }
 
-    bool is_joint() const {
-        return profile.readout == LLAMA_RN_DECISION_READOUT_JOINT;
+    bool is_decision_model() const {
+        return legacy || type != COMMON_DECISION_TYPE_NONE;
     }
+
+    // all the questions are answered from one prompt
+    bool is_joint() const {
+        return profile.readout == LLAMA_RN_DECISION_READOUT_JOINT ||
+               profile.readout == LLAMA_RN_DECISION_READOUT_LETTER_SLOTS;
+    }
+
+    // throws if the context cannot serve the readout, e.g. rank_head without RANK pooling
+    void check_context(llama_context * ctx) const;
 
     // model.decision of the JS API, null if the model is not a decision model
     common_json info() const;
@@ -207,6 +233,16 @@ private:
     std::string text_marker;
     size_t      max_head_tokens   = 0;
     size_t      max_option_tokens = 48;
+
+    // system_one
+    std::string legacy_separator = "\x1e"; // system_one.segment_separator
+    std::string bos_text;
+    std::string eos_text;
+    bool        labels_are_default = false;
+
+    void init_legacy(const llama_model * model, const char * tmpl_src);
+    std::vector<std::string> render_legacy(const common_json & inp) const;
+    std::vector<llama_rn_decision_prompt> fill_prompts_legacy(const llama_rn_decision_request & request) const;
 
     std::vector<llama_rn_decision_question> parse_questions(const common_json & body) const;
     common_json parse_state(const common_json & body, std::vector<std::string> & images) const;
