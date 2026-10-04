@@ -1122,20 +1122,6 @@ std::vector<float> llama_rn_decision_eval(
     }
     cached.assign(tokens.begin(), tokens.begin() + n_keep);
 
-    std::vector<char> is_read(n_tokens, 0);
-    if (!prompt.order.empty()) {
-        std::fill(is_read.begin(), is_read.end(), 1); // a joint head writes its scores in the first rows
-    } else if (prompt.need_embd()) {
-        for (const int32_t marker : prompt.markers) {
-            is_read[marker] = 1;
-        }
-        if (prompt.pointer >= 0) {
-            is_read[prompt.pointer] = 1;
-        }
-    } else {
-        is_read[n_tokens - 1] = 1;
-    }
-
     common_batch batch(ctx);
     size_t i_last = n_keep; // first position of the last batch
     for (size_t i = n_keep; i < n_tokens; ) {
@@ -1145,7 +1131,10 @@ std::vector<float> llama_rn_decision_eval(
         }
         batch.clear();
         for (size_t j = i; j < end; j++) {
-            const int32_t idx = batch.add(tokens[j], j, seq_id, end == n_tokens && is_read[j]);
+            // the embeddings output needs every token as an output, as llama-server marks them;
+            // the logits are read at the last token only
+            const bool output = prompt.need_embd() || j + 1 == n_tokens;
+            const int32_t idx = batch.add(tokens[j], j, seq_id, output);
             if (!prompt.order.empty()) {
                 batch.tokens[idx].decision_order = prompt.order[j];
             }
