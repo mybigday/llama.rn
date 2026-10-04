@@ -4,7 +4,16 @@
 // Typed decision models (TypeSafe /v1/systemone API): a model answers typed
 // questions about a state in one forward pass, no token is generated.
 //
-// Ported from llama.cpp tools/server/server-decision.{h,cpp} (b11385, bf9a0cc).
+// Ported from llama.cpp tools/server/server-decision.{h,cpp} at b11385 (bf9a0cc),
+// plus eb2b96dd5 "server : tokenize a decision prompt piece by piece when its
+// template asks", which is not upstream yet: render() passing {{ sep }} to every
+// template and fill_prompt() splitting on it come from that commit.
+//
+// The blobs ported from, checked by scripts/sync-vendor.sh: when upstream changes
+// them, carry the change over and update these lines.
+// upstream-blob: tools/server/server-decision.cpp 522aa2bed4ff96c7e16d7c508b1f605363d1af5a
+// upstream-blob: tools/server/server-decision.h 93480ba26974519cf7920105af640421eb58827d
+//
 // The functions keep upstream's names and split so that an upstream change can
 // be carried over function by function. What differs:
 //   - the per-model branches of upstream are a profile table, see

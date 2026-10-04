@@ -1053,6 +1053,8 @@ export class LlamaContext {
    * Answer typed questions about a state with a decision model
    * (see `model.decision`), in the shape of the TypeSafe `/v1/systemone` API.
    * Each answer is read from one forward pass, no token is generated.
+   * It runs on the sequence of `completion()`, whose cached prompt is
+   * dropped: the next completion evaluates its prompt from the start.
    *
    * Rejects if the request is invalid, if the model is not a decision
    * model of a supported type, or if parallel mode is enabled (use

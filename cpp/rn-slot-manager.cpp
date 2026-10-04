@@ -571,6 +571,7 @@ llama_rn_cancel_result llama_rn_slot_manager::cancel_request(int32_t request_id)
     LOG_INFO("Cancelling request %d", request_id);
 
     llama_rn_cancel_result result = llama_rn_cancel_result::NOT_FOUND;
+    std::shared_ptr<llama_rn_decision_job> cancelled_decision;
     {
         std::lock_guard<std::mutex> lock(slots_mutex);
 
@@ -595,6 +596,7 @@ llama_rn_cancel_result llama_rn_slot_manager::cancel_request(int32_t request_id)
                 }
             );
             if (queued_it != queue_requests.end()) {
+                cancelled_decision = queued_it->decision_job;
                 queue_requests.erase(queued_it);
                 LOG_INFO("Request %d cancelled (was in pending queue)", request_id);
                 result = llama_rn_cancel_result::QUEUED;
@@ -605,6 +607,11 @@ llama_rn_cancel_result llama_rn_slot_manager::cancel_request(int32_t request_id)
     if (result == llama_rn_cancel_result::NOT_FOUND) {
         LOG_WARNING("Request %d not found for cancellation", request_id);
         return result;
+    }
+
+    // its promise must still settle
+    if (cancelled_decision && cancelled_decision->on_result) {
+        cancelled_decision->on_result(request_id, common_json{{"error", "the decision was cancelled"}});
     }
 
     // Wake the processing thread after releasing slots_mutex. Active requests

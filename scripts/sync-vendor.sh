@@ -345,8 +345,25 @@ export const BUILD_COMMIT = '$build_commit'
 TS
 }
 
+# cpp/rn-decision.* is a port of llama-server's decision code, which is not vendored:
+# warn when the pinned upstream changes the files it was ported from
+check_decision_port() {
+  local repo="$CACHE_DIR/llama.cpp"
+  local header="$ROOT_DIR/cpp/rn-decision.h"
+  local commit path blob current
+  commit="$(sed -n 's/^LLAMA_CPP_COMMIT=//p' "$VENDOR_DIR/VERSIONS")"
+  while read -r path blob; do
+    current="$(git -C "$repo" rev-parse -q --verify "$commit:$path" 2>/dev/null || echo missing)"
+    if [[ "$current" != "$blob" ]]; then
+      echo "  WARNING: upstream $path changed since cpp/rn-decision was ported ($blob -> $current)," >&2
+      echo "           review: git -C $repo diff $blob $current" >&2
+    fi
+  done < <(sed -n 's|^// upstream-blob: ||p' "$header")
+}
+
 sync_dep llama.cpp LLAMA_CPP
 generate_llama_cpp_version_files
+check_decision_port
 sync_dep codec.cpp CODEC_CPP
 sync_dep OpenCL-Headers OPENCL_HEADERS
 sync_dep OpenCL-ICD-Loader OPENCL_ICD_LOADER
