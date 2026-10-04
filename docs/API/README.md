@@ -24,6 +24,22 @@ llama.rn
 - [CompletionParams](README.md#completionparams)
 - [CompletionResponseFormat](README.md#completionresponseformat)
 - [ContextParams](README.md#contextparams)
+- [DecisionAnswer](README.md#decisionanswer)
+- [DecisionAnswerOf](README.md#decisionanswerof)
+- [DecisionChoiceAnswer](README.md#decisionchoiceanswer)
+- [DecisionChoiceQuestion](README.md#decisionchoicequestion)
+- [DecisionContent](README.md#decisioncontent)
+- [DecisionModelType](README.md#decisionmodeltype)
+- [DecisionNoulAnswer](README.md#decisionnoulanswer)
+- [DecisionNoulQuestion](README.md#decisionnoulquestion)
+- [DecisionQuestion](README.md#decisionquestion)
+- [DecisionQuestions](README.md#decisionquestions)
+- [DecisionReadout](README.md#decisionreadout)
+- [DecisionRequest](README.md#decisionrequest)
+- [DecisionResult](README.md#decisionresult)
+- [DecisionScoreAnswer](README.md#decisionscoreanswer)
+- [DecisionScoreQuestion](README.md#decisionscorequestion)
+- [DecisionValue](README.md#decisionvalue)
 - [EmbeddingParams](README.md#embeddingparams)
 - [FormattedChatResult](README.md#formattedchatresult)
 - [JinjaFormattedChatResult](README.md#jinjaformattedchatresult)
@@ -34,6 +50,7 @@ llama.rn
 - [NativeCompletionTokenProb](README.md#nativecompletiontokenprob)
 - [NativeCompletionTokenProbItem](README.md#nativecompletiontokenprobitem)
 - [NativeContextParams](README.md#nativecontextparams)
+- [NativeDecisionResult](README.md#nativedecisionresult)
 - [NativeEmbeddingParams](README.md#nativeembeddingparams)
 - [NativeEmbeddingResult](README.md#nativeembeddingresult)
 - [NativeImageProcessingResult](README.md#nativeimageprocessingresult)
@@ -107,7 +124,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:333](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L333)
+[index.ts:369](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L369)
 
 ___
 
@@ -117,7 +134,7 @@ ___
 
 #### Defined in
 
-[index.ts:273](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L273)
+[index.ts:309](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L309)
 
 ___
 
@@ -147,7 +164,7 @@ ___
 
 #### Defined in
 
-[index.ts:275](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L275)
+[index.ts:311](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L311)
 
 ___
 
@@ -157,7 +174,7 @@ ___
 
 #### Defined in
 
-[index.ts:306](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L306)
+[index.ts:342](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L342)
 
 ___
 
@@ -177,7 +194,7 @@ ___
 
 #### Defined in
 
-[index.ts:264](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L264)
+[index.ts:300](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L300)
 
 ___
 
@@ -187,7 +204,283 @@ ___
 
 #### Defined in
 
-[index.ts:214](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L214)
+[index.ts:250](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L250)
+
+___
+
+### DecisionAnswer
+
+Ƭ **DecisionAnswer**: [`DecisionChoiceAnswer`](README.md#decisionchoiceanswer) \| [`DecisionScoreAnswer`](README.md#decisionscoreanswer) \| [`DecisionNoulAnswer`](README.md#decisionnoulanswer)
+
+#### Defined in
+
+[types.ts:680](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L680)
+
+___
+
+### DecisionAnswerOf
+
+Ƭ **DecisionAnswerOf**<`Q`\>: `Q` extends [`DecisionChoiceQuestion`](README.md#decisionchoicequestion)<infer K\> ? [`DecisionChoiceAnswer`](README.md#decisionchoiceanswer)<`K`\> : `Q` extends [`DecisionScoreQuestion`](README.md#decisionscorequestion) ? [`DecisionScoreAnswer`](README.md#decisionscoreanswer) : [`DecisionNoulAnswer`](README.md#decisionnoulanswer)
+
+The answer type of a question type, choice keys included.
+
+#### Type parameters
+
+| Name | Type |
+| :------ | :------ |
+| `Q` | extends [`DecisionQuestion`](README.md#decisionquestion) |
+
+#### Defined in
+
+[types.ts:686](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L686)
+
+___
+
+### DecisionChoiceAnswer
+
+Ƭ **DecisionChoiceAnswer**<`K`\>: `Object`
+
+#### Type parameters
+
+| Name | Type |
+| :------ | :------ |
+| `K` | extends `string` = `string` |
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `choice` | `K` | The option with the highest probability. |
+| `confidence` | `number` | 0 when all options are equally likely, 1 when one option has all the mass. |
+| `probabilities` | { [key in K]: number } | Option to its probability, they sum to 1. Look an option up by its key: the key order is not guaranteed. |
+| `type` | ``"choice"`` | - |
+
+#### Defined in
+
+[types.ts:650](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L650)
+
+___
+
+### DecisionChoiceQuestion
+
+Ƭ **DecisionChoiceQuestion**<`K`\>: `Object`
+
+#### Type parameters
+
+| Name | Type |
+| :------ | :------ |
+| `K` | extends `string` = `string` |
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `criteria` | { [key in K]: string \| null } | Maps each option to its description, in the order the options are shown. |
+| `instructions` | [`DecisionContent`](README.md#decisioncontent) | - |
+| `type` | ``"choice"`` | - |
+
+#### Defined in
+
+[types.ts:605](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L605)
+
+___
+
+### DecisionContent
+
+Ƭ **DecisionContent**: `string` \| readonly [`DecisionValue`](README.md#decisionvalue)[] \| { `[key: string]`: [`DecisionValue`](README.md#decisionvalue);  }
+
+A string, an object or an array. A value that is not a string is given to the model as JSON text.
+
+#### Defined in
+
+[types.ts:600](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L600)
+
+___
+
+### DecisionModelType
+
+Ƭ **DecisionModelType**: ``"openjev"`` \| ``"lev"`` \| ``"kev"`` \| ``"nimble"`` \| ``"laya"`` \| ``"clef"`` \| ``"system_one"`` \| ``"unknown"``
+
+The readout a decision model declares in `<arch>.decision.type`.
+`system_one`: an older model that declares no type but carries a `system_one`
+template; its readout is derived from the model, see `readout`.
+`unknown`: the model is a decision model this build cannot serve, see `error`.
+
+#### Defined in
+
+[types.ts:572](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L572)
+
+___
+
+### DecisionNoulAnswer
+
+Ƭ **DecisionNoulAnswer**: `Object`
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `noul` | `number` | The probability that the answer is true. |
+| `type` | ``"noul"`` | - |
+
+#### Defined in
+
+[types.ts:674](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L674)
+
+___
+
+### DecisionNoulQuestion
+
+Ƭ **DecisionNoulQuestion**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `criteria?` | { `false?`: `string` \| ``null`` ; `true?`: `string` \| ``null``  } |
+| `criteria.false?` | `string` \| ``null`` |
+| `criteria.true?` | `string` \| ``null`` |
+| `instructions` | [`DecisionContent`](README.md#decisioncontent) |
+| `type` | ``"noul"`` |
+
+#### Defined in
+
+[types.ts:619](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L619)
+
+___
+
+### DecisionQuestion
+
+Ƭ **DecisionQuestion**: [`DecisionChoiceQuestion`](README.md#decisionchoicequestion) \| [`DecisionScoreQuestion`](README.md#decisionscorequestion) \| [`DecisionNoulQuestion`](README.md#decisionnoulquestion)
+
+#### Defined in
+
+[types.ts:625](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L625)
+
+___
+
+### DecisionQuestions
+
+Ƭ **DecisionQuestions**: `Record`<`string`, [`DecisionQuestion`](README.md#decisionquestion)\>
+
+#### Defined in
+
+[types.ts:630](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L630)
+
+___
+
+### DecisionReadout
+
+Ƭ **DecisionReadout**: ``"letter_slot"`` \| ``"rank_head"``
+
+How a `system_one` model is read:
+`letter_slot`: a causal model, every question answered from one prompt.
+`rank_head`: a classification head scoring one prompt per option. The context
+must be initialized with `pooling_type: 'rank'` and `embedding: true`.
+
+#### Defined in
+
+[types.ts:588](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L588)
+
+___
+
+### DecisionRequest
+
+Ƭ **DecisionRequest**<`Q`\>: `Object`
+
+#### Type parameters
+
+| Name | Type |
+| :------ | :------ |
+| `Q` | extends [`DecisionQuestions`](README.md#decisionquestions) = [`DecisionQuestions`](README.md#decisionquestions) |
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `images?` | `string`[] | Images, as file paths or data URLs. Needs a model that supports image input and `initMultimodal()`. All images go before the state, these first. |
+| `questions` | `Q` | - |
+| `state` | [`DecisionContent`](README.md#decisioncontent) | The content to evaluate. A state made of chat messages (an array of messages, or an object with a `messages` array) may carry `image_url` parts, they are taken as images and removed from the state. For a `system_one` model the state may also be a list of content parts (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`): the text is joined and each image stays where it is. |
+
+#### Defined in
+
+[types.ts:632](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L632)
+
+___
+
+### DecisionResult
+
+Ƭ **DecisionResult**<`Q`\>: `Object`
+
+#### Type parameters
+
+| Name | Type |
+| :------ | :------ |
+| `Q` | extends [`DecisionQuestions`](README.md#decisionquestions) = [`DecisionQuestions`](README.md#decisionquestions) |
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `answers` | { [id in keyof Q]: DecisionAnswerOf<Q[id]\> } | - |
+| `model` | `string` | `general.name` of the model, or its file name if it has none |
+| `usage` | { `input_tokens`: `number` ; `output_tokens`: `number`  } | - |
+| `usage.input_tokens` | `number` | Prompt tokens of all the questions |
+| `usage.output_tokens` | `number` | Always 0 |
+
+#### Defined in
+
+[types.ts:693](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L693)
+
+___
+
+### DecisionScoreAnswer
+
+Ƭ **DecisionScoreAnswer**: `Object`
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `confidence` | `number` | - |
+| `legend` | `Record`<`string`, `string`\> | Level index to its description. |
+| `probabilities` | `Record`<`string`, `number`\> | Level index to its probability, they sum to 1. |
+| `score` | `number` | The expected level index, weighted by probability. Can be between two levels. |
+| `type` | ``"score"`` | - |
+
+#### Defined in
+
+[types.ts:663](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L663)
+
+___
+
+### DecisionScoreQuestion
+
+Ƭ **DecisionScoreQuestion**: `Object`
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `criteria` | readonly `string`[] | 2 to 10 level descriptions, lowest level first. |
+| `instructions` | [`DecisionContent`](README.md#decisioncontent) | - |
+| `type` | ``"score"`` | - |
+
+#### Defined in
+
+[types.ts:612](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L612)
+
+___
+
+### DecisionValue
+
+Ƭ **DecisionValue**: `string` \| `number` \| `boolean` \| ``null`` \| readonly [`DecisionValue`](README.md#decisionvalue)[] \| { `[key: string]`: [`DecisionValue`](README.md#decisionvalue);  }
+
+Any JSON value
+
+#### Defined in
+
+[types.ts:591](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L591)
 
 ___
 
@@ -197,7 +490,7 @@ ___
 
 #### Defined in
 
-[index.ts:252](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L252)
+[index.ts:288](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L288)
 
 ___
 
@@ -216,7 +509,7 @@ ___
 
 #### Defined in
 
-[types.ts:618](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L618)
+[types.ts:786](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L786)
 
 ___
 
@@ -226,7 +519,7 @@ ___
 
 #### Defined in
 
-[types.ts:625](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L625)
+[types.ts:793](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L793)
 
 ___
 
@@ -246,7 +539,7 @@ ___
 
 #### Defined in
 
-[types.ts:685](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L685)
+[types.ts:853](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L853)
 
 ___
 
@@ -313,7 +606,7 @@ ___
 
 #### Defined in
 
-[types.ts:209](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L209)
+[types.ts:209](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L209)
 
 ___
 
@@ -350,7 +643,7 @@ ___
 
 #### Defined in
 
-[types.ts:487](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L487)
+[types.ts:487](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L487)
 
 ___
 
@@ -374,7 +667,7 @@ ___
 
 #### Defined in
 
-[types.ts:475](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L475)
+[types.ts:475](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L475)
 
 ___
 
@@ -391,7 +684,7 @@ ___
 
 #### Defined in
 
-[types.ts:470](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L470)
+[types.ts:470](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L470)
 
 ___
 
@@ -409,7 +702,7 @@ ___
 
 #### Defined in
 
-[types.ts:464](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L464)
+[types.ts:464](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L464)
 
 ___
 
@@ -472,7 +765,17 @@ ___
 
 #### Defined in
 
-[types.ts:45](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L45)
+[types.ts:45](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L45)
+
+___
+
+### NativeDecisionResult
+
+Ƭ **NativeDecisionResult**: [`DecisionResult`](README.md#decisionresult)
+
+#### Defined in
+
+[types.ts:705](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L705)
 
 ___
 
@@ -488,7 +791,7 @@ ___
 
 #### Defined in
 
-[types.ts:1](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L1)
+[types.ts:1](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L1)
 
 ___
 
@@ -504,7 +807,7 @@ ___
 
 #### Defined in
 
-[types.ts:554](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L554)
+[types.ts:554](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L554)
 
 ___
 
@@ -522,7 +825,7 @@ ___
 
 #### Defined in
 
-[types.ts:647](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L647)
+[types.ts:815](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L815)
 
 ___
 
@@ -538,7 +841,7 @@ ___
 | `contextId` | `number` | - |
 | `devices?` | `string`[] | Name of the GPU device used on Android/iOS (if available) |
 | `gpu` | `boolean` | - |
-| `model` | { `chatTemplates`: { `jinja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } ; `llamaChat`: `boolean`  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `is_hybrid`: `boolean` ; `is_recurrent`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
+| `model` | { `chatTemplates`: { `jinja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } ; `llamaChat`: `boolean`  } ; `decision?`: { `error?`: `string` ; `imageInput`: `boolean` ; `nOptionsMax`: `number` ; `readout?`: [`DecisionReadout`](README.md#decisionreadout) ; `textGeneration`: `boolean` ; `type`: [`DecisionModelType`](README.md#decisionmodeltype)  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `is_hybrid`: `boolean` ; `is_recurrent`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
 | `model.chatTemplates` | { `jinja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } ; `llamaChat`: `boolean`  } | - |
 | `model.chatTemplates.jinja` | { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } | - |
 | `model.chatTemplates.jinja.default` | `boolean` | - |
@@ -554,6 +857,13 @@ ___
 | `model.chatTemplates.jinja.toolUseCaps.toolCalls` | `boolean` | - |
 | `model.chatTemplates.jinja.toolUseCaps.tools` | `boolean` | - |
 | `model.chatTemplates.llamaChat` | `boolean` | - |
+| `model.decision?` | { `error?`: `string` ; `imageInput`: `boolean` ; `nOptionsMax`: `number` ; `readout?`: [`DecisionReadout`](README.md#decisionreadout) ; `textGeneration`: `boolean` ; `type`: [`DecisionModelType`](README.md#decisionmodeltype)  } | Set if the model is a typed decision model, see `LlamaContext.decide()` |
+| `model.decision.error?` | `string` | Why the model cannot be used, when `type` is `unknown` |
+| `model.decision.imageInput` | `boolean` | The prompt has a place for images (multimodal still has to be initialized) |
+| `model.decision.nOptionsMax` | `number` | Most options a `choice` question can have |
+| `model.decision.readout?` | [`DecisionReadout`](README.md#decisionreadout) | Only for `system_one` models |
+| `model.decision.textGeneration` | `boolean` | If false, `completion()` rejects: the model only answers decisions (clef, for one) |
+| `model.decision.type` | [`DecisionModelType`](README.md#decisionmodeltype) | - |
 | `model.desc` | `string` | - |
 | `model.isChatTemplateSupported` | `boolean` | - |
 | `model.is_hybrid` | `boolean` | - |
@@ -567,7 +877,7 @@ ___
 
 #### Defined in
 
-[types.ts:558](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L558)
+[types.ts:710](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L710)
 
 ___
 
@@ -580,7 +890,7 @@ Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[types.ts:421](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L421)
+[types.ts:421](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L421)
 
 ___
 
@@ -596,7 +906,7 @@ ___
 
 #### Defined in
 
-[types.ts:653](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L653)
+[types.ts:821](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L821)
 
 ___
 
@@ -613,7 +923,7 @@ ___
 
 #### Defined in
 
-[types.ts:657](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L657)
+[types.ts:825](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L825)
 
 ___
 
@@ -630,7 +940,7 @@ ___
 
 #### Defined in
 
-[types.ts:603](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L603)
+[types.ts:771](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L771)
 
 ___
 
@@ -640,7 +950,7 @@ ___
 
 #### Defined in
 
-[types.ts:40](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L40)
+[types.ts:40](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L40)
 
 ___
 
@@ -674,7 +984,7 @@ ___
 
 #### Defined in
 
-[types.ts:13](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L13)
+[types.ts:13](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L13)
 
 ___
 
@@ -684,7 +994,7 @@ ___
 
 #### Defined in
 
-[types.ts:5](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L5)
+[types.ts:5](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L5)
 
 ___
 
@@ -704,7 +1014,7 @@ ___
 
 #### Defined in
 
-[types.ts:534](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L534)
+[types.ts:534](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L534)
 
 ___
 
@@ -717,7 +1027,7 @@ Extends CompletionParams with parallel-mode specific options like state manageme
 
 #### Defined in
 
-[index.ts:316](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L316)
+[index.ts:352](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L352)
 
 ___
 
@@ -736,11 +1046,11 @@ ___
 | `state` | ``"queued"`` \| ``"processing_prompt"`` \| ``"generating"`` \| ``"done"`` |
 | `tokens_generated` | `number` |
 | `tokens_per_second` | `number` |
-| `type` | ``"completion"`` \| ``"embedding"`` \| ``"rerank"`` |
+| `type` | ``"completion"`` \| ``"embedding"`` \| ``"rerank"`` \| ``"decision"`` |
 
 #### Defined in
 
-[types.ts:693](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L693)
+[types.ts:861](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L861)
 
 ___
 
@@ -759,7 +1069,7 @@ ___
 
 #### Defined in
 
-[types.ts:704](https://github.com/mybigday/llama.rn/blob/de41ad43/src/types.ts#L704)
+[types.ts:872](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/types.ts#L872)
 
 ___
 
@@ -782,7 +1092,7 @@ ___
 
 #### Defined in
 
-[index.ts:33](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L33)
+[index.ts:50](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L50)
 
 ___
 
@@ -800,7 +1110,7 @@ ___
 
 #### Defined in
 
-[index.ts:46](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L46)
+[index.ts:63](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L63)
 
 ___
 
@@ -816,7 +1126,7 @@ ___
 
 #### Defined in
 
-[index.ts:254](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L254)
+[index.ts:290](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L290)
 
 ___
 
@@ -834,7 +1144,7 @@ ___
 
 #### Defined in
 
-[index.ts:258](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L258)
+[index.ts:294](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L294)
 
 ___
 
@@ -844,7 +1154,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:25](https://github.com/mybigday/llama.rn/blob/de41ad43/src/tts-voices.ts#L25)
+[tts-voices.ts:25](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/tts-voices.ts#L25)
 
 ___
 
@@ -866,7 +1176,7 @@ ___
 
 #### Defined in
 
-[index.ts:203](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L203)
+[index.ts:239](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L239)
 
 ___
 
@@ -886,7 +1196,7 @@ ___
 
 #### Defined in
 
-[index.ts:194](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L194)
+[index.ts:230](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L230)
 
 ## Variables
 
@@ -903,7 +1213,7 @@ ___
 
 #### Defined in
 
-[index.ts:1603](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1603)
+[index.ts:1700](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1700)
 
 ___
 
@@ -913,7 +1223,7 @@ ___
 
 #### Defined in
 
-[index.ts:78](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L78)
+[index.ts:112](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L112)
 
 ## Functions
 
@@ -937,7 +1247,7 @@ ___
 
 #### Defined in
 
-[index.ts:1341](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1341)
+[index.ts:1438](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1438)
 
 ___
 
@@ -951,7 +1261,7 @@ ___
 
 #### Defined in
 
-[index.ts:1458](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1458)
+[index.ts:1555](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1555)
 
 ___
 
@@ -973,7 +1283,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:122](https://github.com/mybigday/llama.rn/blob/de41ad43/src/tts-voices.ts#L122)
+[tts-voices.ts:122](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/tts-voices.ts#L122)
 
 ___
 
@@ -994,7 +1304,7 @@ ___
 
 #### Defined in
 
-[index.ts:1474](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1474)
+[index.ts:1571](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1571)
 
 ___
 
@@ -1008,7 +1318,7 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L182)
+[index.ts:218](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L218)
 
 ___
 
@@ -1028,7 +1338,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:137](https://github.com/mybigday/llama.rn/blob/de41ad43/src/tts-voices.ts#L137)
+[tts-voices.ts:137](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/tts-voices.ts#L137)
 
 ___
 
@@ -1049,7 +1359,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:130](https://github.com/mybigday/llama.rn/blob/de41ad43/src/tts-voices.ts#L130)
+[tts-voices.ts:130](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/tts-voices.ts#L130)
 
 ___
 
@@ -1069,7 +1379,7 @@ ___
 
 #### Defined in
 
-[index.ts:1369](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1369)
+[index.ts:1466](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1466)
 
 ___
 
@@ -1083,7 +1393,7 @@ ___
 
 #### Defined in
 
-[index.ts:1597](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1597)
+[index.ts:1694](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1694)
 
 ___
 
@@ -1103,7 +1413,7 @@ ___
 
 #### Defined in
 
-[index.ts:1352](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1352)
+[index.ts:1449](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1449)
 
 ___
 
@@ -1123,4 +1433,4 @@ ___
 
 #### Defined in
 
-[index.ts:1335](https://github.com/mybigday/llama.rn/blob/de41ad43/src/index.ts#L1335)
+[index.ts:1432](https://github.com/mybigday/llama.rn/blob/8c4fc321/src/index.ts#L1432)
