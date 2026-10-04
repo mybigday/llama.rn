@@ -416,7 +416,7 @@ int32_t llama_rn_slot_manager::queue_rerank_request(
     return request_id;
 }
 
-// Queue a decision request; its prompts are built here so that a bad request is rejected right away
+// Queue a decision request; it is validated here so that a bad request is rejected right away
 int32_t llama_rn_slot_manager::queue_decision_request(
     const json& body,
     std::function<void(int32_t, const json&)> on_result,
@@ -850,15 +850,21 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->n_remaining = -1;
                 slot->stop_words.clear();
                 slot->decision_job = std::move(request.decision_job);
-                // a cancelled decision stops between two prompts: its promise must still settle, and
-                // the sequence must not keep what it evaluated so far
+                // the decision takes over the sequence: what the slot cached must not outlive it,
+                // however the decision ends
+                reset_decision_sequence(*slot);
+                // a decision can end without its answers, cancelled between two prompts or taken down
+                // with a failed shared batch: its promise must still settle, and the sequence must not
+                // keep what it evaluated so far
                 slot->on_complete_callback = [this, job = slot->decision_job](llama_rn_slot * s) {
-                    if (!s->is_interrupted) {
+                    if (!s->is_interrupted && !s->incomplete) {
                         return;
                     }
                     reset_decision_sequence(*s);
                     if (job->on_result) {
-                        job->on_result(s->request_id, common_json{{"error", "the decision was cancelled"}});
+                        job->on_result(s->request_id, common_json{{"error", s->is_interrupted
+                            ? "the decision was cancelled"
+                            : "the decision was dropped, a batch of the other requests failed"}});
                     }
                 };
                 slot->num_prompt_tokens = 0; // set once the prompts are built
@@ -1849,13 +1855,8 @@ llama_rn_parallel_status llama_rn_slot_manager::get_status() {
         }
 
         req_status.state = "queued";
+        // 0 for a decision, its prompts are built once it has a slot
         req_status.prompt_length = queued.prompt_tokens.size();
-        if (queued.decision_job) {
-            req_status.prompt_length = 0;
-            for (const auto & prompt : queued.decision_job->prompts) {
-                req_status.prompt_length += prompt.n_tokens();
-            }
-        }
         req_status.tokens_generated = 0;
         req_status.prompt_ms = 0.0;
         req_status.generation_ms = 0.0;
