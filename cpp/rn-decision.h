@@ -121,6 +121,12 @@ struct llama_rn_decision_question {
     std::vector<llama_rn_decision_option> options; // in the order of the model outputs
 };
 
+// A piece of a system_one state: text, or text and images tokenized by mtmd
+struct llama_rn_decision_piece {
+    std::vector<llama_token>           tokens;
+    std::shared_ptr<mtmd_input_chunks> chunks;
+};
+
 // One prompt to evaluate, and where its result is read
 struct llama_rn_decision_prompt {
     size_t question = 0; // index in the request, unused by a joint prompt
@@ -129,9 +135,16 @@ struct llama_rn_decision_prompt {
     std::vector<llama_token> tokens;
     // a prompt with images is evaluated from its chunks, tokens is then empty
     std::shared_ptr<mtmd_input_chunks> chunks;
+    // system_one with images: the state, segment by segment, evaluated before tokens (the
+    // question blocks, whose slots are relative to them)
+    std::vector<llama_rn_decision_piece> state_pieces;
 
     size_t n_tokens() const {
-        return chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+        size_t n = chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+        for (const auto & piece : state_pieces) {
+            n += piece.chunks ? mtmd_helper_get_n_tokens(piece.chunks.get()) : piece.tokens.size();
+        }
+        return n;
     }
 
     std::vector<llama_token> labels;  // LABEL_LOGITS: logits of these tokens, at the last token
@@ -242,7 +255,7 @@ private:
 
     void init_legacy(const llama_model * model, const char * tmpl_src);
     std::vector<std::string> render_legacy(const common_json & inp) const;
-    std::vector<llama_rn_decision_prompt> fill_prompts_legacy(const llama_rn_decision_request & request) const;
+    std::vector<llama_rn_decision_prompt> fill_prompts_legacy(const llama_rn_decision_request & request, mtmd_context * mctx) const;
 
     std::vector<llama_rn_decision_question> parse_questions(const common_json & body) const;
     common_json parse_state(const common_json & body, std::vector<std::string> & images) const;

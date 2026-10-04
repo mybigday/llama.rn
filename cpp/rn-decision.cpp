@@ -230,6 +230,12 @@ json llama_rn_decision_context::info() const {
 // system_one (legacy)
 //
 
+static std::shared_ptr<mtmd_input_chunks> decision_tokenize_media(
+        mtmd_context * mctx,
+        const std::string & prompt,
+        const std::vector<std::string> & images,
+        bool add_special);
+
 // The readout follows from what the model is, nothing declares it (system-one.cpp:
 // system_one_params_from_model): a classification head scores one sequence per option, a
 // causal model answers at the next token after each question. The other readouts the library
@@ -255,7 +261,8 @@ void llama_rn_decision_context::init_legacy(const llama_model * model, const cha
             : "this system_one model is bidirectional (masked_slot / scored_slot), which needs a graph llama.cpp does not have";
         return;
     } else {
-        profile.readout = LLAMA_RN_DECISION_READOUT_LETTER_SLOTS;
+        profile.readout     = LLAMA_RN_DECISION_READOUT_LETTER_SLOTS;
+        profile.image_input = true; // a state may carry images, with the model's projector
     }
 
     const std::string sep = decision_meta_str(model, "system_one.segment_separator");
@@ -365,8 +372,59 @@ static common_json decision_legacy_option(const llama_rn_decision_question & q, 
     };
 }
 
-std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts_legacy(const llama_rn_decision_request & request) const {
-    const std::string state = decision_legacy_text(request.state);
+// The state as the system_one template gets it: a string with a media marker where each image
+// goes. The images of the request go first; a state of content parts (the library's own form)
+// keeps its text and puts its images where they are.
+static std::string decision_legacy_state(const common_json & state, std::vector<std::string> & images) {
+    const std::string marker = mtmd_default_marker();
+    auto scrub = [&](std::string text) {
+        string_replace_all(text, marker, " "); // the text must not forge an image
+        return text;
+    };
+
+    std::string out;
+    for (size_t i = 0; i < images.size(); i++) {
+        out += marker;
+    }
+
+    const bool is_parts = state.is_array() && !state.empty() &&
+        std::all_of(state.begin(), state.end(), [](const common_json & part) {
+            return part.is_object() && part.contains("type") && !part.contains("role");
+        });
+    if (!is_parts) {
+        return out + scrub(decision_legacy_text(state));
+    }
+    for (const auto & part : state) {
+        const std::string type = part.at("type").is_string() ? part.at("type").get<std::string>() : "";
+        if (type == "text") {
+            out += scrub(part.contains("text") ? decision_legacy_text(part.at("text")) : "");
+        } else if (type == "image_url" && part.contains("image_url")) {
+            const common_json & url = part.at("image_url");
+            const common_json & src = url.is_object() && url.contains("url") ? url.at("url") : url;
+            if (!src.is_string()) {
+                throw std::invalid_argument("an image must be a file path or a data URL");
+            }
+            images.push_back(src.get<std::string>());
+            out += marker;
+        } else {
+            throw std::invalid_argument("unknown content part type \"" + type + "\" in \"state\"");
+        }
+    }
+    return out;
+}
+
+std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts_legacy(const llama_rn_decision_request & request, mtmd_context * mctx) const {
+    std::vector<std::string> images = request.images;
+    const std::string state = decision_legacy_state(request.state, images);
+    if (!images.empty()) {
+        if (profile.readout == LLAMA_RN_DECISION_READOUT_RANK_HEAD) {
+            // each option is its own sequence, the images would be encoded once per option
+            throw std::runtime_error("images are not supported for a classification-head (rank_head) model");
+        }
+        if (mctx == nullptr || !mtmd_support_vision(mctx)) {
+            throw std::runtime_error("image input needs the multimodal projector of the model, see initMultimodal()");
+        }
+    }
     auto tokenize = [&](const std::string & segment) {
         auto ids = common_tokenize(vocab, segment, false, true);
         if (ids.empty()) {
@@ -443,7 +501,33 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts_le
     llama_rn_decision_prompt prompt;
     prompt.labels = labels;
     const size_t first_question = segments.size() - request.questions.size();
+    const std::string marker = mtmd_default_marker();
+    size_t next_image = 0;
     for (size_t i = 0; i < segments.size(); i++) {
+        if (i < first_question && !images.empty()) {
+            // with images, the state is tokenized one segment at a time, each with its own images,
+            // and the question blocks follow it with their slots counted from where it ends
+            size_t n_markers = 0;
+            for (size_t at = segments[i].find(marker); at != std::string::npos; at = segments[i].find(marker, at + marker.size())) {
+                n_markers++;
+            }
+            if (next_image + n_markers > images.size()) {
+                throw std::invalid_argument("the system_one template wrote the state's images more than once");
+            }
+            llama_rn_decision_piece piece;
+            if (n_markers > 0) {
+                const std::vector<std::string> piece_images(images.begin() + next_image, images.begin() + next_image + n_markers);
+                piece.chunks = decision_tokenize_media(mctx, segments[i], piece_images, false);
+                next_image += n_markers;
+            } else {
+                piece.tokens = tokenize(segments[i]);
+            }
+            prompt.state_pieces.push_back(std::move(piece));
+            continue;
+        }
+        if (i >= first_question && i == first_question && !images.empty() && next_image != images.size()) {
+            throw std::invalid_argument("the system_one template did not write the state's images");
+        }
         const auto ids = tokenize(segments[i]);
         prompt.tokens.insert(prompt.tokens.end(), ids.begin(), ids.end());
         if (i >= first_question) {
@@ -806,10 +890,7 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
         throw std::runtime_error(error.empty() ? "this model is not a decision model of a supported type" : error);
     }
     if (legacy) {
-        if (!request.images.empty()) {
-            throw std::runtime_error("image input is not supported for a system_one model");
-        }
-        return fill_prompts_legacy(request);
+        return fill_prompts_legacy(request, mctx);
     }
     if (!request.images.empty() && !profile.image_input) {
         throw std::runtime_error("this decision model does not take images");
@@ -835,7 +916,8 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
 static std::shared_ptr<mtmd_input_chunks> decision_tokenize_media(
         mtmd_context * mctx,
         const std::string & prompt,
-        const std::vector<std::string> & images) {
+        const std::vector<std::string> & images,
+        bool add_special) {
     mtmd::bitmaps bitmaps;
     for (const auto & image : images) {
         mtmd_helper_bitmap_wrapper out{};
@@ -862,11 +944,11 @@ static std::shared_ptr<mtmd_input_chunks> decision_tokenize_media(
         bitmaps.entries.emplace_back(out.bitmap);
     }
 
-    // the same flags as llama-server
+    // the same flags as llama-server; a system_one state segment adds nothing, its template writes BOS
     mtmd_input_text text = {
         prompt.data(),
         prompt.size(),
-        /* add_special   */ true,
+        add_special,
         /* parse_special */ true,
     };
     std::shared_ptr<mtmd_input_chunks> chunks(mtmd_input_chunks_init(), mtmd_input_chunks_free);
@@ -896,7 +978,7 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt(
             throw std::runtime_error("this decision model tokenizes its prompt piece by piece, "
                                      "which is not supported together with an image");
         }
-        prompt.chunks = decision_tokenize_media(mctx, prompt_text, request.images);
+        prompt.chunks = decision_tokenize_media(mctx, prompt_text, request.images, true);
         prompt.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
         return prompt;
     }
@@ -1259,11 +1341,16 @@ json llama_rn_decision_context::format_result(
 // (process_mtmd_chunk): a media chunk is encoded in one mtmd batch with the media chunks
 // that follow it, then its embeddings are decoded; text is decoded in batches of n_batch.
 // Only the last token of the prompt has an output.
-static void decision_eval_chunks(mtmd_context * mctx, llama_context * ctx, llama_seq_id seq_id, const mtmd_input_chunks * chunks) {
+static void decision_eval_chunks(
+        mtmd_context * mctx,
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const mtmd_input_chunks * chunks,
+        llama_pos & n_past,
+        bool logits_last) {
     const size_t  n_chunks = mtmd_input_chunks_size(chunks);
     const int32_t n_batch  = llama_n_batch(ctx);
 
-    llama_pos n_past = 0;
     mtmd::batch_ptr mbatch;
     for (size_t i = 0; i < n_chunks; i++) {
         const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
@@ -1277,7 +1364,7 @@ static void decision_eval_chunks(mtmd_context * mctx, llama_context * ctx, llama
                 const size_t end = std::min(n_tokens, j + n_batch);
                 batch.clear();
                 for (size_t k = j; k < end; k++) {
-                    batch.add(tokens[k], n_past + k, seq_id, is_last && k + 1 == n_tokens);
+                    batch.add(tokens[k], n_past + k, seq_id, logits_last && is_last && k + 1 == n_tokens);
                 }
                 const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
                 if (ret != 0) {
@@ -1288,7 +1375,7 @@ static void decision_eval_chunks(mtmd_context * mctx, llama_context * ctx, llama
             continue;
         }
 
-        if (is_last) {
+        if (is_last && logits_last) {
             throw std::runtime_error("a decision prompt must end with text");
         }
 
@@ -1320,6 +1407,74 @@ static void decision_eval_chunks(mtmd_context * mctx, llama_context * ctx, llama
     }
 }
 
+// system_one with images: the state pieces from the start of the sequence (text, or text and
+// images), then the question blocks in one batch, whose slots are read there
+static std::vector<float> decision_eval_state_pieces(
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const llama_rn_decision_prompt & prompt,
+        std::vector<llama_token> & cached,
+        mtmd_context * mctx) {
+    llama_memory_t mem   = llama_get_memory(ctx);
+    const size_t n_batch = llama_n_batch(ctx);
+    cached.clear();
+    if (mem != nullptr) {
+        llama_memory_seq_rm(mem, seq_id, -1, -1);
+    }
+    if (prompt.tokens.size() > n_batch) {
+        throw std::runtime_error(string_format(
+            "the questions of the decision prompt do not fit in one batch (%zu tokens, n_batch = %zu)",
+            prompt.tokens.size(), n_batch));
+    }
+
+    common_batch batch(ctx);
+    auto decode = [&](const std::vector<llama_token> & tokens, llama_pos n_past, const std::vector<int32_t> & outputs) {
+        for (size_t i = 0; i < tokens.size(); i += n_batch) {
+            const size_t end = std::min(tokens.size(), i + n_batch);
+            batch.clear();
+            for (size_t j = i; j < end; j++) {
+                const bool output = std::find(outputs.begin(), outputs.end(), (int32_t) j) != outputs.end();
+                batch.add(tokens[j], n_past + j, seq_id, output);
+            }
+            const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+            if (ret != 0) {
+                throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
+            }
+        }
+    };
+
+    std::vector<float> scores;
+    try {
+        llama_pos n_past = 0;
+        for (const auto & piece : prompt.state_pieces) {
+            if (piece.chunks) {
+                GGML_ASSERT(mctx != nullptr);
+                decision_eval_chunks(mctx, ctx, seq_id, piece.chunks.get(), n_past, false);
+            } else {
+                decode(piece.tokens, n_past, {});
+                n_past += piece.tokens.size();
+            }
+        }
+        decode(prompt.tokens, n_past, prompt.slots);
+
+        for (size_t s = 0; s < prompt.slots.size(); s++) {
+            const float * logits = llama_get_logits_ith(ctx, prompt.slots[s]);
+            if (logits == nullptr) {
+                throw std::runtime_error("failed to get logits");
+            }
+            for (int32_t i = 0; i < prompt.slot_n_labels[s]; i++) {
+                scores.push_back(logits[prompt.labels[i]]);
+            }
+        }
+    } catch (...) {
+        if (mem != nullptr) {
+            llama_memory_seq_rm(mem, seq_id, -1, -1);
+        }
+        throw;
+    }
+    return scores;
+}
+
 std::vector<float> llama_rn_decision_eval(
         llama_context * ctx,
         llama_seq_id seq_id,
@@ -1335,7 +1490,8 @@ std::vector<float> llama_rn_decision_eval(
         }
         GGML_ASSERT(mctx != nullptr);
         try {
-            decision_eval_chunks(mctx, ctx, seq_id, prompt.chunks.get());
+            llama_pos n_past = 0;
+            decision_eval_chunks(mctx, ctx, seq_id, prompt.chunks.get(), n_past, true);
         } catch (...) {
             if (mem != nullptr) {
                 llama_memory_seq_rm(mem, seq_id, -1, -1);
@@ -1351,6 +1507,10 @@ std::vector<float> llama_rn_decision_eval(
             scores.push_back(logits[label]);
         }
         return scores;
+    }
+
+    if (!prompt.state_pieces.empty()) {
+        return decision_eval_state_pieces(ctx, seq_id, prompt, cached, mctx);
     }
 
     const auto & tokens   = prompt.tokens;
