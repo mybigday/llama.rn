@@ -14,6 +14,10 @@ import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import { ParameterSwitch } from '../components/ParameterFormFields'
 import { QuestionEditor } from '../components/decision/QuestionEditor'
 import { AnswerCard } from '../components/decision/AnswerCard'
+import {
+  ImageAttachments,
+  toImagePath,
+} from '../components/decision/ImageAttachments'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
@@ -77,6 +81,8 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
   // a system_one model with a classification head is read through RANK pooling,
   // which the caller sets up when it creates the context
   const [rankPooling, setRankPooling] = useState(false)
+  const [hasProjector, setHasProjector] = useState(false)
+  const [images, setImages] = useState<string[]>([])
 
   const [preset] = useState(() => DECISION_PRESETS[0]!())
   const [presetName, setPresetName] = useState(preset.name)
@@ -107,7 +113,11 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
     ],
   })
 
-  const initializeModel = async (modelPath: string, title?: string) => {
+  const initializeModel = async (
+    modelPath: string,
+    title?: string,
+    mmprojPath?: string,
+  ) => {
     try {
       setIsLoading(true)
       setInitProgress(0)
@@ -133,9 +143,22 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
         )
         return
       }
+      // a model whose prompt has a place for images reads them through its projector
+      let projector = false
+      if (decision.imageInput && mmprojPath) {
+        projector = await llamaContext.initMultimodal({
+          path: mmprojPath,
+          use_gpu: false,
+        })
+        if (!projector) {
+          Alert.alert('Projector', 'Failed to load the multimodal projector')
+        }
+      }
       await replaceContext(llamaContext)
       setModelName(title || modelPath.split('/').pop() || 'Model')
       setDecisionInfo(decision)
+      setHasProjector(projector)
+      setImages([])
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -171,6 +194,9 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
     let request: DecisionRequest
     try {
       request = buildDecisionRequest(state, questions)
+      if (images.length > 0) {
+        request = { ...request, images: images.map(toImagePath) }
+      }
     } catch (error: any) {
       Alert.alert('Incomplete request', error.message)
       return
@@ -210,17 +236,18 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
           description="Typed decision models answer choice, score and yes/no questions about a state with calibrated probabilities, in one forward pass per question instead of generating text."
           defaultModels={DECISION_MODELS}
           customModels={customModels || []}
-          onInitializeCustomModel={(model, modelPath) =>
-            initializeModel(modelPath, model.filename)
+          onInitializeCustomModel={(model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, model.filename, mmprojPath)
           }
-          onInitializeModel={(model, modelPath) =>
-            initializeModel(modelPath, model.title)
+          onInitializeModel={(model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, model.title, mmprojPath)
           }
           onReloadCustomModels={reloadCustomModels}
           showCustomModelModal={showCustomModelModal}
           onOpenCustomModelModal={() => setShowCustomModelModal(true)}
           onCloseCustomModelModal={() => setShowCustomModelModal(false)}
           customModelModalTitle="Add Custom Decision Model"
+          optionalMMProj
           isLoading={isLoading}
           initProgress={initProgress}
           progressText={`Initializing model... ${initProgress}%`}
@@ -295,6 +322,18 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
           )
         })}
       </ScrollView>
+
+      {decisionInfo?.imageInput && (
+        <ImageAttachments
+          images={images}
+          onChange={setImages}
+          disabledReason={
+            hasProjector
+              ? undefined
+              : 'This model can take images: add it as a custom model together with its mmproj file to send some.'
+          }
+        />
+      )}
 
       <Text style={styles.sectionTitle}>State</Text>
       <TextInput
@@ -388,6 +427,14 @@ export default function DecisionScreen({ navigation }: { navigation: any }) {
               <Icon name="text-box-outline" size={16} color={theme.colors.textSecondary} />
               <Text style={styles.summaryText}>
                 {`${result.usage.input_tokens} tokens`}
+              </Text>
+            </View>
+          )}
+          {(request.images?.length ?? 0) > 0 && (
+            <View style={styles.summaryItem}>
+              <Icon name="image-outline" size={16} color={theme.colors.textSecondary} />
+              <Text style={styles.summaryText}>
+                {`${request.images!.length} image${request.images!.length > 1 ? 's' : ''}`}
               </Text>
             </View>
           )}
