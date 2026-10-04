@@ -22,7 +22,9 @@ interface ImageAttachmentsProps {
   disabledReason?: string
 }
 
-export const toImagePath = (uri: string) => uri.replace(/^file:\/\//, '')
+// a file URI is percent-encoded, a path with spaces or non-ASCII characters is not
+export const toImagePath = (uri: string) =>
+  decodeURIComponent(uri.replace(/^file:\/\//, ''))
 
 export function ImageAttachments({
   images,

@@ -184,7 +184,10 @@ export const buildDecisionRequest = (
   if (!state.trim()) throw new Error('The state is empty')
   if (questions.length === 0) throw new Error('Add at least one question')
 
-  const built: Record<string, DecisionQuestion> = {}
+  // entries and Sets rather than plain-object lookups: an ID or a key such as
+  // `constructor` or `__proto__` is just a name here
+  const built: Array<[string, DecisionQuestion]> = []
+  const ids = new Set<string>()
   questions.forEach((q, index) => {
     const name = q.id.trim() || `#${index + 1}`
     const fail = (message: string) => {
@@ -192,33 +195,41 @@ export const buildDecisionRequest = (
     }
     const id = q.id.trim()
     if (!id) fail('the ID is empty')
-    if (built[id]) fail('the ID is used twice')
+    if (ids.has(id)) fail('the ID is used twice')
+    ids.add(id)
     if (!q.instructions.trim()) fail('the question is empty')
 
     if (q.type === 'choice') {
       const options = q.options.filter((o) => o.key.trim())
       if (options.length === 0) fail('add at least one option')
-      const criteria: Record<string, string | null> = {}
-      options.forEach((o) => {
-        if (o.key.trim() in criteria) fail(`option "${o.key.trim()}" is listed twice`)
-        criteria[o.key.trim()] = o.description.trim() || null
-      })
-      built[id] = { type: 'choice', instructions: q.instructions, criteria }
+      const keys = new Set<string>()
+      const criteria = Object.fromEntries(
+        options.map((o) => {
+          const key = o.key.trim()
+          if (keys.has(key)) fail(`option "${key}" is listed twice`)
+          keys.add(key)
+          return [key, o.description.trim() || null]
+        }),
+      )
+      built.push([id, { type: 'choice', instructions: q.instructions, criteria }])
     } else if (q.type === 'score') {
       const levels = q.levels.map((l) => l.trim()).filter(Boolean)
       if (levels.length < 2 || levels.length > 10) fail('a score needs 2 to 10 levels')
-      built[id] = { type: 'score', instructions: q.instructions, criteria: levels }
+      built.push([id, { type: 'score', instructions: q.instructions, criteria: levels }])
     } else {
       const criteria: { true?: string; false?: string } = {}
       if (q.noulTrue.trim()) criteria.true = q.noulTrue.trim()
       if (q.noulFalse.trim()) criteria.false = q.noulFalse.trim()
-      built[id] = {
-        type: 'noul',
-        instructions: q.instructions,
-        ...(Object.keys(criteria).length > 0 ? { criteria } : {}),
-      }
+      built.push([
+        id,
+        {
+          type: 'noul',
+          instructions: q.instructions,
+          ...(Object.keys(criteria).length > 0 ? { criteria } : {}),
+        },
+      ])
     }
   })
 
-  return { state: parseState(state), questions: built }
+  return { state: parseState(state), questions: Object.fromEntries(built) }
 }

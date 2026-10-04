@@ -1,3 +1,4 @@
+import type { DecisionQuestion } from '../../../src'
 import {
   DECISION_PRESETS,
   buildDecisionRequest,
@@ -57,5 +58,25 @@ describe('buildDecisionRequest', () => {
         createQuestion({ id: 'r', type: 'score', instructions: 'x', levels: ['only'] }),
       ]),
     ).toThrow('Question r: a score needs 2 to 10 levels')
+  })
+
+  it('takes IDs and keys that are object property names', () => {
+    const request = buildDecisionRequest('s', [
+      createQuestion({
+        id: 'constructor',
+        type: 'choice',
+        instructions: 'pick',
+        options: [
+          { key: '__proto__', description: '' },
+          { key: 'toString', description: '' },
+        ],
+      }),
+    ])
+    expect(Object.keys(request.questions)).toEqual(['constructor'])
+    const question = request.questions['constructor'] as DecisionQuestion
+    expect(question.type === 'choice' && Object.keys(question.criteria)).toEqual([
+      '__proto__',
+      'toString',
+    ])
   })
 })
