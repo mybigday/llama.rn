@@ -210,6 +210,8 @@ struct llama_rn_context {
     json decide(const json & body);
     // general.name of the model, or its file name
     std::string modelName() const;
+    // the multimodal context a decision with images is evaluated with, nullptr if not initialized
+    mtmd_context * decisionMtmdContext() const;
 
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;

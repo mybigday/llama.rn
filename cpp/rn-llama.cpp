@@ -649,6 +649,10 @@ std::string llama_rn_context::modelName() const {
     return path.substr(path.find_last_of("/\\") + 1);
 }
 
+mtmd_context * llama_rn_context::decisionMtmdContext() const {
+    return isMultimodalEnabled() ? mtmd_wrapper->mtmd_ctx : nullptr;
+}
+
 json llama_rn_context::decide(const json & body) {
     if (decision.type == COMMON_DECISION_TYPE_NONE) {
         throw std::runtime_error("This model is not a decision model");
@@ -658,7 +662,8 @@ json llama_rn_context::decide(const json & body) {
         throw std::runtime_error("Parallel mode is enabled, use parallel.decide()");
     }
     const auto request = decision.parse_request(to_common_json(body));
-    const auto prompts = decision.fill_prompts(request);
+    mtmd_context * mctx = decisionMtmdContext();
+    const auto prompts = decision.fill_prompts(request, mctx);
 
     // the prompts take over the completion's sequence
     llama_memory_t mem = llama_get_memory(ctx);
@@ -671,6 +676,9 @@ json llama_rn_context::decide(const json & body) {
             completion->embd.clear();
             completion->clearStateCheckpoints();
         }
+        if (mtmd_wrapper != nullptr) {
+            mtmd_wrapper->bitmap_past_hashes.clear();
+        }
     };
     reset();
 
@@ -678,7 +686,7 @@ json llama_rn_context::decide(const json & body) {
     std::vector<llama_token> cached;
     try {
         for (const auto & prompt : prompts) {
-            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cached));
+            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cached, mctx));
         }
     } catch (...) {
         reset();

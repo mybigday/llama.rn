@@ -27,6 +27,8 @@
 #include "common.h"
 #include "chat.h"
 #include "json.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 #include <functional>
 #include <map>
@@ -116,6 +118,12 @@ struct llama_rn_decision_prompt {
     size_t variant  = 0;
 
     std::vector<llama_token> tokens;
+    // a prompt with images is evaluated from its chunks, tokens is then empty
+    std::shared_ptr<mtmd_input_chunks> chunks;
+
+    size_t n_tokens() const {
+        return chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+    }
 
     std::vector<llama_token> labels;  // LABEL_LOGITS: logits of these tokens, at the last token
     std::vector<int32_t>     markers; // MARKER_EMBD, POINTER: prompt positions of the options
@@ -175,7 +183,8 @@ struct llama_rn_decision_context {
     size_t n_variants(const llama_rn_decision_question & question) const;
 
     // all the prompts of a request, the ones that start alike next to each other
-    std::vector<llama_rn_decision_prompt> fill_prompts(const llama_rn_decision_request & request) const;
+    // mctx: the multimodal context, only used if the request has images (nullptr if not initialized)
+    std::vector<llama_rn_decision_prompt> fill_prompts(const llama_rn_decision_request & request, mtmd_context * mctx) const;
 
     // scores: the raw model outputs of each prompt, in the order of fill_prompts()
     common_json format_result(
@@ -214,7 +223,8 @@ private:
     llama_rn_decision_prompt fill_prompt(
             const llama_rn_decision_request & request,
             size_t i_question,
-            size_t variant) const;
+            size_t variant,
+            mtmd_context * mctx) const;
     llama_rn_decision_prompt fill_prompt_joint(const llama_rn_decision_request & request) const;
     void fill_prompt_laya(std::vector<llama_token> & tokens, const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const;
 
@@ -231,13 +241,15 @@ struct llama_rn_decision_job {
 };
 
 // Evaluate one prompt on sequence seq_id and return its raw scores, throws on failure.
+// mctx: the multimodal context, needed by a prompt with images.
 // cached: the tokens in the sequence, from the previous prompt (empty for a cleared sequence);
 // the common prefix is not evaluated again, it is updated on return.
 std::vector<float> llama_rn_decision_eval(
         llama_context * ctx,
         llama_seq_id seq_id,
         const llama_rn_decision_prompt & prompt,
-        std::vector<llama_token> & cached);
+        std::vector<llama_token> & cached,
+        mtmd_context * mctx = nullptr);
 
 } // namespace rnllama
 

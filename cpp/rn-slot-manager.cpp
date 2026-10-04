@@ -432,7 +432,7 @@ int32_t llama_rn_slot_manager::queue_decision_request(
 
     auto job = std::make_shared<llama_rn_decision_job>();
     job->request   = decision.parse_request(to_common_json(body));
-    job->prompts   = decision.fill_prompts(job->request);
+    job->prompts   = decision.fill_prompts(job->request, parent_ctx->decisionMtmdContext());
     job->on_result = [on_result = std::move(on_result)](int32_t id, const common_json & result) {
         if (on_result) {
             on_result(id, from_common_json(result));
@@ -491,7 +491,7 @@ void llama_rn_slot_manager::process_decision_slots() {
             std::vector<std::vector<float>> scores;
             std::vector<llama_token> cached;
             for (const auto & prompt : job->prompts) {
-                scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, cached));
+                scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, cached, parent_ctx->decisionMtmdContext()));
             }
             result = parent_ctx->decision.format_result(job->request, job->prompts, scores, parent_ctx->modelName());
         } catch (const std::exception & e) {
@@ -507,6 +507,7 @@ void llama_rn_slot_manager::process_decision_slots() {
         {
             std::lock_guard<std::mutex> lock(slots_mutex);
             slot->cache_tokens.clear();
+            slot->bitmap_past_hashes.clear();
             slot->n_past = 0;
             slot->t_prompt_processing = (ggml_time_us() - slot->t_start_process) / 1e6;
             complete_slot(*slot);

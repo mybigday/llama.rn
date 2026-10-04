@@ -2,7 +2,7 @@
 // llama_rn_context::decide() (or the slot manager, --parallel N) and prints the
 // response JSON, so it can be diffed against llama-server's /v1/systemone.
 //
-//   decision_probe <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N]
+//   decision_probe <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F]
 
 #include "rn-llama.h"
 #include "rn-slot-manager.h"
@@ -17,7 +17,7 @@ using namespace rnllama;
 
 int main(int argc, char ** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F]\n", argv[0]);
         return 1;
     }
     const std::string model_path   = argv[1];
@@ -25,6 +25,7 @@ int main(int argc, char ** argv) {
     int threads    = 8;
     int n_ctx      = 4096;
     int n_parallel = 0;
+    std::string mmproj_path;
     for (int i = 3; i + 1 < argc; i += 2) {
         const std::string arg = argv[i];
         if (arg == "--threads") {
@@ -33,6 +34,8 @@ int main(int argc, char ** argv) {
             n_ctx = std::atoi(argv[i + 1]);
         } else if (arg == "--parallel") {
             n_parallel = std::atoi(argv[i + 1]);
+        } else if (arg == "--mmproj") {
+            mmproj_path = argv[i + 1];
         }
     }
 
@@ -51,6 +54,10 @@ int main(int argc, char ** argv) {
     params.n_gpu_layers = 0;
     if (!ctx.loadModel(params)) {
         std::fprintf(stderr, "loadModel failed\n");
+        return 2;
+    }
+    if (!mmproj_path.empty() && !ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+        std::fprintf(stderr, "initMultimodal failed\n");
         return 2;
     }
     std::fprintf(stderr, "[probe] model.decision = %s\n", from_common_json(ctx.decision.info()).dump().c_str());
