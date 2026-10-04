@@ -8,14 +8,13 @@
 +#include <android/log.h>
 +#endif
 +
- #if defined(_WIN32)
- #    define WIN32_LEAN_AND_MEAN
- #    ifndef NOMINMAX
-@@ -89,8 +93,37 @@
-     bool jsonl        { false };
+ int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
+ 
+ int common_log_get_verbosity_thold(void) {
+@@ -88,7 +92,36 @@
  
      common_log_entry(size_t size = 256) : msg(size) { }
-+
+ 
 +    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +    void android_print() const {
 +        int android_log_priority;
@@ -41,7 +40,7 @@
 +        __android_log_print(android_log_priority, tag, "%s", msg.data());
 +    }
 +    #endif
- 
++
      void print(FILE * file = nullptr) const {
 +        #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +        android_print();
@@ -49,7 +48,7 @@
          FILE * fcur = file;
          if (!fcur) {
              // stderr displays DBG messages only when their verbosity level is not higher than the threshold
-@@ -147,6 +180,7 @@
+@@ -151,6 +184,7 @@
          }
  
          fflush(fcur);
