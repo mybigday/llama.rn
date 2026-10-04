@@ -102,6 +102,20 @@ export const DECISION_PRESETS: Array<() => DecisionPreset> = [
     ],
   }),
   () => ({
+    name: '點餐（中文）',
+    state: '嗯我要一份中薯，啊還有一杯大杯可樂',
+    questions: [
+      noul('is_ordering', '顧客正在點餐'),
+      choice('first_item', '顧客第一個點的是什麼？', {
+        中薯: '中份薯條',
+        大可樂: '大杯可樂',
+        漢堡: '摩斯漢堡',
+        沒有: '沒有點餐',
+      }),
+      score('mood', '顧客聽起來有多不耐煩？', ['平靜', '普通', '不耐煩']),
+    ],
+  }),
+  () => ({
     name: 'Support triage',
     state:
       'I was charged twice for my order last week and nobody has replied to my emails. I want my money back today.',
