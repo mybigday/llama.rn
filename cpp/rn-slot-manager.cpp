@@ -430,10 +430,11 @@ int32_t llama_rn_slot_manager::queue_decision_request(
         throw std::runtime_error("This model is not a decision model");
     }
 
+    // validated here, so that a bad request rejects right away; the prompts are built on the
+    // processing thread, which is the only one that uses the multimodal context
     auto job = std::make_shared<llama_rn_decision_job>();
     decision.check_context(parent_ctx->ctx);
     job->request   = decision.parse_request(to_common_json(body));
-    job->prompts   = decision.fill_prompts(job->request, parent_ctx->decisionMtmdContext());
     job->on_result = [on_result = std::move(on_result)](int32_t id, const common_json & result) {
         if (on_result) {
             on_result(id, from_common_json(result));
@@ -447,7 +448,6 @@ int32_t llama_rn_slot_manager::queue_decision_request(
     llama_rn_queued_request request;
     request.request_id = request_id;
     request.task_type = SLOT_TASK_TYPE_DECISION;
-    request.prompt_tokens = job->prompts.front().tokens; // for the slot choice
     request.decision_job = std::move(job);
 
     {
@@ -470,7 +470,8 @@ int32_t llama_rn_slot_manager::queue_decision_request(
 }
 
 // A decision evaluates its own prompts on the slot's sequence (see llama_rn_decision_eval): each one is
-// read from a single forward pass, so it does not take part in the shared batch
+// read from a single forward pass, so it does not take part in the shared batch. One prompt per update,
+// so that the other slots keep decoding in between and a cancellation takes effect at the next one.
 void llama_rn_slot_manager::process_decision_slots() {
     std::vector<llama_rn_slot*> pending;
     {
@@ -483,45 +484,66 @@ void llama_rn_slot_manager::process_decision_slots() {
         }
     }
 
+    bool finished_any = false;
     for (llama_rn_slot* slot : pending) {
         const auto job = slot->decision_job;
-        llama_memory_t mem = llama_get_memory(parent_ctx->ctx);
+        mtmd_context * mctx = parent_ctx->decisionMtmdContext();
 
+        bool done = false;
         common_json result;
         try {
-            std::vector<std::vector<float>> scores;
-            llama_rn_decision_cache cache;
-            for (const auto & prompt : job->prompts) {
-                scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, cache, parent_ctx->decisionMtmdContext()));
+            if (!job->prompts_built) {
+                job->prompts = parent_ctx->decision.fill_prompts(job->request, mctx);
+                job->prompts_built = true;
+                size_t n_tokens = 0;
+                for (const auto & prompt : job->prompts) {
+                    n_tokens += prompt.n_tokens(); // text, images and state pieces
+                }
+                std::lock_guard<std::mutex> lock(slots_mutex);
+                slot->num_prompt_tokens = n_tokens;
             }
-            result = parent_ctx->decision.format_result(job->request, job->prompts, scores, parent_ctx->modelName());
+            const auto & prompt = job->prompts[job->next_prompt++];
+            job->scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, job->cache, mctx));
+            if (job->next_prompt == job->prompts.size()) {
+                result = parent_ctx->decision.format_result(job->request, job->prompts, job->scores, parent_ctx->modelName());
+                done = true;
+            }
         } catch (const std::exception & e) {
             LOG_ERROR("Slot %d: decision failed: %s", slot->id, e.what());
             result = common_json{{"error", e.what()}};
+            done = true;
         }
-
-        // the sequence holds the decision prompts, not what the slot cached before
-        if (mem != nullptr) {
-            llama_memory_seq_rm(mem, slot->id, -1, -1);
+        if (!done) {
+            continue;
         }
 
         {
             std::lock_guard<std::mutex> lock(slots_mutex);
-            slot->cache_tokens.clear();
-            slot->bitmap_past_hashes.clear();
-            slot->n_past = 0;
+            reset_decision_sequence(*slot);
             slot->t_prompt_processing = (ggml_time_us() - slot->t_start_process) / 1e6;
             complete_slot(*slot);
         }
         if (job->on_result) {
             job->on_result(slot->request_id, result);
         }
+        finished_any = true;
     }
 
-    if (!pending.empty()) {
+    if (finished_any) {
         std::lock_guard<std::mutex> lock(slots_mutex);
         release_completed_slots();
     }
+}
+
+// The sequence holds the decision prompts, not what the slot cached before
+void llama_rn_slot_manager::reset_decision_sequence(llama_rn_slot & slot) {
+    llama_memory_t mem = llama_get_memory(parent_ctx->ctx);
+    if (mem != nullptr) {
+        llama_memory_seq_rm(mem, slot.id, -1, -1);
+    }
+    slot.cache_tokens.clear();
+    slot.bitmap_past_hashes.clear();
+    slot.n_past = 0;
 }
 
 // Get available slot (LRU strategy for now, similarity matching in Phase 3)
@@ -828,16 +850,18 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->n_remaining = -1;
                 slot->stop_words.clear();
                 slot->decision_job = std::move(request.decision_job);
-                // a cancelled decision is completed without being evaluated, its promise must still settle
-                slot->on_complete_callback = [job = slot->decision_job](llama_rn_slot * s) {
-                    if (s->is_interrupted && job->on_result) {
+                // a cancelled decision stops between two prompts: its promise must still settle, and
+                // the sequence must not keep what it evaluated so far
+                slot->on_complete_callback = [this, job = slot->decision_job](llama_rn_slot * s) {
+                    if (!s->is_interrupted) {
+                        return;
+                    }
+                    reset_decision_sequence(*s);
+                    if (job->on_result) {
                         job->on_result(s->request_id, common_json{{"error", "the decision was cancelled"}});
                     }
                 };
-                slot->num_prompt_tokens = 0;
-                for (const auto & prompt : slot->decision_job->prompts) {
-                    slot->num_prompt_tokens += prompt.n_tokens(); // text, images and state pieces
-                }
+                slot->num_prompt_tokens = 0; // set once the prompts are built
                 slot->state = SLOT_STATE_PROCESSING_PROMPT;
                 slot->i_batch = -1;
                 break;

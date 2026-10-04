@@ -43,6 +43,7 @@
 // mtmd is not among the iOS framework's public headers, and rn-llama.h (which is) includes this one
 struct mtmd_context;
 struct mtmd_input_chunks;
+struct mtmd_bitmap;
 
 // JSON is upstream's common_json here, so that its code carries over as it is;
 // the callers convert at the boundary
@@ -183,6 +184,9 @@ struct llama_rn_decision_request {
 
 struct llama_rn_decision_context {
     common_decision_type      type = COMMON_DECISION_TYPE_NONE;
+    // what <arch>.decision.type says, kept when type falls back to UNKNOWN: it decides whether
+    // common_init put the context in embedding mode
+    common_decision_type      declared_type = COMMON_DECISION_TYPE_NONE;
     llama_rn_decision_profile profile;
     size_t                    n_options_max = 0;
     bool                      legacy = false; // a system_one model, see init_legacy()
@@ -208,6 +212,9 @@ struct llama_rn_decision_context {
 
     // throws if the context cannot serve the readout, e.g. rank_head without RANK pooling
     void check_context(llama_context * ctx) const;
+
+    // false if the model runs in embedding mode for its readout and has no logits to sample
+    bool can_generate_text() const;
 
     // model.decision of the JS API, null if the model is not a decision model
     common_json info() const;
@@ -270,20 +277,13 @@ private:
             const llama_rn_decision_request & request,
             size_t i_question,
             size_t variant,
-            mtmd_context * mctx) const;
+            mtmd_context * mctx,
+            const std::vector<const mtmd_bitmap *> & bitmaps) const;
     llama_rn_decision_prompt fill_prompt_joint(const llama_rn_decision_request & request) const;
     void fill_prompt_laya(std::vector<llama_token> & tokens, const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const;
 
     float get_temperature(const llama_rn_decision_question & question) const;
     common_json format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores) const;
-};
-
-// A decision request queued on the slot manager
-struct llama_rn_decision_job {
-    llama_rn_decision_request request;
-    std::vector<llama_rn_decision_prompt> prompts;
-    // the response, or {"error": message}
-    std::function<void(int32_t request_id, const common_json & result)> on_result;
 };
 
 // What a sequence holds from the previous prompt, so that the next one evaluates only what
@@ -297,6 +297,20 @@ struct llama_rn_decision_cache {
         chunks.reset();
     }
 };
+
+// A decision request queued on the slot manager. Its prompts are built and evaluated on the
+// processing thread, one prompt per update, so the other slots keep going in between.
+struct llama_rn_decision_job {
+    llama_rn_decision_request request;
+    std::vector<llama_rn_decision_prompt> prompts; // empty until built
+    bool                                  prompts_built = false;
+    size_t                                next_prompt   = 0;
+    std::vector<std::vector<float>>       scores;
+    llama_rn_decision_cache               cache;
+    // the response, or {"error": message}
+    std::function<void(int32_t request_id, const common_json & result)> on_result;
+};
+
 
 // Evaluate one prompt on sequence seq_id and return its raw scores, throws on failure.
 // mctx: the multimodal context, needed by a prompt with images.

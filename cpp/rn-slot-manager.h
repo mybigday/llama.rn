@@ -227,8 +227,9 @@ struct llama_rn_slot_manager {
     // Process pending queue
     void process_pending_queue();
 
-    // Evaluate the decision of every slot that has one
+    // Evaluate the next prompt of every slot's decision
     void process_decision_slots();
+    void reset_decision_sequence(llama_rn_slot & slot);
 
     // Release completed slots
     void release_completed_slots();

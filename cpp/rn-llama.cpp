@@ -638,8 +638,7 @@ bool llama_rn_context::loadModel(common_params &params_)
 }
 
 bool llama_rn_context::canGenerateText() const {
-    const auto info = decision.info();
-    return info.is_null() || info.at("textGeneration").get<bool>();
+    return decision.can_generate_text();
 }
 
 std::string llama_rn_context::modelName() const {
@@ -671,16 +670,9 @@ json llama_rn_context::decide(const json & body) {
     // the prompts take over the completion's sequence
     llama_memory_t mem = llama_get_memory(ctx);
     auto reset = [&]() {
-        if (mem != nullptr) {
-            llama_memory_clear(mem, true);
-        }
+        clearCache(true);
         if (completion != nullptr) {
             completion->rewind();
-            completion->embd.clear();
-            completion->clearStateCheckpoints();
-        }
-        if (mtmd_wrapper != nullptr) {
-            mtmd_wrapper->bitmap_past_hashes.clear();
         }
     };
     reset();
@@ -1025,6 +1017,11 @@ void llama_rn_context::clearCache(bool clear_data) {
     }
 
     llama_memory_clear(kv, clear_data);
+
+    // the media the completion evaluated is gone with the memory
+    if (mtmd_wrapper != nullptr) {
+        mtmd_wrapper->bitmap_past_hashes.clear();
+    }
 
     if (completion != nullptr) {
         completion->embd.clear();
