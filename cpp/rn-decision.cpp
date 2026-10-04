@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <regex>
 #include <stdexcept>
 
@@ -1340,38 +1341,42 @@ json llama_rn_decision_context::format_result(
 // Evaluate a prompt with images from the start of the sequence, the way llama-server does
 // (process_mtmd_chunk): a media chunk is encoded in one mtmd batch with the media chunks
 // that follow it, then its embeddings are decoded; text is decoded in batches of n_batch.
-// Only the last token of the prompt has an output.
+// Only the last token of the prompt has an output. Evaluation starts at token first_token of
+// chunk first_chunk, at position n_past: what comes before is already in the sequence.
 static void decision_eval_chunks(
         mtmd_context * mctx,
         llama_context * ctx,
         llama_seq_id seq_id,
         const mtmd_input_chunks * chunks,
         llama_pos & n_past,
-        bool logits_last) {
+        bool logits_last,
+        size_t first_chunk = 0,
+        size_t first_token = 0) {
     const size_t  n_chunks = mtmd_input_chunks_size(chunks);
     const int32_t n_batch  = llama_n_batch(ctx);
 
     mtmd::batch_ptr mbatch;
-    for (size_t i = 0; i < n_chunks; i++) {
+    for (size_t i = first_chunk; i < n_chunks; i++) {
         const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
         const bool is_last = i + 1 == n_chunks;
 
         if (mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT) {
             size_t n_tokens = 0;
             const llama_token * tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
+            const size_t first = i == first_chunk ? first_token : 0;
             common_batch batch(ctx);
-            for (size_t j = 0; j < n_tokens; j += n_batch) {
+            for (size_t j = first; j < n_tokens; j += n_batch) {
                 const size_t end = std::min(n_tokens, j + n_batch);
                 batch.clear();
                 for (size_t k = j; k < end; k++) {
-                    batch.add(tokens[k], n_past + k, seq_id, logits_last && is_last && k + 1 == n_tokens);
+                    batch.add(tokens[k], n_past + (k - first), seq_id, logits_last && is_last && k + 1 == n_tokens);
                 }
                 const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
                 if (ret != 0) {
                     throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
                 }
             }
-            n_past += n_tokens;
+            n_past += n_tokens - first;
             continue;
         }
 
@@ -1407,17 +1412,81 @@ static void decision_eval_chunks(
     }
 }
 
+// Where two prompts with images first differ: a media chunk matches when it is the same image
+// (its id is the image's hash) with the same tokens, a text chunk token by token. The last token of
+// b is always evaluated again, its logits are read.
+static void decision_common_prefix(
+        const mtmd_input_chunks * a,
+        const mtmd_input_chunks * b,
+        size_t & i_chunk,
+        size_t & i_token,
+        llama_pos & n_pos) {
+    i_chunk = 0;
+    i_token = 0;
+    n_pos   = 0;
+    const size_t n_b = mtmd_input_chunks_size(b);
+    const size_t n   = std::min(mtmd_input_chunks_size(a), n_b);
+    for (; i_chunk < n; i_chunk++) {
+        const mtmd_input_chunk * ca = mtmd_input_chunks_get(a, i_chunk);
+        const mtmd_input_chunk * cb = mtmd_input_chunks_get(b, i_chunk);
+        const auto type = mtmd_input_chunk_get_type(cb);
+        if (mtmd_input_chunk_get_type(ca) != type) {
+            return;
+        }
+        if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t n_a = 0;
+            size_t n_b_tokens = 0;
+            const llama_token * ta = mtmd_input_chunk_get_tokens_text(ca, &n_a);
+            const llama_token * tb = mtmd_input_chunk_get_tokens_text(cb, &n_b_tokens);
+            size_t k = 0;
+            while (k < n_a && k < n_b_tokens && ta[k] == tb[k]) {
+                k++;
+            }
+            if (k < n_a || k < n_b_tokens) {
+                i_token = k;
+                n_pos  += k;
+                break;
+            }
+            n_pos += k;
+            continue;
+        }
+        const char * id_a = mtmd_input_chunk_get_id(ca);
+        const char * id_b = mtmd_input_chunk_get_id(cb);
+        if (id_a == nullptr || id_b == nullptr || std::strcmp(id_a, id_b) != 0 ||
+            mtmd_input_chunk_get_n_tokens(ca) != mtmd_input_chunk_get_n_tokens(cb)) {
+            return;
+        }
+        n_pos += mtmd_input_chunk_get_n_pos(cb);
+    }
+
+    // the last token of b must be evaluated: if b matched up to its very end, step back onto it
+    if (i_chunk >= n_b) {
+        i_chunk = n_b - 1;
+        i_token = mtmd_input_chunk_get_n_tokens(mtmd_input_chunks_get(b, i_chunk));
+    }
+    const mtmd_input_chunk * last = mtmd_input_chunks_get(b, n_b - 1);
+    const size_t n_last = mtmd_input_chunk_get_n_tokens(last);
+    if (i_chunk == n_b - 1 && i_token >= n_last) {
+        if (mtmd_input_chunk_get_type(last) != MTMD_INPUT_CHUNK_TYPE_TEXT || n_last == 0) {
+            i_chunk = 0; // a prompt ends with text, see decision_eval_chunks()
+            i_token = 0;
+            n_pos   = 0;
+            return;
+        }
+        i_token = n_last - 1;
+        n_pos  -= 1;
+    }
+}
+
 // system_one with images: the state pieces from the start of the sequence (text, or text and
 // images), then the question blocks in one batch, whose slots are read there
 static std::vector<float> decision_eval_state_pieces(
         llama_context * ctx,
         llama_seq_id seq_id,
         const llama_rn_decision_prompt & prompt,
-        std::vector<llama_token> & cached,
         mtmd_context * mctx) {
     llama_memory_t mem   = llama_get_memory(ctx);
     const size_t n_batch = llama_n_batch(ctx);
-    cached.clear();
     if (mem != nullptr) {
         llama_memory_seq_rm(mem, seq_id, -1, -1);
     }
@@ -1479,25 +1548,38 @@ std::vector<float> llama_rn_decision_eval(
         llama_context * ctx,
         llama_seq_id seq_id,
         const llama_rn_decision_prompt & prompt,
-        std::vector<llama_token> & cached,
+        llama_rn_decision_cache & cache,
         mtmd_context * mctx) {
     if (prompt.chunks) {
-        // the media chunks are evaluated from the start, every time
+        // continue from the previous prompt where the two agree: its images are encoded and
+        // decoded already, as llama-server keeps them in the slot
         llama_memory_t mem = llama_get_memory(ctx);
-        cached.clear();
-        if (mem != nullptr) {
-            llama_memory_seq_rm(mem, seq_id, -1, -1);
-        }
         GGML_ASSERT(mctx != nullptr);
+        size_t    first_chunk = 0;
+        size_t    first_token = 0;
+        llama_pos n_past      = 0;
+        if (mem != nullptr && cache.chunks) {
+            decision_common_prefix(cache.chunks.get(), prompt.chunks.get(), first_chunk, first_token, n_past);
+        }
+        // a recurrent state cannot be rolled back, start over
+        if (mem == nullptr || !llama_memory_seq_rm(mem, seq_id, n_past, -1)) {
+            if (mem != nullptr) {
+                llama_memory_seq_rm(mem, seq_id, -1, -1);
+            }
+            first_chunk = 0;
+            first_token = 0;
+            n_past      = 0;
+        }
+        cache.clear();
         try {
-            llama_pos n_past = 0;
-            decision_eval_chunks(mctx, ctx, seq_id, prompt.chunks.get(), n_past, true);
+            decision_eval_chunks(mctx, ctx, seq_id, prompt.chunks.get(), n_past, true, first_chunk, first_token);
         } catch (...) {
             if (mem != nullptr) {
                 llama_memory_seq_rm(mem, seq_id, -1, -1);
             }
             throw;
         }
+        cache.chunks = prompt.chunks;
         const float * logits = llama_get_logits_ith(ctx, -1);
         if (logits == nullptr) {
             throw std::runtime_error("failed to get logits");
@@ -1510,7 +1592,8 @@ std::vector<float> llama_rn_decision_eval(
     }
 
     if (!prompt.state_pieces.empty()) {
-        return decision_eval_state_pieces(ctx, seq_id, prompt, cached, mctx);
+        cache.clear();
+        return decision_eval_state_pieces(ctx, seq_id, prompt, mctx);
     }
 
     const auto & tokens   = prompt.tokens;
@@ -1529,7 +1612,7 @@ std::vector<float> llama_rn_decision_eval(
     // continue from the previous prompt of the sequence, every position that is read is evaluated again
     size_t n_keep = 0;
     if (mem != nullptr) {
-        while (n_keep < cached.size() && n_keep < first_read && cached[n_keep] == tokens[n_keep]) {
+        while (n_keep < cache.tokens.size() && n_keep < first_read && cache.tokens[n_keep] == tokens[n_keep]) {
             n_keep++;
         }
         // a recurrent state cannot be rolled back, start over
@@ -1538,7 +1621,8 @@ std::vector<float> llama_rn_decision_eval(
             n_keep = 0;
         }
     }
-    cached.assign(tokens.begin(), tokens.begin() + n_keep);
+    cache.chunks.reset();
+    cache.tokens.assign(tokens.begin(), tokens.begin() + n_keep);
 
     common_batch batch(ctx);
     size_t i_last = n_keep; // first position of the last batch
@@ -1561,18 +1645,18 @@ std::vector<float> llama_rn_decision_eval(
         }
         const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
         if (ret != 0) {
-            cached.clear();
+            cache.tokens.clear();
             if (mem != nullptr) {
                 llama_memory_seq_rm(mem, seq_id, -1, -1);
             }
             throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
         }
-        cached.insert(cached.end(), tokens.begin() + i, tokens.begin() + end);
+        cache.tokens.insert(cache.tokens.end(), tokens.begin() + i, tokens.begin() + end);
         i_last = i;
         i = end;
     }
     if (mem == nullptr) {
-        cached.clear();
+        cache.tokens.clear();
     }
 
     std::vector<float> scores;

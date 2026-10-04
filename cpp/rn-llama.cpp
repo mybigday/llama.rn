@@ -686,10 +686,10 @@ json llama_rn_context::decide(const json & body) {
     reset();
 
     std::vector<std::vector<float>> scores;
-    std::vector<llama_token> cached;
+    llama_rn_decision_cache cache;
     try {
         for (const auto & prompt : prompts) {
-            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cached, mctx));
+            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cache, mctx));
         }
     } catch (...) {
         reset();

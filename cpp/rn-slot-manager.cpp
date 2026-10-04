@@ -490,9 +490,9 @@ void llama_rn_slot_manager::process_decision_slots() {
         common_json result;
         try {
             std::vector<std::vector<float>> scores;
-            std::vector<llama_token> cached;
+            llama_rn_decision_cache cache;
             for (const auto & prompt : job->prompts) {
-                scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, cached, parent_ctx->decisionMtmdContext()));
+                scores.push_back(llama_rn_decision_eval(parent_ctx->ctx, slot->id, prompt, cache, parent_ctx->decisionMtmdContext()));
             }
             result = parent_ctx->decision.format_result(job->request, job->prompts, scores, parent_ctx->modelName());
         } catch (const std::exception & e) {

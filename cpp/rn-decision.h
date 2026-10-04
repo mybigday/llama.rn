@@ -289,15 +289,26 @@ struct llama_rn_decision_job {
     std::function<void(int32_t request_id, const common_json & result)> on_result;
 };
 
+// What a sequence holds from the previous prompt, so that the next one evaluates only what
+// differs from it. Empty for a cleared sequence.
+struct llama_rn_decision_cache {
+    std::vector<llama_token>           tokens; // a text prompt
+    std::shared_ptr<mtmd_input_chunks> chunks; // a prompt with images
+
+    void clear() {
+        tokens.clear();
+        chunks.reset();
+    }
+};
+
 // Evaluate one prompt on sequence seq_id and return its raw scores, throws on failure.
 // mctx: the multimodal context, needed by a prompt with images.
-// cached: the tokens in the sequence, from the previous prompt (empty for a cleared sequence);
-// the common prefix is not evaluated again, it is updated on return.
+// cache: what the sequence holds, the common prefix is not evaluated again; updated on return.
 std::vector<float> llama_rn_decision_eval(
         llama_context * ctx,
         llama_seq_id seq_id,
         const llama_rn_decision_prompt & prompt,
-        std::vector<llama_token> & cached,
+        llama_rn_decision_cache & cache,
         mtmd_context * mctx = nullptr);
 
 } // namespace rnllama
