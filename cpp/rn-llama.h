@@ -17,6 +17,7 @@
 #include "sampling.h"
 #include "nlohmann/json.hpp"
 #include "rn-tts.h"
+#include "rn-decision.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
@@ -24,6 +25,10 @@
 using json = nlohmann::ordered_json;
 
 namespace rnllama {
+
+// rn-decision speaks upstream's common_json
+inline common_json to_common_json(const json & j) { return common_json::parse(j.dump()); }
+inline json from_common_json(const common_json & j) { return json::parse(j.dump()); }
 
 // Display form of a raw token piece: a lone high-bit byte is hex-escaped,
 // any other ill-formed piece is sanitized (JSI strings require well-formed UTF-8)
@@ -196,6 +201,15 @@ struct llama_rn_context {
     // multimodal is disabled); persisted alongside session/state files
     std::vector<std::string> getMediaHashes() const;
     void setMediaHashes(const std::vector<std::string> &hashes);
+
+    // Typed decision models, see rn-decision.h
+    llama_rn_decision_context decision;
+    // false if the model only answers decisions (it runs in embedding mode)
+    bool canGenerateText() const;
+    // TypeSafe /v1/systemone request in, response out; runs on the completion's sequence, which starts over
+    json decide(const json & body);
+    // general.name of the model, or its file name
+    std::string modelName() const;
 
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;

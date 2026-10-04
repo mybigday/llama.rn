@@ -1054,8 +1054,9 @@ export class LlamaContext {
    * (see `model.decision`), in the shape of the TypeSafe `/v1/systemone` API.
    * Each answer is read from one forward pass, no token is generated.
    *
-   * Rejects if the request is invalid, or if the model is not a decision
-   * model of a supported type.
+   * Rejects if the request is invalid, if the model is not a decision
+   * model of a supported type, or if parallel mode is enabled (use
+   * `parallel.decide()` then).
    */
   async decide<const Q extends DecisionQuestions>(
     request: DecisionRequest<Q>,

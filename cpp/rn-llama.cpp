@@ -618,6 +618,14 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
     completion = new llama_rn_context_completion(this);
 
+    try {
+        decision.init(model);
+    } catch (const std::exception & e) {
+        // the model stays usable for anything else, decide() reports that it cannot answer
+        LOG_ERROR("failed to init decision model: %s", e.what());
+        decision.type = COMMON_DECISION_TYPE_UNKNOWN;
+    }
+
     // Initialize context shift flag
     LOG_INFO("ctx_shift: %s", params.ctx_shift ? "enabled" : "disabled");
 
@@ -625,6 +633,60 @@ bool llama_rn_context::loadModel(common_params &params_)
     // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
 
     return true;
+}
+
+bool llama_rn_context::canGenerateText() const {
+    const auto info = decision.info();
+    return info.is_null() || info.at("textGeneration").get<bool>();
+}
+
+std::string llama_rn_context::modelName() const {
+    char buf[256];
+    if (llama_model_meta_val_str(model, "general.name", buf, sizeof(buf)) > 0) {
+        return buf;
+    }
+    const std::string & path = params.model.path;
+    return path.substr(path.find_last_of("/\\") + 1);
+}
+
+json llama_rn_context::decide(const json & body) {
+    if (decision.type == COMMON_DECISION_TYPE_NONE) {
+        throw std::runtime_error("This model is not a decision model");
+    }
+    if (parallel_mode_enabled) {
+        // clearing the memory would drop the sequences of the slots
+        throw std::runtime_error("Parallel mode is enabled, use parallel.decide()");
+    }
+    const auto request = decision.parse_request(to_common_json(body));
+    const auto prompts = decision.fill_prompts(request);
+
+    // the prompts take over the completion's sequence
+    llama_memory_t mem = llama_get_memory(ctx);
+    auto reset = [&]() {
+        if (mem != nullptr) {
+            llama_memory_clear(mem, true);
+        }
+        if (completion != nullptr) {
+            completion->rewind();
+            completion->embd.clear();
+            completion->clearStateCheckpoints();
+        }
+    };
+    reset();
+
+    std::vector<std::vector<float>> scores;
+    std::vector<llama_token> cached;
+    try {
+        for (const auto & prompt : prompts) {
+            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cached));
+        }
+    } catch (...) {
+        reset();
+        throw;
+    }
+    reset();
+
+    return from_common_json(decision.format_result(request, prompts, scores, modelName()));
 }
 
 bool llama_rn_context::hasDraftModel() const {

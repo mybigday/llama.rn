@@ -137,6 +137,7 @@ void llama_rn_slot::reset() {
     rerank_prompt_tokens.clear();
     rerank_scores.clear();
     rerank_current_index = 0;
+    decision_job.reset();
 
     // Reset state management
     if (!load_state_path.empty() || !save_state_path.empty() || !save_prompt_state_path.empty()) {

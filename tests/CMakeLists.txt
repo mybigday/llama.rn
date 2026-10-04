@@ -88,6 +88,10 @@ rnllama_test(chat_parse_utf8_test chat_parse_utf8_test.cpp)
 # Parallel decoding tests
 rnllama_test(parallel_decoding_test parallel_decoding_test.cpp)
 
+# Decision model probe: prints the /v1/systemone response of a request, to diff
+# against llama-server
+rnllama_test(decision_probe decision_probe.cpp NATIVE_SIMD)
+
 # BlueMagpie CLI probe: measures per-step latency of the continuous_embd
 # completion-loop hook on host, so we can pin down the bottleneck without
 # fighting Pixel's OOM killer.

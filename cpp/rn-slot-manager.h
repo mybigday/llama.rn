@@ -75,6 +75,8 @@ struct llama_rn_queued_request {
     std::vector<std::vector<llama_token>> rerank_prompt_tokens;
     std::function<void(int32_t, const std::vector<float>&)> on_rerank;
 
+    std::shared_ptr<llama_rn_decision_job> decision_job;
+
     // State management
     std::string load_state_path;       // File path to load state from before processing
     std::string save_state_path;       // File path to save state to after completion
@@ -188,6 +190,14 @@ struct llama_rn_slot_manager {
         int32_t request_id = -1
     );
 
+    // Throws std::invalid_argument / std::runtime_error if the request cannot be answered;
+    // a failure after it is queued goes to on_result as {"error": message}
+    int32_t queue_decision_request(
+        const json& body,
+        std::function<void(int32_t, const json&)> on_result,
+        int32_t request_id = -1
+    );
+
     // Slot management
     llama_rn_slot* get_available_slot(const std::vector<llama_token>& prompt);
     llama_rn_slot* get_slot_by_request_id(int32_t request_id);
@@ -216,6 +226,9 @@ struct llama_rn_slot_manager {
 
     // Process pending queue
     void process_pending_queue();
+
+    // Evaluate the decision of every slot that has one
+    void process_decision_slots();
 
     // Release completed slots
     void release_completed_slots();
