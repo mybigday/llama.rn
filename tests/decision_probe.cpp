@@ -6,6 +6,7 @@
 
 #include "rn-llama.h"
 #include "rn-slot-manager.h"
+#include "rn-completion.h"
 
 #include <condition_variable>
 #include <cstdio>
@@ -26,6 +27,7 @@ int main(int argc, char ** argv) {
     int n_ctx      = 4096;
     int n_parallel = 0;
     std::string mmproj_path;
+    std::string complete_media; // --complete-media F: run <request.json> as a raw prompt through completion() instead
     for (int i = 3; i + 1 < argc; i += 2) {
         const std::string arg = argv[i];
         if (arg == "--threads") {
@@ -36,13 +38,15 @@ int main(int argc, char ** argv) {
             n_parallel = std::atoi(argv[i + 1]);
         } else if (arg == "--mmproj") {
             mmproj_path = argv[i + 1];
+        } else if (arg == "--complete-media") {
+            complete_media = argv[i + 1];
         }
     }
 
     std::ifstream f(request_path);
     std::stringstream ss;
     ss << f.rdbuf();
-    const json request = json::parse(ss.str());
+    const json request = complete_media.empty() ? json::parse(ss.str()) : json();
 
     llama_rn_context ctx;
     common_params params;
@@ -61,6 +65,25 @@ int main(int argc, char ** argv) {
         return 2;
     }
     std::fprintf(stderr, "[probe] model.decision = %s\n", from_common_json(ctx.decision.info()).dump().c_str());
+
+    if (!complete_media.empty()) {
+        // the existing multimodal completion path, no rn-decision involved: top probabilities of the next token
+        ctx.completion->rewind();
+        ctx.params.prompt = ss.str();
+        ctx.params.n_predict = 1;
+        ctx.params.sampling.n_probs = 20;
+        ctx.post_sampling_probs = false;
+        ctx.completion->initSampling();
+        ctx.completion->loadPrompt({complete_media});
+        ctx.completion->beginCompletion();
+        const auto out = ctx.completion->doCompletion();
+        json probs = json::array();
+        for (const auto & p : out.probs) {
+            probs.push_back({{"id", p.tok}, {"prob", p.prob}});
+        }
+        std::printf("%s\n", json{{"probs", probs}}.dump(2).c_str());
+        return 0;
+    }
 
     json result;
     try {
