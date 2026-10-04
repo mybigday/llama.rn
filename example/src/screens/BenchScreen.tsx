@@ -32,8 +32,11 @@ import {
 
 // Filter models to only include models that Bench can initialize directly.
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
-  const modelWithExtras = model as typeof model & { vocoder?: any }
-  return !modelWithExtras.vocoder
+  const modelWithExtras = model as typeof model & {
+    vocoder?: any
+    decision?: boolean
+  }
+  return !modelWithExtras.vocoder && !modelWithExtras.decision
 })
 
 const BENCH_MODELS = createExampleModelDefinitions(

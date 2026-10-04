@@ -13,6 +13,7 @@ describe('example screen registry', () => {
       'Multimodal',
       'ToolCalling',
       'Embeddings',
+      'Decision',
       'TTS',
       'ModelInfo',
       'Bench',

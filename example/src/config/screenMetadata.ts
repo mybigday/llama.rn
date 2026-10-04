@@ -52,6 +52,12 @@ export const EXAMPLE_SCREEN_METADATA: Array<
     emoji: '🔍',
   },
   {
+    routeName: 'Decision',
+    title: 'Typed Decisions',
+    homeLabel: 'Typed Decisions',
+    emoji: '🎯',
+  },
+  {
     routeName: 'TTS',
     title: 'Text-to-Speech',
     homeLabel: 'Text-to-Speech',

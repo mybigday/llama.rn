@@ -269,6 +269,23 @@ export const MODELS = {
     ranking: true,
     size: '636MB',
   },
+  // Typed decision models (decide()), see https://huggingface.co/blog/ggml-org/decision-models-in-llamacpp
+  LAYA: {
+    name: 'Laya (Q8_0)',
+    repo: 'ggml-org/Laya-GGUF',
+    filename: 'Laya-Q8_0.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '449MB',
+  },
+  KEV_4B: {
+    name: 'Kev 4B (Q8_0)',
+    repo: 'ggml-org/Kev-4B-GGUF',
+    filename: 'Kev-4B-Q8_0.gguf',
+    mmproj: undefined,
+    decision: true,
+    size: '4.48GB',
+  },
 }
 
 export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'

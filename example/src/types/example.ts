@@ -10,6 +10,7 @@ export type ExampleRouteName =
   | 'Multimodal'
   | 'ToolCalling'
   | 'Embeddings'
+  | 'Decision'
   | 'TTS'
   | 'ModelInfo'
   | 'Bench'
