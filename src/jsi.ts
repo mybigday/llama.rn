@@ -9,6 +9,9 @@ import type {
   NativeSessionLoadResult,
   NativeRerankParams,
   NativeRerankResult,
+  DecisionRequest,
+  NativeDecisionResult,
+  NativeQueuedDecisionResult,
   NativeBackendDeviceInfo,
   NativeBenchResult,
   JinjaFormattedChatResult,
@@ -69,6 +72,10 @@ declare global {
     documents: string[],
     params: NativeRerankParams,
   ) => Promise<NativeRerankResult[]>
+  var llamaDecide: (
+    contextId: number,
+    request: DecisionRequest,
+  ) => Promise<NativeDecisionResult>
   var llamaBench: (
     contextId: number,
     pp: number,
@@ -239,6 +246,11 @@ declare global {
     documents: string[],
     params: NativeRerankParams,
     onResult: (result: NativeRerankResult[]) => void,
+  ) => Promise<{ requestId: number }>
+  var llamaQueueDecide: (
+    contextId: number,
+    request: DecisionRequest,
+    onResult: (result: NativeQueuedDecisionResult) => void,
   ) => Promise<{ requestId: number }>
   var llamaGetParallelStatus: (contextId: number) => Promise<ParallelStatus>
   var llamaSubscribeParallelStatus: (

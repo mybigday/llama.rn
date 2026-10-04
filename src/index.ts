@@ -14,6 +14,22 @@ import type {
   NativeEmbeddingParams,
   NativeRerankParams,
   NativeRerankResult,
+  DecisionModelType,
+  DecisionValue,
+  DecisionContent,
+  DecisionChoiceQuestion,
+  DecisionScoreQuestion,
+  DecisionNoulQuestion,
+  DecisionQuestion,
+  DecisionQuestions,
+  DecisionRequest,
+  DecisionChoiceAnswer,
+  DecisionScoreAnswer,
+  DecisionNoulAnswer,
+  DecisionAnswer,
+  DecisionAnswerOf,
+  DecisionResult,
+  NativeDecisionResult,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   JinjaFormattedChatResult,
@@ -62,6 +78,22 @@ export type {
   NativeEmbeddingParams,
   NativeRerankParams,
   NativeRerankResult,
+  DecisionModelType,
+  DecisionValue,
+  DecisionContent,
+  DecisionChoiceQuestion,
+  DecisionScoreQuestion,
+  DecisionNoulQuestion,
+  DecisionQuestion,
+  DecisionQuestions,
+  DecisionRequest,
+  DecisionChoiceAnswer,
+  DecisionScoreAnswer,
+  DecisionNoulAnswer,
+  DecisionAnswer,
+  DecisionAnswerOf,
+  DecisionResult,
+  NativeDecisionResult,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   FormattedChatResult,
@@ -108,6 +140,7 @@ const jsiBindingKeys = [
   'llamaGetFormattedChat',
   'llamaEmbedding',
   'llamaRerank',
+  'llamaDecide',
   'llamaBench',
   'llamaToggleNativeLog',
   'llamaSetContextLimit',
@@ -138,6 +171,7 @@ const jsiBindingKeys = [
   'llamaCancelRequest',
   'llamaQueueEmbedding',
   'llamaQueueRerank',
+  'llamaQueueDecide',
   'llamaGetParallelStatus',
   'llamaSubscribeParallelStatus',
   'llamaUnsubscribeParallelStatus',
@@ -634,6 +668,46 @@ export class LlamaContext {
         }
       }),
 
+    /**
+     * Queue a decision request for parallel processing (non-blocking)
+     * @param request The state and the typed questions, see `decide()`
+     * @returns Promise resolving to object with requestId and promise (resolves to the answers)
+     */
+    decide: async <const Q extends DecisionQuestions>(
+      request: DecisionRequest<Q>,
+    ): Promise<{
+      requestId: number
+      promise: Promise<DecisionResult<Q>>
+    }> =>
+      new Promise(async (resolveOuter, rejectOuter) => {
+        const { llamaQueueDecide } = getJsi()
+        try {
+          let resolveResult: (value: DecisionResult<Q>) => void
+          let rejectResult: (reason: Error) => void
+          const resultPromise = new Promise<DecisionResult<Q>>((res, rej) => {
+            resolveResult = res
+            rejectResult = rej
+          })
+
+          // a request can fail after it was queued (e.g. a prompt longer than n_ubatch)
+          const { requestId } = await llamaQueueDecide(
+            this.id,
+            request,
+            (result) => {
+              if ('error' in result) rejectResult(new Error(result.error))
+              else resolveResult(result as DecisionResult<Q>)
+            },
+          )
+
+          resolveOuter({
+            requestId,
+            promise: resultPromise,
+          })
+        } catch (e) {
+          rejectOuter(e)
+        }
+      }),
+
     enable: (config?: { n_parallel?: number; n_batch?: number }) =>
       getJsi().llamaEnableParallelMode(this.id, { enabled: true, ...config }),
 
@@ -973,6 +1047,21 @@ export class LlamaContext {
         document: documents[result.index],
       }))
       .sort((a, b) => b.score - a.score)
+  }
+
+  /**
+   * Answer typed questions about a state with a decision model
+   * (see `model.decision`), in the shape of the TypeSafe `/v1/systemone` API.
+   * Each answer is read from one forward pass, no token is generated.
+   *
+   * Rejects if the request is invalid, or if the model is not a decision
+   * model of a supported type.
+   */
+  async decide<const Q extends DecisionQuestions>(
+    request: DecisionRequest<Q>,
+  ): Promise<DecisionResult<Q>> {
+    const { llamaDecide } = getJsi()
+    return (await llamaDecide(this.id, request)) as DecisionResult<Q>
   }
 
   async bench(

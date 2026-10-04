@@ -1041,6 +1041,19 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaRerank", rerank);
 
+        // TODO: typed decision models (rn-decision), the JS API is defined in src/types.ts
+        auto decide = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaDecide"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                return createPromiseTask(runtime, callInvoker, []() -> PromiseResultGenerator {
+                    throw std::runtime_error("Decision models are not supported yet");
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaDecide", decide);
+
         auto bench = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaBench"),
             5,
@@ -1602,6 +1615,19 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueRerank", queueRerank);
+
+        // TODO: typed decision models (rn-decision), the JS API is defined in src/types.ts
+        auto queueDecide = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaQueueDecide"),
+            3,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                return createPromiseTask(runtime, callInvoker, []() -> PromiseResultGenerator {
+                    throw std::runtime_error("Decision models are not supported yet");
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaQueueDecide", queueDecide);
 
         // Get parallel status (one-time snapshot)
         auto getParallelStatus = jsi::Function::createFromHostFunction(runtime,

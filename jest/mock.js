@@ -136,6 +136,41 @@ if (!NativeModules.RNLlama) {
       })
     }
 
+    // Uniform answers in the shape of the TypeSafe /v1/systemone response
+    const mockDecide = (request) => {
+      const answers = {}
+      Object.entries(request?.questions || {}).forEach(([id, q]) => {
+        if (q.type === 'noul') {
+          answers[id] = { type: 'noul', noul: 0.5 }
+          return
+        }
+        const keys =
+          q.type === 'score'
+            ? q.criteria.map((_, i) => String(i))
+            : Object.keys(q.criteria)
+        const probabilities = Object.fromEntries(
+          keys.map((k) => [k, 1 / keys.length]),
+        )
+        answers[id] =
+          q.type === 'score'
+            ? {
+                type: 'score',
+                score: (keys.length - 1) / 2,
+                legend: Object.fromEntries(
+                  q.criteria.map((desc, i) => [String(i), desc]),
+                ),
+                probabilities,
+                confidence: 0,
+              }
+            : { type: 'choice', choice: keys[0], probabilities, confidence: 0 }
+      })
+      return {
+        model: 'mock',
+        answers,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      }
+    }
+
     const mockInitContextResult = {
       gpu: false,
       reasonNoGPU: 'mock',
@@ -239,6 +274,10 @@ if (!NativeModules.RNLlama) {
         { score: 0.5, index: 1 },
         { score: 0.2, index: 2 },
       ]),
+    )
+    setGlobal(
+      'llamaDecide',
+      jest.fn(async (_ctx, request) => mockDecide(request)),
     )
     setGlobal(
       'llamaBench',
@@ -405,6 +444,14 @@ if (!NativeModules.RNLlama) {
           score: 1 - index * 0.1,
         }))
         if (typeof onResult === 'function') onResult(results)
+        return { requestId: reqId }
+      }),
+    )
+    setGlobal(
+      'llamaQueueDecide',
+      jest.fn(async (_ctx, request, onResult) => {
+        const reqId = getNextRequestId()
+        if (typeof onResult === 'function') onResult(mockDecide(request))
         return { requestId: reqId }
       }),
     )
