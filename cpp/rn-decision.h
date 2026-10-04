@@ -32,8 +32,6 @@
 #include "common.h"
 #include "chat.h"
 #include "json.h"
-#include "mtmd.h"
-#include "mtmd-helper.h"
 
 #include <algorithm>
 #include <functional>
@@ -41,6 +39,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+// mtmd is not among the iOS framework's public headers, and rn-llama.h (which is) includes this one
+struct mtmd_context;
+struct mtmd_input_chunks;
 
 // JSON is upstream's common_json here, so that its code carries over as it is;
 // the callers convert at the boundary
@@ -139,13 +141,8 @@ struct llama_rn_decision_prompt {
     // question blocks, whose slots are relative to them)
     std::vector<llama_rn_decision_piece> state_pieces;
 
-    size_t n_tokens() const {
-        size_t n = chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
-        for (const auto & piece : state_pieces) {
-            n += piece.chunks ? mtmd_helper_get_n_tokens(piece.chunks.get()) : piece.tokens.size();
-        }
-        return n;
-    }
+    // text and media tokens, the state pieces included
+    size_t n_tokens() const;
 
     std::vector<llama_token> labels;  // LABEL_LOGITS: logits of these tokens, at the last token
     std::vector<int32_t>     slots;   // LETTER_SLOTS: where each question's labels are read

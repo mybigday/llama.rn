@@ -227,6 +227,14 @@ json llama_rn_decision_context::info() const {
     return out;
 }
 
+size_t llama_rn_decision_prompt::n_tokens() const {
+    size_t n = chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+    for (const auto & piece : state_pieces) {
+        n += piece.chunks ? mtmd_helper_get_n_tokens(piece.chunks.get()) : piece.tokens.size();
+    }
+    return n;
+}
+
 //
 // system_one (legacy)
 //

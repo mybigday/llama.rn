@@ -836,7 +836,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 };
                 slot->num_prompt_tokens = 0;
                 for (const auto & prompt : slot->decision_job->prompts) {
-                    slot->num_prompt_tokens += prompt.tokens.size();
+                    slot->num_prompt_tokens += prompt.n_tokens(); // text, images and state pieces
                 }
                 slot->state = SLOT_STATE_PROCESSING_PROMPT;
                 slot->i_batch = -1;
@@ -1821,10 +1821,17 @@ llama_rn_parallel_status llama_rn_slot_manager::get_status() {
             case SLOT_TASK_TYPE_COMPLETION: req_status.type = "completion"; break;
             case SLOT_TASK_TYPE_EMBEDDING: req_status.type = "embedding"; break;
             case SLOT_TASK_TYPE_RERANK: req_status.type = "rerank"; break;
+            case SLOT_TASK_TYPE_DECISION: req_status.type = "decision"; break;
         }
 
         req_status.state = "queued";
         req_status.prompt_length = queued.prompt_tokens.size();
+        if (queued.decision_job) {
+            req_status.prompt_length = 0;
+            for (const auto & prompt : queued.decision_job->prompts) {
+                req_status.prompt_length += prompt.n_tokens();
+            }
+        }
         req_status.tokens_generated = 0;
         req_status.prompt_ms = 0.0;
         req_status.generation_ms = 0.0;
