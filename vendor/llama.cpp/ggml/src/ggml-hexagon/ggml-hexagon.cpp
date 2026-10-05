@@ -2735,8 +2735,12 @@ static ggml_backend_buffer_t ggml_backend_hexagon_buffer_type_alloc_buffer(
         return nullptr;
     }
     try {
-        ggml_hexagon_shared_buffer * sbuf = new ggml_hexagon_shared_buffer(sess, size, false);
-        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_buffer_interface, sbuf, size);
+        auto sbuf = std::make_unique<ggml_hexagon_shared_buffer>(sess, size, false);
+        if (!opt_dma64) {
+            // no extended mappings: map now, large contiguous ranges get scarce later
+            sbuf->mmap();
+        }
+        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_buffer_interface, sbuf.release(), size);
     } catch (const std::exception & exc) {
         GGML_LOG_ERROR("ggml-hex: %s failed to allocate device buffer context: %s\n", dev_ctx->c_name(), exc.what());
         return nullptr;
@@ -2753,8 +2757,12 @@ static ggml_backend_buffer_t ggml_backend_hexagon_host_buffer_type_alloc_buffer(
         return nullptr;
     }
     try {
-        ggml_hexagon_shared_buffer * sbuf = new ggml_hexagon_shared_buffer(sess, size, false);
-        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_host_buffer_interface, sbuf, size);
+        auto sbuf = std::make_unique<ggml_hexagon_shared_buffer>(sess, size, false);
+        if (!opt_dma64) {
+            // no extended mappings: map now, large contiguous ranges get scarce later
+            sbuf->mmap();
+        }
+        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_host_buffer_interface, sbuf.release(), size);
     } catch (const std::exception & exc) {
         GGML_LOG_ERROR("ggml-hex: %s failed to allocate host buffer context: %s\n", dev_ctx->c_name(), exc.what());
         return nullptr;
