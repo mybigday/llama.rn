@@ -1814,6 +1814,65 @@ std::vector<Check> run_swa_wrap_test(const std::string &key, const std::string &
     return checks;
 }
 
+// Deep edit on SWA: chat past the window, then edit the first user message so
+// only the system prefix is shared. The SWA cache no longer holds that prefix,
+// so it must not be reused (stale positions + leaked base cells otherwise).
+std::vector<Check> run_swa_deep_edit_test(const std::string &key, const std::string &path) {
+    std::vector<Check> checks;
+    std::cout << "\n===== " << key << " [swa-deep-edit: reuse below the slid window] =====\n";
+    ChatSim sim;
+    if (!sim.load(path, /*n_ctx*/ 4096)) {
+        checks.push_back({key + " [swa-deep-edit]: model load", false, "loadModel failed", false});
+        return checks;
+    }
+    sim.system_prompt = "You are a helpful assistant.";
+    sim.enable_thinking = false;
+    auto *kv = llama_get_memory(sim.ctx.ctx);
+    auto *cmpl = sim.ctx.completion;
+    const size_t n_swa = (size_t) llama_model_n_swa(sim.ctx.model);
+
+    size_t final_tokens = 0;
+    for (int t = 0; t < 12; t++) {
+        sim.user("Write a detailed paragraph about ocean animal number " +
+                 std::to_string(t + 1) + ": its habitat, diet, and one unusual fact.");
+        TurnMetric tm = sim.assistant_turn("deep-t" + std::to_string(t + 1), /*max_new*/ 112);
+        print_turn(tm);
+        final_tokens = cmpl->embd.size();
+    }
+    // The SWA cache holds n_swa + n_ubatch cells; go past that so a rollback to
+    // the system prefix empties it.
+    checks.push_back({key + " [swa-deep-edit]: window slid past the prefix", final_tokens > n_swa + 512 + 128,
+                      std::to_string(final_tokens) + " tokens vs window " + std::to_string(n_swa),
+                      /*fix_target*/ false});
+
+    sim.history.clear();
+    sim.user("Name one planet of the solar system and say one sentence about it.");
+    TurnMetric edited = sim.assistant_turn("deep-edit", /*max_new*/ 48);
+    print_turn(edited);
+    const llama_pos frontier = llama_memory_seq_pos_max(kv, 0) + 1;
+    const size_t cells = llama_state_seq_get_size(sim.ctx.ctx, 0);
+    checks.push_back({key + " [swa-deep-edit]: shared prefix existed", edited.reusable > 0,
+                      "reusable=" + std::to_string(edited.reusable), /*fix_target*/ false});
+    checks.push_back({key + " [swa-deep-edit]: unusable prefix not reused", edited.reused == 0,
+                      "reused=" + std::to_string(edited.reused), /*fix_target*/ true});
+    checks.push_back({key + " [swa-deep-edit]: memory frontier matches tokens",
+                      frontier == (llama_pos) cmpl->embd.size(),
+                      "frontier=" + std::to_string(frontier) + " embd=" + std::to_string(cmpl->embd.size()),
+                      /*fix_target*/ true});
+
+    // Same turn from a cleared cache: identical reply and no extra cells.
+    sim.history.pop_back();
+    TurnMetric clean = sim.assistant_turn("deep-edit-clean", /*max_new*/ 48, /*force_clear*/ true);
+    print_turn(clean);
+    const size_t cells_clean = llama_state_seq_get_size(sim.ctx.ctx, 0);
+    checks.push_back({key + " [swa-deep-edit]: reply matches a clean run", edited.reply == clean.reply,
+                      "edited: '" + edited.reply + "' clean: '" + clean.reply + "'", /*fix_target*/ true});
+    checks.push_back({key + " [swa-deep-edit]: no leaked cells", cells == cells_clean,
+                      "state " + std::to_string(cells) + " vs clean " + std::to_string(cells_clean),
+                      /*fix_target*/ true});
+    return checks;
+}
+
 // Session save/load: checkpoints deliberately survive a session swap (restores
 // are token-verified, so stale ones are inert); prove no divergent-branch leak.
 std::vector<Check> run_session_saveload_test(const std::string &key, const std::string &path) {
@@ -2868,6 +2927,11 @@ int main(int argc, char **argv) {
             all.insert(all.end(), tr.begin(), tr.end());
             continue;
         }
+        if (std::getenv("SWA_EDIT_ONLY") != nullptr) {
+            auto de = run_swa_deep_edit_test(m.key, p.string());
+            all.insert(all.end(), de.begin(), de.end());
+            continue;
+        }
         if (std::getenv("COHERENCE_ONLY") != nullptr) {
             auto c = run_coherence_dump(m.key, p.string(),
                                         /*use_mtp*/ m.mtp && std::getenv("WITH_MTP") != nullptr);
@@ -2964,6 +3028,8 @@ int main(int argc, char **argv) {
             all.insert(all.end(), sd.begin(), sd.end());
             auto sw = run_swa_wrap_test(m.key, p.string());
             all.insert(all.end(), sw.begin(), sw.end());
+            auto de = run_swa_deep_edit_test(m.key, p.string());
+            all.insert(all.end(), de.begin(), de.end());
         }
     }
 
