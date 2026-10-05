@@ -14,10 +14,6 @@
 #include <vector>
 #include <algorithm>
 
-#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-#include <android/log.h>
-#endif
-
 int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
 
 int common_log_get_verbosity_thold(void) {
@@ -92,36 +88,7 @@ struct common_log_entry {
 
     common_log_entry(size_t size = 256) : msg(size) { }
 
-    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-    void android_print() const {
-        int android_log_priority;
-        switch (level) {
-            case GGML_LOG_LEVEL_INFO:
-                android_log_priority = ANDROID_LOG_INFO;
-                break;
-            case GGML_LOG_LEVEL_WARN:
-                android_log_priority = ANDROID_LOG_WARN;
-                break;
-            case GGML_LOG_LEVEL_ERROR:
-                android_log_priority = ANDROID_LOG_ERROR;
-                break;
-            case GGML_LOG_LEVEL_DEBUG:
-                android_log_priority = ANDROID_LOG_DEBUG;
-                break;
-            default:
-                android_log_priority = ANDROID_LOG_DEFAULT;
-                break;
-        }
-
-        const char * tag = "RNLLAMA_LOG_ANDROID";
-        __android_log_print(android_log_priority, tag, "%s", msg.data());
-    }
-    #endif
-
     void print(FILE * file = nullptr) const {
-        #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-        android_print();
-        #else
         FILE * fcur = file;
         if (!fcur) {
             // stderr displays DBG messages only when their verbosity level is not higher than the threshold
@@ -177,14 +144,17 @@ struct common_log_entry {
             }
         }
 
-        fprintf(fcur, "%s", msg.data());
+        // the reset goes before the trailing newlines, so that every line carries its own colors
+        const bool reset = level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR || level == GGML_LOG_LEVEL_DEBUG;
 
-        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR || level == GGML_LOG_LEVEL_DEBUG) {
-            fprintf(fcur, "%s", g_col[COMMON_LOG_COL_DEFAULT]);
+        size_t end = strlen(msg.data());
+        while (end > 0 && msg[end - 1] == '\n') {
+            end--;
         }
 
+        fprintf(fcur, "%.*s%s%s", (int) end, msg.data(), reset ? g_col[COMMON_LOG_COL_DEFAULT] : "", msg.data() + end);
+
         fflush(fcur);
-        #endif
     }
 };
 
@@ -192,6 +162,7 @@ struct common_log {
     // default capacity
     common_log(size_t capacity = 512) {
         file       = nullptr;
+        colors     = false;
         prefix     = false;
         timestamps = false;
         running    = false;
@@ -219,6 +190,7 @@ private:
 
     FILE * file;
 
+    bool colors;
     bool prefix;
     bool timestamps;
     bool running;
@@ -428,10 +400,16 @@ public:
         resume();
     }
 
+    bool get_colors() const {
+        return colors;
+    }
+
     void set_colors(bool colors) {
         pause();
 
-        if (colors) {
+        this->colors = colors && tty_enable_ansi();
+
+        if (this->colors) {
             g_col[COMMON_LOG_COL_DEFAULT] = LOG_COL_DEFAULT;
             g_col[COMMON_LOG_COL_BOLD]    = LOG_COL_BOLD;
             g_col[COMMON_LOG_COL_RED]     = LOG_COL_RED;
@@ -532,6 +510,10 @@ void common_log_set_colors(struct common_log * log, log_colors colors) {
 
     GGML_ASSERT(colors == LOG_COLORS_ENABLED);
     log->set_colors(true);
+}
+
+bool common_log_get_colors(struct common_log * log) {
+    return log->get_colors();
 }
 
 void common_log_set_prefix(struct common_log * log, bool prefix) {

@@ -3651,10 +3651,6 @@ int ggml_metal_op_flash_attn_ext(ggml_metal_op_t ctx, int idx) {
         // simdgroups per threadgroup (a.k.a. warps)
         int32_t nsg = ne00 >= 512 ? 8 : 4;
 
-        while (nsg > 1 && fa_smem(nsg) > props_dev->max_theadgroup_memory_size) {
-            nsg /= 2;
-        }
-
         const size_t smem = fa_smem(nsg);
 
         const int32_t ns10 = nb11_attn/nb10_attn;

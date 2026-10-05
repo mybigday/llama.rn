@@ -290,7 +290,6 @@ struct common_params_sampling {
     // reasoning budget sampler parameters
     // these are populated by the server/CLI based on chat template params
     int32_t                   reasoning_budget_tokens   = -1;  // -1 = disabled, >= 0 = token budget
-    bool                      reasoning_budget_activate_immediately = false;
     std::vector<llama_token>  reasoning_budget_start;          // start tag token sequence
     std::vector<llama_tokens> reasoning_budget_end;            // end tag token sequences; the first tag is used as the forcing sequence
     std::vector<llama_token>  reasoning_budget_forced;         // forced sequence (message + first end tag)
@@ -452,7 +451,6 @@ struct lr_opt {
 struct ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
 
 struct common_params {
-    bool vocab_only               = false;
     int32_t n_predict             =    -1; // max. number of new tokens to predict, -1 == no limit
     int32_t n_ctx                 =     0; // context size, 0 == context the model was trained with
     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
@@ -588,11 +586,9 @@ struct common_params {
     bool no_op_offload     = false; // globally disable offload host tensor operations to device
     bool no_extra_bufts    = false; // disable extra buffer types (used for weight repacking)
     bool no_host           = false; // bypass host buffer allowing extra buffers to be used
+    bool load_mtp          = false; // load MTP/NextN layers
 
     bool single_turn       = false; // single turn chat conversation
-
-    llama_progress_callback progress_callback = nullptr;
-    void * progress_callback_user_data = nullptr;
 
     ggml_type cache_type_k = GGML_TYPE_F16; // KV cache data type for the K
     ggml_type cache_type_v = GGML_TYPE_F16; // KV cache data type for the V
@@ -729,10 +725,11 @@ struct common_params {
     int32_t i_chunk     =  0; // start processing from this chunk
     int8_t  imat_dat    =  0; // whether the legacy imatrix.dat format should be output (gguf <= 0 < dat)
 
-    bool process_output  = false; // collect data for the output tensor
-    bool compute_ppl     = true;  // whether to compute perplexity
-    bool show_statistics = false; // show imatrix statistics per tensor
-    bool parse_special   = false; // whether to parse special tokens during imatrix tokenization
+    bool process_output         = false; // collect data for the output tensor
+    bool compute_ppl            = true;  // whether to compute perplexity
+    bool show_statistics        = false; // show imatrix statistics per tensor
+    bool activation_statistics  = false; // generate data to calculate activation based statistics
+    bool parse_special          = false; // whether to parse special tokens during imatrix tokenization
 
     // cvector-generator params
     int n_pca_batch = 100;
@@ -935,14 +932,6 @@ std::filesystem::path fs_get_cache_directory();
 std::filesystem::path fs_get_cache_file(const std::string & filename);
 std::filesystem::path fs_get_config_directory();
 
-struct common_file_info {
-    std::string path;
-    std::string name;
-    size_t      size = 0; // in bytes
-    bool        is_dir = false;
-};
-std::vector<common_file_info> fs_list(const std::string & path, bool include_directories);
-
 void fs_write_atomic(const std::filesystem::path & path, const std::string & data);
 
 //
@@ -951,6 +940,7 @@ void fs_write_atomic(const std::filesystem::path & path, const std::string & dat
 
 // Auto-detect if colors can be enabled based on terminal and environment
 bool tty_can_use_colors();
+bool tty_enable_ansi(); // false when stdout or stderr is a console that cannot render ANSI sequences
 
 // Check if the given file is attached to a terminal
 bool common_is_tty(FILE * file);

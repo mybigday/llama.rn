@@ -1,0 +1,14 @@
+--- common/common.cpp
++++ common/common.cpp
+@@ -1713,6 +1714,11 @@
+     mparams.progress_callback_user_data = params.load_progress_callback_user_data;
+     mparams.no_alloc                    = params.no_alloc;
+     mparams.load_mtp                    = std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
++
++    if (params.progress_callback != nullptr) {
++        mparams.progress_callback = params.progress_callback;
++        mparams.progress_callback_user_data = params.progress_callback_user_data;
++    }
+ 
+     return mparams;
+ }
