@@ -575,3 +575,40 @@ test('Parallel APIs - configure and disable', async () => {
 
   await context.release()
 })
+
+test('Decision API', async () => {
+  const context = await initLlama({
+    model: 'test.gguf',
+  })
+
+  const request = {
+    state: { utterance: 'one medium fries please', cart: [] },
+    questions: {
+      is_ordering: { type: 'noul', instructions: 'The customer is ordering' },
+      product: {
+        type: 'choice',
+        instructions: 'Which product is ordered?',
+        criteria: { 'fries-m': 'Fries M', none: null },
+      },
+      mood: {
+        type: 'score',
+        instructions: 'How impatient is the customer?',
+        criteria: ['calm', 'neutral', 'impatient'],
+      },
+    },
+  } as const
+
+  const { answers } = await context.decide(request)
+  // the keys of a choice question narrow its answer
+  const { choice }: { choice: 'fries-m' | 'none' } = answers.product
+  expect(['fries-m', 'none']).toContain(choice)
+  expect(Object.keys(answers.product.probabilities)).toEqual(['fries-m', 'none'])
+  expect(typeof answers.is_ordering.noul).toBe('number')
+  expect(answers.mood.legend).toEqual({ 0: 'calm', 1: 'neutral', 2: 'impatient' })
+
+  const { requestId, promise } = await context.parallel.decide(request)
+  expect(typeof requestId).toBe('number')
+  expect((await promise).answers.mood.type).toBe('score')
+
+  await context.release()
+})

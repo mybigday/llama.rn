@@ -15,6 +15,7 @@ type ModelWithVocoder = ModelConfig & {
 type ModelWithCapabilities = ModelWithVocoder & {
   embedding?: unknown
   ranking?: unknown
+  decision?: unknown
 }
 
 export const createExampleModelDefinition = (
@@ -69,6 +70,7 @@ export const isTextGenerationModel = (model: ModelConfig) => {
     !model.mmproj &&
     !modelWithCapabilities.embedding &&
     !modelWithCapabilities.ranking &&
+    !modelWithCapabilities.decision &&
     !modelWithCapabilities.vocoder
   )
 }
@@ -78,6 +80,9 @@ export const isEmbeddingModel = (model: ModelConfig) =>
 
 export const isRankingModel = (model: ModelConfig) =>
   Boolean((model as ModelWithCapabilities).ranking)
+
+export const isDecisionModel = (model: ModelConfig) =>
+  Boolean((model as ModelWithCapabilities).decision)
 
 export const getAllExampleModelDefinitions = (
   initializeButtonText?: string,

@@ -618,6 +618,16 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
     completion = new llama_rn_context_completion(this);
 
+    try {
+        decision.init(model);
+    } catch (const std::exception & e) {
+        // the model stays usable for anything else, decide() reports that it cannot answer
+        LOG_ERROR("failed to init decision model: %s", e.what());
+        decision.type   = COMMON_DECISION_TYPE_UNKNOWN;
+        decision.legacy = false;
+        decision.error  = e.what();
+    }
+
     // Initialize context shift flag
     LOG_INFO("ctx_shift: %s", params.ctx_shift ? "enabled" : "disabled");
 
@@ -625,6 +635,61 @@ bool llama_rn_context::loadModel(common_params &params_)
     // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
 
     return true;
+}
+
+bool llama_rn_context::canGenerateText() const {
+    return decision.can_generate_text();
+}
+
+std::string llama_rn_context::modelName() const {
+    char buf[256];
+    if (llama_model_meta_val_str(model, "general.name", buf, sizeof(buf)) > 0) {
+        return buf;
+    }
+    const std::string & path = params.model.path;
+    return path.substr(path.find_last_of("/\\") + 1);
+}
+
+mtmd_context * llama_rn_context::decisionMtmdContext() const {
+    return isMultimodalEnabled() ? mtmd_wrapper->mtmd_ctx : nullptr;
+}
+
+json llama_rn_context::decide(const json & body) {
+    if (!decision.is_decision_model()) {
+        throw std::runtime_error("This model is not a decision model");
+    }
+    if (parallel_mode_enabled) {
+        // clearing the memory would drop the sequences of the slots
+        throw std::runtime_error("Parallel mode is enabled, use parallel.decide()");
+    }
+    const auto request = decision.parse_request(to_common_json(body));
+    decision.check_context(ctx);
+    mtmd_context * mctx = decisionMtmdContext();
+    const auto prompts = decision.fill_prompts(request, mctx);
+
+    // the prompts take over the completion's sequence
+    llama_memory_t mem = llama_get_memory(ctx);
+    auto reset = [&]() {
+        clearCache(true);
+        if (completion != nullptr) {
+            completion->rewind();
+        }
+    };
+    reset();
+
+    std::vector<std::vector<float>> scores;
+    llama_rn_decision_cache cache;
+    try {
+        for (const auto & prompt : prompts) {
+            scores.push_back(llama_rn_decision_eval(ctx, 0, prompt, cache, mctx));
+        }
+    } catch (...) {
+        reset();
+        throw;
+    }
+    reset();
+
+    return from_common_json(decision.format_result(request, prompts, scores, modelName()));
 }
 
 bool llama_rn_context::hasDraftModel() const {
@@ -952,6 +1017,11 @@ void llama_rn_context::clearCache(bool clear_data) {
     }
 
     llama_memory_clear(kv, clear_data);
+
+    // the media the completion evaluated is gone with the memory
+    if (mtmd_wrapper != nullptr) {
+        mtmd_wrapper->bitmap_past_hashes.clear();
+    }
 
     if (completion != nullptr) {
         completion->embd.clear();

@@ -555,6 +555,163 @@ export type NativeEmbeddingResult = {
   embedding: Array<number>
 }
 
+/*
+ * Typed decision models (System One).
+ *
+ * The request and the response follow the TypeSafe `/v1/systemone` API, the
+ * same contract llama-server serves: a model answers typed questions about a
+ * state in one forward pass, no token is generated.
+ */
+
+/**
+ * The readout a decision model declares in `<arch>.decision.type`.
+ * `system_one`: an older model that declares no type but carries a `system_one`
+ * template; its readout is derived from the model, see `readout`.
+ * `unknown`: the model is a decision model this build cannot serve, see `error`.
+ */
+export type DecisionModelType =
+  | 'openjev'
+  | 'lev'
+  | 'kev'
+  | 'nimble'
+  | 'laya'
+  | 'clef'
+  | 'system_one'
+  | 'unknown'
+
+/**
+ * How a `system_one` model is read:
+ * `letter_slot`: a causal model, every question answered from one prompt.
+ * `rank_head`: a classification head scoring one prompt per option. The context
+ * must be initialized with `pooling_type: 'rank'` and `embedding: true`.
+ */
+export type DecisionReadout = 'letter_slot' | 'rank_head'
+
+/** Any JSON value */
+export type DecisionValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly DecisionValue[]
+  | { [key: string]: DecisionValue }
+
+/** A string, an object or an array. A value that is not a string is given to the model as JSON text. */
+export type DecisionContent =
+  | string
+  | readonly DecisionValue[]
+  | { [key: string]: DecisionValue }
+
+export type DecisionChoiceQuestion<K extends string = string> = {
+  type: 'choice'
+  instructions: DecisionContent
+  /**
+   * Maps each option to its description, in the order the options are shown.
+   * That is the order JavaScript enumerates the keys in: keys that are whole
+   * numbers (`'1'`, `'10'`) come first, in ascending order, wherever they were
+   * written. Give such options a prefix (`'n1'`) to keep them where they are.
+   */
+  criteria: { [key in K]: string | null }
+}
+
+export type DecisionScoreQuestion = {
+  type: 'score'
+  instructions: DecisionContent
+  /** 2 to 10 level descriptions, lowest level first. */
+  criteria: readonly string[]
+}
+
+export type DecisionNoulQuestion = {
+  type: 'noul'
+  instructions: DecisionContent
+  criteria?: { true?: string | null; false?: string | null }
+}
+
+export type DecisionQuestion =
+  | DecisionChoiceQuestion
+  | DecisionScoreQuestion
+  | DecisionNoulQuestion
+
+export type DecisionQuestions = Record<string, DecisionQuestion>
+
+export type DecisionRequest<Q extends DecisionQuestions = DecisionQuestions> = {
+  /**
+   * The content to evaluate. A state made of chat messages (an array of
+   * messages, or an object with a `messages` array) may carry `image_url`
+   * parts, they are taken as images and removed from the state.
+   * For a `system_one` model the state may also be a list of content parts
+   * (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`):
+   * the text is joined and each image stays where it is.
+   */
+  state: DecisionContent
+  questions: Q
+  /**
+   * Images, as file paths or data URLs. Needs a model that supports image
+   * input and `initMultimodal()`. All images go before the state, these first.
+   */
+  images?: string[]
+}
+
+export type DecisionChoiceAnswer<K extends string = string> = {
+  type: 'choice'
+  /** The option with the highest probability. */
+  choice: K
+  /**
+   * Option to its probability, they sum to 1.
+   * Look an option up by its key: the key order is not guaranteed.
+   */
+  probabilities: { [key in K]: number }
+  /** 0 when all options are equally likely, 1 when one option has all the mass. */
+  confidence: number
+}
+
+export type DecisionScoreAnswer = {
+  type: 'score'
+  /** The expected level index, weighted by probability. Can be between two levels. */
+  score: number
+  /** Level index to its description. */
+  legend: Record<string, string>
+  /** Level index to its probability, they sum to 1. */
+  probabilities: Record<string, number>
+  confidence: number
+}
+
+export type DecisionNoulAnswer = {
+  type: 'noul'
+  /** The probability that the answer is true. */
+  noul: number
+}
+
+export type DecisionAnswer =
+  | DecisionChoiceAnswer
+  | DecisionScoreAnswer
+  | DecisionNoulAnswer
+
+/** The answer type of a question type, choice keys included. */
+export type DecisionAnswerOf<Q extends DecisionQuestion> =
+  Q extends DecisionChoiceQuestion<infer K>
+    ? DecisionChoiceAnswer<K>
+    : Q extends DecisionScoreQuestion
+    ? DecisionScoreAnswer
+    : DecisionNoulAnswer
+
+export type DecisionResult<Q extends DecisionQuestions = DecisionQuestions> = {
+  /** `general.name` of the model, or its file name if it has none */
+  model: string
+  answers: { [id in keyof Q]: DecisionAnswerOf<Q[id]> }
+  usage: {
+    /** Prompt tokens of all the questions */
+    input_tokens: number
+    /** Always 0 */
+    output_tokens: number
+  }
+}
+
+export type NativeDecisionResult = DecisionResult
+
+/** What the native side hands to the `llamaQueueDecide` callback */
+export type NativeQueuedDecisionResult = NativeDecisionResult | { error: string }
+
 export type NativeLlamaContext = {
   contextId: number
   model: {
@@ -586,6 +743,22 @@ export type NativeLlamaContext = {
     }
     metadata: Object
     isChatTemplateSupported: boolean // Deprecated
+    /**
+     * Set if the model is a typed decision model, see `LlamaContext.decide()`
+     */
+    decision?: {
+      type: DecisionModelType
+      /** Most options a `choice` question can have */
+      nOptionsMax: number
+      /** The prompt has a place for images (multimodal still has to be initialized) */
+      imageInput: boolean
+      /** If false, `completion()` rejects: the model only answers decisions (clef, for one) */
+      textGeneration: boolean
+      /** Only for `system_one` models */
+      readout?: DecisionReadout
+      /** Why the model cannot be used, when `type` is `unknown` */
+      error?: string
+    }
   }
   /**
    * Loaded library name for Android
@@ -692,7 +865,7 @@ export type NativeBackendDeviceInfo = {
 
 export type ParallelRequestStatus = {
   request_id: number
-  type: 'completion' | 'embedding' | 'rerank'
+  type: 'completion' | 'embedding' | 'rerank' | 'decision'
   state: 'queued' | 'processing_prompt' | 'generating' | 'done'
   prompt_length: number
   tokens_generated: number

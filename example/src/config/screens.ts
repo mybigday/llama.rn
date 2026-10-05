@@ -9,6 +9,7 @@ import StructuredOutputScreen from '../screens/StructuredOutputScreen'
 import MTPSpeculativeScreen from '../screens/MTPSpeculativeScreen'
 import ParallelDecodingScreen from '../screens/ParallelDecodingScreen'
 import EmbeddingScreen from '../screens/EmbeddingScreen'
+import DecisionScreen from '../screens/DecisionScreen'
 import StressTestScreen from '../screens/StressTestScreen'
 import type {
   ExampleRouteName,
@@ -28,6 +29,7 @@ const SCREEN_COMPONENTS: Record<
   Multimodal: MultimodalScreen,
   ToolCalling: ToolCallsScreen,
   Embeddings: EmbeddingScreen,
+  Decision: DecisionScreen,
   TTS: TTSScreen,
   ModelInfo: ModelInfoScreen,
   Bench: BenchScreen,

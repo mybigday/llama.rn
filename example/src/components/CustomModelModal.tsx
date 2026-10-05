@@ -26,6 +26,7 @@ interface CustomModelModalProps {
   onClose: () => void
   onModelAdded?: (model: CustomModel) => void
   requireMMProj?: boolean // For multimodal screens
+  optionalMMProj?: boolean // Offer an mmproj file without requiring one
   title?: string
   enableFileSelection?: boolean // Enable file selection mode
 }
@@ -35,6 +36,7 @@ export default function CustomModelModal({
   onClose,
   onModelAdded,
   requireMMProj = false,
+  optionalMMProj = false,
   title = 'Add Custom Model',
   enableFileSelection = false,
 }: CustomModelModalProps) {
@@ -785,9 +787,11 @@ export default function CustomModelModal({
                 </Text>
               </View>
 
-              {requireMMProj && (
+              {(requireMMProj || optionalMMProj) && (
                 <View style={styles.inputContainer}>
-                  <Text style={styles.label}>MMProj File (Required)</Text>
+                  <Text style={styles.label}>
+                    {`MMProj File (${requireMMProj ? 'Required' : 'Optional'})`}
+                  </Text>
                   <TouchableOpacity
                     style={[
                       styles.input,

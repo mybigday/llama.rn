@@ -45,10 +45,12 @@ namespace rnllama_jsi {
         auto names = obj.getPropertyNames(rt);
         const size_t n = names.size(rt);
         for (size_t i = 0; i < n; i++) {
-            auto key = names.getValueAtIndex(rt, i).getString(rt).utf8(rt);
-            auto val = obj.getProperty(rt, key.c_str());
+            // look the property up by the name itself: a const char* name is read as ASCII,
+            // which misses any key that is not
+            auto name = names.getValueAtIndex(rt, i).getString(rt);
+            auto val = obj.getProperty(rt, name);
             if (val.isUndefined()) continue;
-            out[key] = toJson(rt, val);
+            out[name.utf8(rt)] = toJson(rt, val);
         }
         return out;
     }
@@ -77,7 +79,22 @@ namespace rnllama_jsi {
             case json::value_t::object: {
                 jsi::Object obj(rt);
                 for (const auto& [key, val] : j.items()) {
-                    obj.setProperty(rt, key.c_str(), fromJson(rt, val));
+                    // keys are UTF-8 (a decision's option keys are the caller's own words)
+                    const jsi::String name = jsi::String::createFromUtf8(rt, key);
+                    if (key == "__proto__") {
+                        // assigning it would set the prototype: define an own property instead
+                        jsi::Object descriptor(rt);
+                        descriptor.setProperty(rt, "value", fromJson(rt, val));
+                        descriptor.setProperty(rt, "enumerable", true);
+                        descriptor.setProperty(rt, "writable", true);
+                        descriptor.setProperty(rt, "configurable", true);
+                        rt.global()
+                            .getPropertyAsObject(rt, "Object")
+                            .getPropertyAsFunction(rt, "defineProperty")
+                            .call(rt, obj, name, descriptor);
+                        continue;
+                    }
+                    obj.setProperty(rt, name, fromJson(rt, val));
                 }
                 return obj;
             }

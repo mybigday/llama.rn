@@ -330,7 +330,7 @@ namespace rnllama_jsi {
                                                        caps.supports_parallel_tool_calls, caps.supports_system_role);
         }
 
-        return json::object({
+        json info = json::object({
             {"desc", desc},
             {"size", llama_model_size(ctx->model)},
             {"nEmbd", llama_model_n_embd(ctx->model)},
@@ -342,6 +342,10 @@ namespace rnllama_jsi {
             // Deprecated flag maintained for compatibility
             {"isChatTemplateSupported", llamaChat},
         });
+        if (ctx->decision.is_decision_model()) {
+            info["decision"] = rnllama::from_common_json(ctx->decision.info());
+        }
+        return info;
     }
 
     static json chatParamsJson(const common_chat_params& chatParams) {
@@ -1041,6 +1045,29 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaRerank", rerank);
 
+        auto decide = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaDecide"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                json request = toJson(runtime, arguments[1]);
+                if (!request.is_object()) {
+                    throw jsi::JSError(runtime, "llamaDecide: request must be an object");
+                }
+
+                return createPromiseTask(runtime, callInvoker, [contextId, request]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    ContextClaim claim(ctx);
+
+                    json result = ctx->decide(request);
+                    return [result](jsi::Runtime& rt) {
+                        return fromJson(rt, result);
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaDecide", decide);
+
         auto bench = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaBench"),
             5,
@@ -1086,6 +1113,9 @@ namespace rnllama_jsi {
                 bool emitPartial = getPropertyAsBool(params, "emit_partial_completion", false);
 
                 auto ctx = getContextOrThrow(contextId);
+                if (!ctx->canGenerateText()) {
+                    throw jsi::JSError(runtime, "This model only answers decisions, see decide()");
+                }
                 // Claimed here, not in the worker, so rewind() and
                 // parseCompletionParams can't race an op already running on it.
                 // The task adopts the claim and releases it when it finishes.
@@ -1329,6 +1359,9 @@ namespace rnllama_jsi {
                 auto onComplete = makeJsiFunction(runtime, arguments[3], callInvoker);
 
                 auto ctxPtr = getContextOrThrow(contextId);
+                if (!ctxPtr->canGenerateText()) {
+                    throw jsi::JSError(runtime, "This model only answers decisions, see decide()");
+                }
                 auto originalParams = ctxPtr->params;
                 parseCompletionParams(params, ctxPtr);
                 common_params cparams = ctxPtr->params;
@@ -1602,6 +1635,56 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueRerank", queueRerank);
+
+        auto queueDecide = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaQueueDecide"),
+            3,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                json request = toJson(runtime, arguments[1]);
+                if (!request.is_object()) {
+                    throw jsi::JSError(runtime, "llamaQueueDecide: request must be an object");
+                }
+                auto onResult = makeJsiFunction(runtime, arguments[2], callInvoker);
+
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, request, onResult, callInvoker]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
+                        throw std::runtime_error("Parallel mode not enabled");
+                    }
+
+                    // the response, or {"error": message}
+                    auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const json& result) {
+                        auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
+                        if (callbacks.onResult) {
+                            auto runtime = runtimePtr;
+                            if (!runtime) {
+                              return;
+                            }
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, result, runtime](bool shouldProceed) {
+                                if (!shouldProceed) return;
+                                auto& rt = *runtime;
+                                callbacks.onResult->call(rt, fromJson(rt, result));
+                            });
+                        }
+                    };
+
+                    int requestId = ctx->slot_manager->reserve_request_id();
+                    RequestManager::getInstance().addRequest(contextId, requestId, {nullptr, nullptr, onResult});
+                    try {
+                        ctx->slot_manager->queue_decision_request(request, resultCallback, requestId);
+                    } catch (...) {
+                        RequestManager::getInstance().takeRequest(contextId, requestId);
+                        throw;
+                    }
+
+                    return [requestId](jsi::Runtime& rt) {
+                        return fromJson(rt, json::object({{"requestId", requestId}}));
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaQueueDecide", queueDecide);
 
         // Get parallel status (one-time snapshot)
         auto getParallelStatus = jsi::Function::createFromHostFunction(runtime,

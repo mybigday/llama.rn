@@ -126,6 +126,7 @@ set(RNLLAMA_RN_SOURCES
     ${RNLLAMA_CPP_DIR}/anyascii.c
     ${RNLLAMA_CPP_DIR}/rn-llama.cpp
     ${RNLLAMA_CPP_DIR}/rn-completion.cpp
+    ${RNLLAMA_CPP_DIR}/rn-decision.cpp
     ${RNLLAMA_CPP_DIR}/rn-slot.cpp
     ${RNLLAMA_CPP_DIR}/rn-slot-manager.cpp
     ${RNLLAMA_CPP_DIR}/rn-tts.cpp

@@ -32,6 +32,7 @@ interface ExampleModelSetupProps {
   onCloseCustomModelModal?: () => void
   customModelModalTitle?: string
   requireMMProj?: boolean
+  optionalMMProj?: boolean
   enableFileSelection?: boolean
   defaultModelSectionTitle?: string
   customModelSectionTitle?: string
@@ -56,6 +57,7 @@ export function ExampleModelSetup({
   onCloseCustomModelModal,
   customModelModalTitle = 'Add Custom Model',
   requireMMProj = false,
+  optionalMMProj = false,
   enableFileSelection = true,
   defaultModelSectionTitle = 'Default Models',
   customModelSectionTitle = 'Custom Models',
@@ -197,6 +199,7 @@ export function ExampleModelSetup({
           }}
           title={customModelModalTitle}
           requireMMProj={requireMMProj}
+          optionalMMProj={optionalMMProj}
           enableFileSelection={enableFileSelection}
         />
       )}
