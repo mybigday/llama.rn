@@ -155,15 +155,17 @@ void llama_rn_context_completion::probeStateCache() {
         state_cache_enabled = false;
         return;
     }
-    // Recurrent/hybrid only. Pure-SWA never fails seq_rm in this fork, so a
-    // checkpoint could never be restored — capturing would be pure cost.
-    // TODO: SWA reuse past a slid window (deep edit in a chat longer than the
-    // window) is unguarded here; a fix would need a pos_min trigger, not seq_rm.
-    state_cache_enabled =
-        llama_model_is_recurrent(model) ||
-        llama_model_is_hybrid(model);
+    // Recurrent/hybrid can't roll back in place (seq_rm fails). Pure SWA can,
+    // but a rollback below the slid window leaves the tail without its attention
+    // prefix (see the guard in loadPrompt); a snapshot restores that window.
+    // With swa_full the SWA cache keeps every position, so nothing is lost.
+    const bool is_recurrent_or_hybrid =
+        llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+    const bool is_swa = llama_model_n_swa(model) > 0 && !parent_ctx->params.swa_full;
+    state_cache_enabled = is_recurrent_or_hybrid || is_swa;
     if (state_cache_enabled) {
-        LOG_INFO("prompt state cache enabled (recurrent/hybrid model)");
+        LOG_INFO("prompt state cache enabled (%s model)",
+            is_recurrent_or_hybrid ? "recurrent/hybrid" : "SWA");
     }
 }
 
@@ -250,7 +252,7 @@ void llama_rn_context_completion::captureStateCheckpoint(
 
     // A hybrid's SWA cells grow ~linearly until the window fills (unlike its
     // fixed-size recurrent cells). Extrapolate to saturation and disable if one
-    // snapshot would exceed half the budget. (Pure-SWA is gated off upstream.)
+    // snapshot would exceed half the budget. Pure SWA saturates the same way.
     if (parent_ctx->model != nullptr && llama_model_n_swa(parent_ctx->model) > 0) {
         const size_t n_swa = (size_t) llama_model_n_swa(parent_ctx->model);
         const size_t fill  = std::min(n, n_swa);
@@ -336,8 +338,8 @@ bool llama_rn_context_completion::recoverStateCheckpoint(
         return false;
     }
     const llama_pos k = (llama_pos) state_checkpoints[ckpt_idx].n_tokens();
-    // Recurrent part is back at k; truncating the live attention prefix to k
-    // succeeds since nothing remains past k.
+    // Recurrent part (or the SWA window) is back at k; truncating the live
+    // attention prefix to k succeeds since nothing remains past k.
     llama_memory_seq_rm(kv, 0, k, -1);
     n_past_out = k;
     return true;
@@ -513,6 +515,29 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
             llama_memory_clear(kv, false);  // drop the polluted shared window
         }
         bool cache_remove_success = llama_memory_seq_rm(kv, 0, n_past, -1);
+
+        // A successful removal is not sufficient on SWA models: the rollback may
+        // land past the retained window (or empty the SWA cache outright, making
+        // seq_pos_max -1 so nextToken's auto-positioned batch restarts at 0 over
+        // live base cells). Same checks as the slot reconcile and mtmd paths;
+        // pos_min == 0 means nothing was pruned. Recurrent/hybrid models are
+        // exempt (their rollback safety is enforced by seq_rm itself).
+        if (cache_remove_success && n_past > 0) {
+            const llama_model * mdl = parent_ctx->model;
+            const bool is_recurrent_or_hybrid =
+                llama_model_is_recurrent(mdl) || llama_model_is_hybrid(mdl);
+            const int32_t n_swa = parent_ctx->params.swa_full ? 0 : llama_model_n_swa(mdl);
+            if (n_swa > 0 && !is_recurrent_or_hybrid) {
+                const llama_pos frontier = llama_memory_seq_pos_max(kv, 0) + 1;
+                const llama_pos pos_min = llama_memory_seq_pos_min(kv, 0);
+                const llama_pos pos_min_thold = std::max<llama_pos>(0, n_past - n_swa);
+                if (frontier != n_past || pos_min < 0 || (pos_min > 0 && pos_min >= pos_min_thold)) {
+                    LOG_WARNING("SWA cache lost positions below %lld (pos_min=%lld, frontier=%lld, n_past=%lld), restoring a checkpoint or clearing",
+                        (long long) pos_min_thold, (long long) pos_min, (long long) frontier, (long long) n_past);
+                    cache_remove_success = false;
+                }
+            }
+        }
 
         // Recurrent/hybrid/SWA: seq_rm fails beyond the rollback window; restore
         // the longest matching snapshot and reprocess only the diverged tail.
