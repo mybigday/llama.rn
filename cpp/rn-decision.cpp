@@ -4,6 +4,7 @@
 #include "rn-mtmd.hpp" // base64_decode
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <regex>
@@ -40,6 +41,9 @@ const char * llama_rn_decision_type_name(common_decision_type type) {
         case COMMON_DECISION_TYPE_NIMBLE:  return "nimble";
         case COMMON_DECISION_TYPE_LAYA:    return "laya";
         case COMMON_DECISION_TYPE_CLEF:    return "clef";
+        case COMMON_DECISION_TYPE_PPLX_DECIDER: return "pplx-decider";
+        case COMMON_DECISION_TYPE_LFM2_D1:      return "lfm2-d1";
+        case COMMON_DECISION_TYPE_LFM2_D1_OMNI: return "lfm2-d1-omni";
         case COMMON_DECISION_TYPE_UNKNOWN: return "unknown";
         default:                           return "";
     }
@@ -85,6 +89,34 @@ bool llama_rn_decision_profile_for(common_decision_type type, llama_rn_decision_
             p.sort_keys       = true;
             p.noul_true_first = true;
             p.choice_sorted   = true;
+            p.image_input     = true;
+            return true;
+        case COMMON_DECISION_TYPE_PPLX_DECIDER:
+            p.readout     = LLAMA_RN_DECISION_READOUT_LABEL_LOGITS;
+            p.labels      = LLAMA_RN_DECISION_LABELS_CODES;
+            p.label_texts = true;
+            p.image_input = true;
+            return true;
+        case COMMON_DECISION_TYPE_LFM2_D1:
+            p.readout         = LLAMA_RN_DECISION_READOUT_LABEL_LOGITS;
+            p.labels          = LLAMA_RN_DECISION_LABELS_PER_QUESTION;
+            p.noul_true_first = true;
+            p.image_input     = true;
+            p.null_state      = true;
+            return true;
+        case COMMON_DECISION_TYPE_LFM2_D1_OMNI:
+            p.readout          = LLAMA_RN_DECISION_READOUT_MARKER_EMBD;
+            p.marker           = LLAMA_RN_DECISION_MARKER_VOCAB_MASK;
+            p.image_input      = true;
+            p.audio_input      = true;
+            p.null_state       = true;
+            p.noul_yes_no      = true;
+            p.escape_special   = true;
+            p.media_raw_probs  = true; // image and audio answers are not calibrated
+            // max_length, image_text_length and audio_text_length of the model config
+            p.max_tokens       = 16384;
+            p.max_tokens_image = 896;
+            p.max_tokens_audio = 15360;
             return true;
         default:
             return false;
@@ -173,6 +205,7 @@ void llama_rn_decision_context::init(const llama_model * model) {
                 }
             }
         } break;
+        case LLAMA_RN_DECISION_LABELS_PER_QUESTION:
         case LLAMA_RN_DECISION_LABELS_NONE:
             break;
     }
@@ -187,11 +220,17 @@ void llama_rn_decision_context::init(const llama_model * model) {
         } break;
         case LLAMA_RN_DECISION_MARKER_VOCAB_MASK: {
             token_marker = llama_vocab_mask(vocab);
-            token_sep    = llama_vocab_sep(vocab);
-            if (token_marker == LLAMA_TOKEN_NULL || token_sep == LLAMA_TOKEN_NULL) {
-                throw std::runtime_error("decision model has no mask or sep token");
+            if (token_marker == LLAMA_TOKEN_NULL) {
+                throw std::runtime_error("decision model has no mask token");
             }
-            text_marker = common_token_to_piece(vocab, token_marker, true);
+            if (profile.truncate_head) {
+                token_sep = llama_vocab_sep(vocab);
+                if (token_sep == LLAMA_TOKEN_NULL) {
+                    throw std::runtime_error("decision model has no sep token");
+                }
+                // the input must not contain the marker of the options (lfm2-d1-omni escapes it instead)
+                text_marker = common_token_to_piece(vocab, token_marker, true);
+            }
         } break;
         case LLAMA_RN_DECISION_MARKER_NONE:
             break;
@@ -205,7 +244,8 @@ void llama_rn_decision_context::init(const llama_model * model) {
         }
     }
 
-    n_options_max = profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS ? labels.size() : 255;
+    n_options_max = profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS && profile.labels != LLAMA_RN_DECISION_LABELS_PER_QUESTION
+        ? labels.size() : 255;
     type = model_type;
 }
 
@@ -217,6 +257,7 @@ json llama_rn_decision_context::info() const {
         {"type",           legacy ? "system_one" : llama_rn_decision_type_name(type)},
         {"nOptionsMax",    n_options_max},
         {"imageInput",     profile.image_input},
+        {"audioInput",     profile.audio_input},
         {"textGeneration", can_generate_text()},
     };
     if (legacy) {
@@ -230,6 +271,9 @@ json llama_rn_decision_context::info() const {
 
 size_t llama_rn_decision_prompt::n_tokens() const {
     size_t n = chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+    if (media) {
+        n += mtmd_helper_get_n_tokens(media.get());
+    }
     for (const auto & piece : state_pieces) {
         n += piece.chunks ? mtmd_helper_get_n_tokens(piece.chunks.get()) : piece.tokens.size();
     }
@@ -336,6 +380,7 @@ bool llama_rn_decision_context::can_generate_text() const {
         case COMMON_DECISION_TYPE_LAYA:
         case COMMON_DECISION_TYPE_KEV:
         case COMMON_DECISION_TYPE_CLEF:
+        case COMMON_DECISION_TYPE_LFM2_D1_OMNI:
             return false;
         default:
             break;
@@ -583,7 +628,8 @@ llama_rn_decision_request llama_rn_decision_context::parse_request(const json & 
 }
 
 std::vector<llama_rn_decision_question> llama_rn_decision_context::parse_questions(const json & body) const {
-    if (!body.contains("state") || body.at("state").is_null()) {
+    // a model may take a null state, for example to ask about the media only
+    if (!body.contains("state") || (body.at("state").is_null() && !profile.null_state)) {
         throw std::invalid_argument("\"state\" must be provided");
     }
     if (!body.contains("questions") || !body.at("questions").is_object() || body.at("questions").empty()) {
@@ -636,7 +682,14 @@ std::vector<llama_rn_decision_question> llama_rn_decision_context::parse_questio
                 throw err("\"criteria\" must be an object");
             }
             for (const char * key : {"false", "true"}) {
-                question.options.push_back({key, criteria.is_object() && criteria.contains(key) ? criteria.at(key) : json()});
+                json description;
+                if (criteria.is_object() && criteria.contains(key)) {
+                    description = criteria.at(key);
+                } else if (criteria.is_object() && profile.noul_yes_no) {
+                    const char * alias = std::string(key) == "true" ? "yes" : "no";
+                    description = criteria.contains(alias) ? criteria.at(alias) : json();
+                }
+                question.options.push_back({key, description});
             }
             if (profile.noul_true_first) {
                 std::swap(question.options[0], question.options[1]);
@@ -656,22 +709,59 @@ std::vector<llama_rn_decision_question> llama_rn_decision_context::parse_questio
 
 static const size_t DECISION_MAX_IMAGES = 8;
 
+// any media, mtmd tells an audio clip from an image by its content
 static void decision_add_image(const json & url, std::vector<std::string> & images) {
     if (!url.is_string() || url.get<std::string>().empty()) {
-        throw std::invalid_argument("an image must be a file path or a data URL");
+        throw std::invalid_argument("an image or an audio clip must be a file path or a data URL");
     }
     if (images.size() >= DECISION_MAX_IMAGES) {
-        throw std::invalid_argument(string_format("too many images, the maximum is %zu", DECISION_MAX_IMAGES));
+        throw std::invalid_argument(string_format("too many media files, the maximum is %zu", DECISION_MAX_IMAGES));
     }
     images.push_back(url.get<std::string>());
 }
 
+// an input_audio part (OpenAI): base64 data in "data", with its "format", or a file path or a data URL in "url"
+static void decision_add_audio(const json & input_audio, std::vector<std::string> & images) {
+    const json data = input_audio.is_object() && input_audio.contains("data") ? input_audio.at("data") : json();
+    if (data.is_string() && !string_starts_with(data.get<std::string>(), "data:")) {
+        const std::string format = input_audio.contains("format") && input_audio.at("format").is_string()
+            ? input_audio.at("format").get<std::string>() : "wav";
+        decision_add_image("data:audio/" + format + ";base64," + data.get<std::string>(), images);
+        return;
+    }
+    decision_add_image(data.is_string() ? data : input_audio.is_object() && input_audio.contains("url") ? input_audio.at("url") : json(), images);
+}
+
+// the media of a content part, false if it is not one
+static bool decision_take_media(const json & part, std::vector<std::string> & images) {
+    if (!part.is_object() || !part.contains("type")) {
+        return false;
+    }
+    if (part.at("type") == "image_url" && part.contains("image_url")) {
+        const json & image_url = part.at("image_url");
+        decision_add_image(image_url.is_object() && image_url.contains("url") ? image_url.at("url") : image_url, images);
+        return true;
+    }
+    if (part.at("type") == "input_audio" && part.contains("input_audio")) {
+        decision_add_audio(part.at("input_audio"), images);
+        return true;
+    }
+    return false;
+}
+
 json llama_rn_decision_context::parse_state(const json & body, std::vector<std::string> & images) const {
-    if (body.contains("images") && !body.at("images").is_null()) {
-        if (!body.at("images").is_array()) {
-            throw std::invalid_argument("\"images\" must be an array");
+    if (body.contains("videos") && !body.at("videos").is_null() && !body.at("videos").empty()) {
+        throw std::invalid_argument("\"videos\" is not supported");
+    }
+    // "images" is an alias of "files"
+    for (const char * key : {"files", "images"}) {
+        if (!body.contains(key) || body.at(key).is_null()) {
+            continue;
         }
-        for (const auto & url : body.at("images")) {
+        if (!body.at(key).is_array()) {
+            throw std::invalid_argument(string_format("\"%s\" must be an array", key));
+        }
+        for (const auto & url : body.at(key)) {
             decision_add_image(url, images);
         }
     }
@@ -687,11 +777,7 @@ json llama_rn_decision_context::parse_state(const json & body, std::vector<std::
     if (is_parts && !legacy) {
         json parts = json::array();
         for (const auto & part : state) {
-            const bool is_image = part.at("type") == "image_url" && part.contains("image_url");
-            if (is_image) {
-                const json & image_url = part.at("image_url");
-                decision_add_image(image_url.is_object() && image_url.contains("url") ? image_url.at("url") : image_url, images);
-            } else {
+            if (!decision_take_media(part, images)) {
                 parts.push_back(part);
             }
         }
@@ -704,7 +790,7 @@ json llama_rn_decision_context::parse_state(const json & body, std::vector<std::
         return state;
     }
 
-    // chat messages: take the image parts out of the content
+    // chat messages: take the image and audio parts out of the content
     json messages_out = json::array();
     for (const auto & msg : messages) {
         if (!msg.is_object() || !msg.contains("content") || !msg.at("content").is_array()) {
@@ -713,11 +799,7 @@ json llama_rn_decision_context::parse_state(const json & body, std::vector<std::
         }
         json content = json::array();
         for (const auto & part : msg.at("content")) {
-            const bool is_image = part.is_object() && part.contains("type") && part.at("type") == "image_url" && part.contains("image_url");
-            if (is_image) {
-                const json & image_url = part.at("image_url");
-                decision_add_image(image_url.is_object() && image_url.contains("url") ? image_url.at("url") : image_url, images);
-            } else {
+            if (!decision_take_media(part, images)) {
                 content.push_back(part);
             }
         }
@@ -816,10 +898,36 @@ static std::string decision_text_render(const json & val, int indent = 0) {
     return val.dump();
 }
 
-// text input: special tokens written in the text must not be parsed as such
-static std::string decision_text(const json & val) {
+// special tokens written in the input must not be parsed as such
+static std::string decision_escape_text(const std::string & text) {
     static const std::regex re_special("<\\|([A-Za-z0-9_]+)\\|>");
-    return std::regex_replace(decision_text_render(val), re_special, "<\xC2\xA6$1\xC2\xA6>");
+    return std::regex_replace(text, re_special, "<\xC2\xA6$1\xC2\xA6>");
+}
+
+static std::string decision_text(const json & val) {
+    return decision_escape_text(decision_text_render(val));
+}
+
+// the same in all strings of a JSON value, keys included (d1-omni prompt.py: escape)
+static json decision_escape_special(const json & val) {
+    if (val.is_string()) {
+        return decision_escape_text(val.get<std::string>());
+    }
+    if (val.is_array()) {
+        json out = json::array();
+        for (const auto & item : val) {
+            out.push_back(decision_escape_special(item));
+        }
+        return out;
+    }
+    if (val.is_object()) {
+        json out = json::object();
+        for (const auto & [key, item] : val.items()) {
+            out[decision_escape_text(key)] = decision_escape_special(item);
+        }
+        return out;
+    }
+    return val;
 }
 
 size_t llama_rn_decision_context::n_variants(const llama_rn_decision_question & question) const {
@@ -836,8 +944,128 @@ size_t llama_rn_decision_context::n_outputs(const llama_rn_decision_question & q
     return question.options.size();
 }
 
+// label codes follow prompt.py of the lfm2-d1 model repo
+void llama_rn_decision_context::d1_labels(const llama_rn_decision_question & question, std::vector<std::string> & texts, std::vector<std::vector<llama_token>> & groups) const {
+    const size_t n_options = question.options.size();
+
+    auto get_single_tokens = [&](const std::vector<std::string> & forms) {
+        std::vector<llama_token> out;
+        for (const auto & form : forms) {
+            const auto toks = common_tokenize(vocab, form, false, false);
+            if (toks.size() == 1 && std::find(out.begin(), out.end(), toks[0]) == out.end()) {
+                out.push_back(toks[0]);
+            }
+        }
+        return out;
+    };
+
+    if (question.type != LLAMA_RN_DECISION_QUESTION_CHOICE) {
+        for (const auto & opt : question.options) {
+            std::vector<llama_token> group;
+            if (question.type == LLAMA_RN_DECISION_QUESTION_SCORE) {
+                group = get_single_tokens({opt.key});
+            } else if (opt.key == "true") {
+                group = get_single_tokens({"yes", "Yes", "YES"});
+            } else {
+                group = get_single_tokens({"no", "No", "NO"});
+            }
+            if (group.empty()) {
+                throw std::runtime_error("decision label is not a single token: " + opt.key);
+            }
+            texts.push_back(opt.key);
+            groups.push_back(group);
+        }
+        return;
+    }
+
+    bool is_letters = true;
+    for (const auto & opt : question.options) {
+        is_letters = is_letters && opt.key.size() == 1 && std::isalpha((unsigned char) opt.key[0]);
+    }
+
+    std::vector<std::string> codes;
+    for (size_t i = 0; i < n_options; i++) {
+        if (is_letters) {
+            codes.push_back(question.options[i].key);
+        } else if (n_options <= 26) {
+            codes.push_back(std::string(1, 'A' + i));
+        } else {
+            codes.push_back(string_format("%02zu", i));
+        }
+    }
+
+    // a code that is taken, or not a single token, is replaced by the first free one of these
+    std::vector<std::string> pool;
+    for (char c = 'A'; c <= 'Z'; c++) {
+        pool.push_back(std::string(1, c));
+    }
+    for (int i = 0; i < 100; i++) {
+        pool.push_back(string_format("%02d", i));
+    }
+    for (char c = 'a'; c <= 'z'; c++) {
+        pool.push_back(std::string(1, c));
+    }
+    for (int i = 0; i < 200; i++) {
+        pool.push_back(string_format("#%d", i));
+    }
+    for (char a = 'A'; a <= 'Z'; a++) {
+        for (char b = 'A'; b <= 'Z'; b++) {
+            pool.push_back(std::string{a, b});
+        }
+    }
+
+    std::vector<llama_token> used;
+    auto take = [&](const std::string & code) {
+        const auto toks = common_tokenize(vocab, code, false, false);
+        if (toks.size() != 1 || std::find(used.begin(), used.end(), toks[0]) != used.end()) {
+            return false;
+        }
+        used.push_back(toks[0]);
+        // the code may also be answered with a leading space
+        std::vector<llama_token> group = {toks[0]};
+        for (const llama_token tok : get_single_tokens({" " + code})) {
+            if (tok != toks[0]) {
+                group.push_back(tok);
+            }
+        }
+        texts.push_back(code);
+        groups.push_back(group);
+        return true;
+    };
+    for (const auto & code : codes) {
+        bool is_taken = take(code);
+        for (size_t i = 0; !is_taken && i < pool.size(); i++) {
+            is_taken = take(pool[i]);
+        }
+        if (!is_taken) {
+            throw std::invalid_argument(string_format("no single-token label left for %zu options", n_options));
+        }
+    }
+}
+
+void llama_rn_decision_context::fill_labels(const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const {
+    if (profile.labels != LLAMA_RN_DECISION_LABELS_PER_QUESTION) {
+        // a rating scale reads its ratings at the first labels
+        prompt.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
+        return;
+    }
+    std::vector<std::string>              texts;
+    std::vector<std::vector<llama_token>> groups;
+    d1_labels(question, texts, groups);
+    for (const auto & group : groups) {
+        prompt.labels.insert(prompt.labels.end(), group.begin(), group.end());
+        prompt.label_groups.push_back(group.size());
+    }
+}
+
 json llama_rn_decision_context::render_options(const llama_rn_decision_question & question, size_t variant) const {
     const size_t n_options = question.options.size();
+
+    std::vector<std::string>              d1_texts;
+    std::vector<std::vector<llama_token>> d1_groups;
+    if (profile.labels == LLAMA_RN_DECISION_LABELS_PER_QUESTION) {
+        d1_labels(question, d1_texts, d1_groups);
+    }
 
     // the second variant shows the options in the reverse order
     json options = json::array();
@@ -856,6 +1084,9 @@ json llama_rn_decision_context::render_options(const llama_rn_decision_question 
         if (!label_texts.empty()) {
             option["label"] = label_texts[i];
         }
+        if (!d1_texts.empty()) {
+            option["label"] = d1_texts[i];
+        }
         options.push_back(option);
     }
     return options;
@@ -867,6 +1098,7 @@ json llama_rn_decision_context::render_options(const llama_rn_decision_question 
 static const std::string DECISION_MARKER   = "<<decision:";
 static const std::string DECISION_NEUTERED = "<<decision ";
 static const std::string DECISION_SEP      = "<<decision:sep>>";
+static const std::string DECISION_STATE    = "<<decision:state>>";
 static const std::string DECISION_QUESTION = "<<decision:question>>";
 static const std::string DECISION_OPTION   = "<<decision:option>>";
 
@@ -883,7 +1115,8 @@ std::string llama_rn_decision_context::render(
         const std::vector<llama_rn_decision_question> & questions,
         const llama_rn_decision_question & question,
         size_t variant,
-        size_t n_images) const {
+        size_t n_images,
+        bool is_audio) const {
     // the template is given raw JSON values, it serializes the ones that are not strings
     json inp = json{
         {"id",           question.id},
@@ -918,6 +1151,9 @@ std::string llama_rn_decision_context::render(
     if (!text_marker.empty()) {
         inp = decision_replace_text(inp, text_marker, " ");
     }
+    if (profile.escape_special) {
+        inp = decision_escape_special(inp);
+    }
 
     // the template puts one media marker per image
     json images = json::array();
@@ -931,8 +1167,19 @@ std::string llama_rn_decision_context::render(
 
     // a template may ask for the prompt to be tokenized piece by piece by writing {{ sep }} at every boundary,
     // the input must not forge one
-    inp        = decision_replace_text(inp, DECISION_SEP, " ");
+    if (profile.max_tokens > 0) {
+        // a piece that is cut to a budget starts with the mark of what it is, see fill_prompt_budget()
+        inp = decision_replace_text(inp, DECISION_MARKER, DECISION_NEUTERED);
+        inp["mark_state"]    = DECISION_STATE;
+        inp["mark_question"] = DECISION_QUESTION;
+        inp["mark_option"]   = DECISION_OPTION;
+    } else {
+        inp = decision_replace_text(inp, DECISION_SEP, " ");
+    }
     inp["sep"] = DECISION_SEP;
+    if (profile.audio_input) {
+        inp["audio"] = is_audio;
+    }
 
     return decision_apply_template(*tmpl, inp);
 }
@@ -944,21 +1191,22 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
     if (legacy) {
         return fill_prompts_legacy(request, mctx);
     }
-    if (!request.images.empty() && !profile.image_input) {
+    if (!request.images.empty() && !profile.image_input && !profile.audio_input) {
         throw std::runtime_error("this decision model does not take images");
     }
-    if (!request.images.empty() && (mctx == nullptr || !mtmd_support_vision(mctx))) {
-        throw std::runtime_error("image input needs the multimodal projector of the model, see initMultimodal()");
+    if (!request.images.empty() && (mctx == nullptr || (!mtmd_support_vision(mctx) && !mtmd_support_audio(mctx)))) {
+        throw std::runtime_error("image and audio input need the multimodal projector of the model, see initMultimodal()");
     }
 
-    std::vector<llama_rn_decision_prompt> prompts;
-    if (is_joint()) {
-        prompts.push_back(fill_prompt_joint(request));
-        return prompts;
-    }
     mtmd::bitmaps bitmaps;
     decision_load_bitmaps(mctx, request.images, bitmaps);
     const std::vector<const mtmd_bitmap *> bitmaps_c_ptr = bitmaps.c_ptr();
+
+    std::vector<llama_rn_decision_prompt> prompts;
+    if (is_joint()) {
+        prompts.push_back(fill_prompt_joint(request, mctx, bitmaps_c_ptr));
+        return prompts;
+    }
     for (size_t i = 0; i < request.questions.size(); i++) {
         for (size_t variant = 0; variant < n_variants(request.questions[i]); variant++) {
             prompts.push_back(fill_prompt(request, i, variant, mctx, bitmaps_c_ptr));
@@ -976,7 +1224,7 @@ static void decision_load_bitmaps(mtmd_context * mctx, const std::vector<std::st
         if (string_starts_with(image, "data:")) {
             const size_t comma = image.find(',');
             if (comma == std::string::npos || image.substr(0, comma).find(";base64") == std::string::npos) {
-                throw std::invalid_argument("an image data URL must be base64 encoded");
+                throw std::invalid_argument("a media data URL must be base64 encoded");
             }
             const raw_buffer data = base64_decode(image.substr(comma + 1));
             out = mtmd_helper_bitmap_init_from_buf(mctx, data.data(), data.size(), false, mtmd_helper_init_opt_default());
@@ -988,10 +1236,10 @@ static void decision_load_bitmaps(mtmd_context * mctx, const std::vector<std::st
             if (out.bitmap != nullptr) {
                 mtmd_bitmap_free(out.bitmap);
             }
-            throw std::invalid_argument("a decision image must be an image, not a video");
+            throw std::invalid_argument("a decision media file must be an image or an audio clip, not a video");
         }
         if (out.bitmap == nullptr) {
-            throw std::invalid_argument("failed to load image: " + image.substr(0, 64));
+            throw std::invalid_argument("failed to load image or audio file: " + image.substr(0, 64));
         }
         bitmaps.entries.emplace_back(out.bitmap);
     }
@@ -1024,11 +1272,17 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt(
         mtmd_context * mctx,
         const std::vector<const mtmd_bitmap *> & bitmaps) const {
     const auto & question = request.questions[i_question];
-    const std::string prompt_text = render(request.state, request.questions, question, variant, request.images.size());
 
     llama_rn_decision_prompt prompt;
     prompt.question = i_question;
     prompt.variant  = variant;
+
+    if (profile.max_tokens > 0) {
+        fill_prompt_budget(request, i_question, variant, mctx, bitmaps, prompt);
+        return prompt;
+    }
+
+    const std::string prompt_text = render(request.state, request.questions, question, variant, request.images.size());
 
     if (!request.images.empty()) {
         GGML_ASSERT(profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS); // see profile.image_input
@@ -1038,7 +1292,7 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt(
                                      "which is not supported together with an image");
         }
         prompt.chunks = decision_tokenize_media(mctx, prompt_text, bitmaps, true);
-        prompt.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
+        fill_labels(question, prompt);
         return prompt;
     }
 
@@ -1053,8 +1307,7 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt(
 
     switch (profile.readout) {
         case LLAMA_RN_DECISION_READOUT_LABEL_LOGITS:
-            // a rating scale reads its ratings at the first labels
-            prompt.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
+            fill_labels(question, prompt);
             break;
         case LLAMA_RN_DECISION_READOUT_MARKER_EMBD:
             fill_prompt_laya(prompt.tokens, question, prompt);
@@ -1134,8 +1387,121 @@ void llama_rn_decision_context::fill_prompt_laya(std::vector<llama_token> & toke
     prompt.column = question.type;
 }
 
+// Each piece is cut to its budget as the model was trained (d1-omni prompt.py: encode), the state
+// gets the room that is left. The media come first, the text after them has a budget of its own.
+void llama_rn_decision_context::fill_prompt_budget(
+        const llama_rn_decision_request & request,
+        size_t i_question,
+        size_t variant,
+        mtmd_context * mctx,
+        const std::vector<const mtmd_bitmap *> & bitmaps,
+        llama_rn_decision_prompt & prompt) const {
+    const auto & question = request.questions[i_question];
+    const auto invalid = std::runtime_error("unexpected layout of the decision prompt");
+
+    // the prompt depends on the kind of media, mtmd tells an audio clip from an image by its content
+    std::string markers;
+    size_t n_media  = 0;
+    bool   is_audio = false;
+    if (!request.images.empty()) {
+        for (size_t i = 0; i < request.images.size(); i++) {
+            markers += mtmd_default_marker();
+        }
+        prompt.media = decision_tokenize_media(mctx, markers, bitmaps, true);
+        n_media = mtmd_helper_get_n_tokens(prompt.media.get());
+        for (size_t i = 0; i < mtmd_input_chunks_size(prompt.media.get()); i++) {
+            is_audio = is_audio || mtmd_input_chunk_get_type(mtmd_input_chunks_get(prompt.media.get(), i)) == MTMD_INPUT_CHUNK_TYPE_AUDIO;
+        }
+    }
+    if (is_audio && request.images.size() > 1) {
+        throw std::invalid_argument("a request has images or one audio clip, not both");
+    }
+
+    const std::string prompt_text = render(request.state, request.questions, question, variant, request.images.size(), is_audio);
+    const std::vector<std::string> pieces = string_split(prompt_text, DECISION_SEP);
+    if (pieces.empty() || pieces[0] != markers) {
+        throw invalid;
+    }
+
+    size_t n_max = profile.max_tokens;
+    if (!request.images.empty()) {
+        n_max = std::min(is_audio ? profile.max_tokens_audio : profile.max_tokens_image, profile.max_tokens - std::min(profile.max_tokens, n_media));
+        if (n_max < 64) {
+            throw std::invalid_argument(string_format("the media take %zu of the %zu positions, send fewer images", n_media, profile.max_tokens));
+        }
+    }
+
+    // the options get max(96, min(24 n + 32, max / 2)) tokens, shared evenly
+    const int64_t n_options      = question.options.size();
+    const int64_t n_budget       = std::max<int64_t>(96, std::min<int64_t>(24 * n_options + 32, n_max / 2));
+    const int64_t n_option_max   = std::max<int64_t>(2, (n_budget - 3 * n_options) / n_options);
+    const int64_t n_question_max = std::max<int64_t>(16, n_budget);
+
+    std::vector<llama_token> head; // before the state
+    std::vector<llama_token> body; // the state
+    std::vector<llama_token> tail; // after the state
+    bool has_state = false;
+    for (size_t i_piece = 1; i_piece < pieces.size(); i_piece++) {
+        std::string piece = pieces[i_piece];
+        int64_t n_piece_max = -1;
+        bool is_state = false;
+        if (string_starts_with(piece, DECISION_STATE)) {
+            piece    = piece.substr(DECISION_STATE.size());
+            is_state = true;
+        } else if (string_starts_with(piece, DECISION_QUESTION)) {
+            piece       = piece.substr(DECISION_QUESTION.size());
+            n_piece_max = n_question_max;
+        } else if (string_starts_with(piece, DECISION_OPTION)) {
+            piece       = piece.substr(DECISION_OPTION.size());
+            n_piece_max = n_option_max;
+        }
+
+        std::vector<llama_token> tokens = common_tokenize(vocab, piece, false, true);
+        if (n_piece_max >= 0 && (int64_t) tokens.size() > n_piece_max) {
+            tokens.resize(n_piece_max);
+        }
+
+        if (is_state) {
+            if (has_state) {
+                throw invalid;
+            }
+            body      = std::move(tokens);
+            has_state = true;
+        } else {
+            auto & dst = has_state ? tail : head;
+            dst.insert(dst.end(), tokens.begin(), tokens.end());
+        }
+    }
+    if (!has_state) {
+        throw invalid;
+    }
+
+    const size_t n_room = n_max - std::min(n_max, head.size() + tail.size());
+    body.resize(std::min(body.size(), n_room));
+
+    prompt.tokens = std::move(head);
+    prompt.tokens.insert(prompt.tokens.end(), body.begin(), body.end());
+    prompt.tokens.insert(prompt.tokens.end(), tail.begin(), tail.end());
+    prompt.tokens.resize(std::min(prompt.tokens.size(), n_max));
+
+    for (size_t i = 0; i < prompt.tokens.size(); i++) {
+        if (prompt.tokens[i] == token_marker) {
+            prompt.markers.push_back(n_media + i);
+        }
+    }
+    if ((int64_t) prompt.markers.size() != n_options) {
+        throw std::invalid_argument("the options do not fit in the context");
+    }
+
+    // the output has one score per question type
+    prompt.column = question.type;
+}
+
 // given to the template: text between the pieces of the prompt, and at the start of the span of a question or of an option
-llama_rn_decision_prompt llama_rn_decision_context::fill_prompt_joint(const llama_rn_decision_request & request) const {
+llama_rn_decision_prompt llama_rn_decision_context::fill_prompt_joint(
+        const llama_rn_decision_request & request,
+        mtmd_context * mctx,
+        const std::vector<const mtmd_bitmap *> & bitmaps) const {
     const auto & questions = request.questions;
 
     json inp_questions = json::array();
@@ -1164,21 +1530,48 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt_joint(const llam
         inp = decision_sort_keys(inp);
     }
     inp = decision_replace_text(inp, DECISION_MARKER, DECISION_NEUTERED);
+
+    // the template puts one media marker per image
+    json images = json::array();
+    if (!request.images.empty()) {
+        inp = decision_replace_text(inp, mtmd_default_marker(), " ");
+        for (size_t i = 0; i < request.images.size(); i++) {
+            images.push_back(mtmd_default_marker());
+        }
+    }
+    inp["images"]        = images;
     inp["sep"]           = DECISION_SEP;
     inp["mark_question"] = DECISION_QUESTION;
     inp["mark_option"]   = DECISION_OPTION;
 
     const std::string prompt_text = decision_apply_template(*tmpl, inp);
+    const auto invalid = std::runtime_error("unexpected layout of the decision prompt");
 
     // the model was trained with the pieces tokenized one by one
+    const std::vector<std::string> pieces = string_split(prompt_text, DECISION_SEP);
+    size_t i_piece = 0;
+
     llama_rn_decision_prompt prompt;
+    if (!request.images.empty()) {
+        // the text before the images is tokenized with them, a vision token separates the pieces anyway
+        std::string head;
+        while (i_piece < pieces.size() && head.find(mtmd_default_marker()) == std::string::npos) {
+            head += pieces[i_piece++];
+        }
+        if (head.find(mtmd_default_marker()) == std::string::npos || head.find(DECISION_MARKER) != std::string::npos) {
+            throw invalid;
+        }
+        prompt.media = decision_tokenize_media(mctx, head, bitmaps, true);
+    }
+
     size_t i_question = 0;
-    for (std::string piece : string_split(prompt_text, DECISION_SEP)) {
+    for (; i_piece < pieces.size(); i_piece++) {
+        std::string piece = pieces[i_piece];
         int32_t order = LLAMA_DECISION_ORDER_NONE;
         if (string_starts_with(piece, DECISION_QUESTION)) {
             piece = piece.substr(DECISION_QUESTION.size());
             if (i_question >= questions.size()) {
-                throw std::runtime_error("unexpected layout of the decision prompt");
+                throw invalid;
             }
             switch (questions[i_question++].type) {
                 case LLAMA_RN_DECISION_QUESTION_NOUL:   order = LLAMA_DECISION_ORDER_QUESTION_NOUL;   break;
@@ -1204,7 +1597,7 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt_joint(const llam
         n_options += question.options.size();
     }
     if (i_question != questions.size() || (size_t) prompt.n_scores != n_options) {
-        throw std::runtime_error("unexpected layout of the decision prompt");
+        throw invalid;
     }
     return prompt;
 }
@@ -1262,14 +1655,14 @@ static double decision_confidence_score(const std::vector<double> & probs) {
     return std::max(0.0, 1.0 - dist / dist_uniform);
 }
 
-json llama_rn_decision_context::format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores) const {
+json llama_rn_decision_context::format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores, bool has_media) const {
     const size_t n = n_outputs(question);
     if (scores.size() != n_variants(question)) {
         throw std::runtime_error("decision result does not match the number of variants");
     }
 
     // softmax over the outputs of each variant, then the average of the variants
-    const float temperature = get_temperature(question);
+    const float temperature = has_media && profile.media_raw_probs ? 1.0f : get_temperature(question);
     std::vector<double> probs(n, 0.0);
     for (size_t v = 0; v < scores.size(); v++) {
         const auto & s = scores[v];
@@ -1351,6 +1744,8 @@ json llama_rn_decision_context::format_result(
         n_input_tokens += prompt.n_tokens();
     }
 
+    const bool has_media = !request.images.empty();
+
     json answers = json::object();
     if (is_joint()) {
         // the scores of all the options of all the questions, in order
@@ -1360,7 +1755,7 @@ json llama_rn_decision_context::format_result(
             if (i_score + n > scores[0].size()) {
                 throw std::runtime_error("decision result does not match the number of options");
             }
-            answers[question.id] = format_answer(question, {std::vector<float>(scores[0].begin() + i_score, scores[0].begin() + i_score + n)});
+            answers[question.id] = format_answer(question, {std::vector<float>(scores[0].begin() + i_score, scores[0].begin() + i_score + n)}, has_media);
             i_score += n;
         }
     } else {
@@ -1378,7 +1773,7 @@ json llama_rn_decision_context::format_result(
             variants.push_back(scores[i]);
         }
         for (size_t i = 0; i < request.questions.size(); i++) {
-            answers[request.questions[i].id] = format_answer(request.questions[i], per_question[i]);
+            answers[request.questions[i].id] = format_answer(request.questions[i], per_question[i], has_media);
         }
     }
 
@@ -1395,6 +1790,121 @@ json llama_rn_decision_context::format_result(
 //
 // evaluation
 //
+
+// the logits of the labels, the max of each group if the labels are grouped
+static std::vector<float> decision_read_labels(const float * logits, const llama_rn_decision_prompt & prompt, size_t n_labels) {
+    std::vector<float> scores;
+    for (size_t i = 0; i < n_labels; i++) {
+        scores.push_back(logits[prompt.labels[i]]);
+    }
+    if (prompt.label_groups.empty()) {
+        return scores;
+    }
+    std::vector<float> out;
+    size_t i = 0;
+    for (const int32_t n : prompt.label_groups) {
+        GGML_ASSERT(n > 0 && i + n <= scores.size());
+        out.push_back(*std::max_element(scores.begin() + i, scores.begin() + i + n));
+        i += n;
+    }
+    return out;
+}
+
+// Evaluate a prompt with media in one batch from the start of the sequence, the media as embeddings
+// next to the text (llama-server: add_prompt_mixed). A model without memory, or with non-causal
+// attention, must see the whole prompt at once. Every entry is an output, batch index = prompt position.
+static void decision_eval_mixed(
+        mtmd_context * mctx,
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const llama_rn_decision_prompt & prompt) {
+    GGML_ASSERT(mctx != nullptr && prompt.media);
+    const size_t n_total = prompt.n_tokens();
+    if (n_total > (size_t) llama_n_batch(ctx)) {
+        throw std::runtime_error(string_format(
+            "the decision prompt does not fit in one batch (%zu tokens, n_batch = %u)", n_total, llama_n_batch(ctx)));
+    }
+
+    llama_memory_t mem = llama_get_memory(ctx);
+    if (mem != nullptr) {
+        llama_memory_seq_rm(mem, seq_id, -1, -1);
+    }
+
+    const int32_t n_embd   = llama_model_n_embd_inp(llama_get_model(ctx));
+    const bool    is_mrope = mtmd_decode_use_mrope(mctx);
+    const mtmd_input_chunks * chunks = prompt.media.get();
+
+    // the batch only points at the embeddings, they are kept until it is decoded
+    std::vector<std::vector<float>> embds;
+    mtmd::batch_ptr mbatch;
+    common_batch batch(ctx);
+    llama_pos n_past = 0;
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
+        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+        const size_t n_tokens = mtmd_input_chunk_get_n_tokens(chunk);
+        if (mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t n_text = 0;
+            const llama_token * tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_text);
+            for (size_t j = 0; j < n_text; j++) {
+                batch.add(tokens[j], n_past++, seq_id, true);
+            }
+            continue;
+        }
+
+        // encoded with the media chunks that follow it, as llama-server does (encode_mtmd_chunk)
+        const float * out = mbatch ? mtmd_batch_get_output_embd(mbatch.get(), chunk) : nullptr;
+        if (out == nullptr) {
+            mbatch.reset(mtmd_batch_init(mctx));
+            GGML_ASSERT(mtmd_batch_add_chunk(mbatch.get(), chunk) == 0);
+            for (size_t k = i + 1; k < mtmd_input_chunks_size(chunks); k++) {
+                const mtmd_input_chunk * next = mtmd_input_chunks_get(chunks, k);
+                if (mtmd_input_chunk_get_type(next) != MTMD_INPUT_CHUNK_TYPE_TEXT && mtmd_batch_add_chunk(mbatch.get(), next) != 0) {
+                    break; // the batch is full, or the chunk cannot go with the others
+                }
+            }
+            if (mtmd_batch_encode(mbatch.get()) != 0) {
+                throw std::runtime_error("failed to encode the media of the decision prompt");
+            }
+            out = mtmd_batch_get_output_embd(mbatch.get(), chunk);
+            GGML_ASSERT(out != nullptr);
+        }
+        embds.emplace_back(out, out + n_tokens * n_embd);
+        const float * embd = embds.back().data();
+
+        // positions are the ones of mtmd_helper_decode_image_chunk()
+        const mtmd_image_tokens * image = mtmd_input_chunk_get_tokens_image(chunk);
+        for (size_t j = 0; j < n_tokens; j++) {
+            const llama_pos p = n_past + (llama_pos) j;
+            llama_pos pos[GGML_MROPE_SECTIONS] = { p, p, p, p };
+            if (is_mrope && image) {
+                const mtmd_decoder_pos rel = mtmd_image_tokens_get_decoder_pos(image, n_past, j);
+                pos[0] = rel.t;
+                pos[1] = rel.y;
+                pos[2] = rel.x;
+                pos[3] = rel.z;
+            }
+            batch.add_embd({ embd + j * n_embd, 1, (size_t) n_embd }, pos, seq_id, true);
+        }
+        n_past += mtmd_input_chunk_get_n_pos(chunk);
+    }
+
+    // the decision order covers the text after the media, the media have none
+    for (size_t j = 0; j < prompt.tokens.size(); j++) {
+        const int32_t idx = batch.add(prompt.tokens[j], n_past++, seq_id, true);
+        if (!prompt.order.empty()) {
+            batch.tokens[idx].decision_order = prompt.order[j];
+        }
+    }
+    GGML_ASSERT((size_t) batch.size() == n_total);
+
+    const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+    if (ret != 0) {
+        if (mem != nullptr) {
+            llama_memory_seq_rm(mem, seq_id, -1, -1);
+        }
+        throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
+    }
+}
 
 // Evaluate a prompt with images from the start of the sequence, the way llama-server does
 // (process_mtmd_chunk): a media chunk is encoded in one mtmd batch with the media chunks
@@ -1602,6 +2112,13 @@ static std::vector<float> decision_eval_state_pieces(
     return scores;
 }
 
+static std::vector<float> decision_read_outputs(
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const llama_rn_decision_prompt & prompt,
+        size_t n_tokens,
+        size_t i_last);
+
 std::vector<float> llama_rn_decision_eval(
         llama_context * ctx,
         llama_seq_id seq_id,
@@ -1642,16 +2159,18 @@ std::vector<float> llama_rn_decision_eval(
         if (logits == nullptr) {
             throw std::runtime_error("failed to get logits");
         }
-        std::vector<float> scores;
-        for (const llama_token label : prompt.labels) {
-            scores.push_back(logits[label]);
-        }
-        return scores;
+        return decision_read_labels(logits, prompt, prompt.labels.size());
     }
 
     if (!prompt.state_pieces.empty()) {
         cache.clear();
         return decision_eval_state_pieces(ctx, seq_id, prompt, mctx);
+    }
+
+    if (prompt.media) {
+        cache.clear();
+        decision_eval_mixed(mctx, ctx, seq_id, prompt);
+        return decision_read_outputs(ctx, seq_id, prompt, prompt.n_tokens(), 0);
     }
 
     const auto & tokens   = prompt.tokens;
@@ -1717,6 +2236,16 @@ std::vector<float> llama_rn_decision_eval(
         cache.tokens.clear();
     }
 
+    return decision_read_outputs(ctx, seq_id, prompt, n_tokens, i_last);
+}
+
+// the scores of a decoded prompt: n_tokens is its length, i_last its position at index 0 of the last batch
+static std::vector<float> decision_read_outputs(
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const llama_rn_decision_prompt & prompt,
+        size_t n_tokens,
+        size_t i_last) {
     std::vector<float> scores;
 
     if (!prompt.labels.empty()) {
@@ -1728,9 +2257,8 @@ std::vector<float> llama_rn_decision_eval(
                 throw std::runtime_error("failed to get logits");
             }
             const size_t n = prompt.slot_n_labels.empty() ? prompt.labels.size() : (size_t) prompt.slot_n_labels[s];
-            for (size_t i = 0; i < n; i++) {
-                scores.push_back(logits[prompt.labels[i]]);
-            }
+            const std::vector<float> slot_scores = decision_read_labels(logits, prompt, n);
+            scores.insert(scores.end(), slot_scores.begin(), slot_scores.end());
         }
         return scores;
     }
