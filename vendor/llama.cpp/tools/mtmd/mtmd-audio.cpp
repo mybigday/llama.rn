@@ -12,8 +12,7 @@
 
 // some of the code here is copied from whisper.cpp
 
-// renamed to avoid conflict with Apple's DEBUG macro
-constexpr bool MTMD_AUDIO_DEBUG = false;
+constexpr bool DEBUG = false;
 
 void mtmd_audio_cache::fill_sin_cos_table(uint32_t n) {
     sin_vals.resize(n);
@@ -121,7 +120,7 @@ void mtmd_audio_cache::fill_mel_filterbank_matrix(int64_t n_mel,
     filters.n_fft = n_fft;
     filters.data  = std::move(out);
 
-    if (MTMD_AUDIO_DEBUG) {  // debug
+    if (DEBUG) {  // debug
         for (size_t i = 0; i < filters.data.size(); ++i) {
             if (filters.data[i] != 0.0f) {
                 printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
@@ -527,7 +526,7 @@ static bool log_mel_spectrogram(
     }
 
     // Dump log_mel_spectrogram
-    if (MTMD_AUDIO_DEBUG) {
+    if (DEBUG) {
         std::ofstream outFile("log_mel_spectrogram.json");
         outFile << "[";
         for (uint64_t i = 0; i < out.data.size() - 1; i++) {
@@ -594,7 +593,7 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
 
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
-    if (MTMD_AUDIO_DEBUG) {
+    if (DEBUG) {
         printf("output: n_mel = %d, n_len = %d\n", (int) out_full.n_mel, (int) out_full.n_len);
     }
     const size_t frames_per_chunk = 3000;
@@ -992,6 +991,42 @@ bool mtmd_audio_preprocessor_conformer::preprocess(const float *                
     }
 
     output.push_back(std::move(out_full));
+    return true;
+}
+
+//
+// mtmd_audio_preprocessor_d1omni
+//
+
+bool mtmd_audio_preprocessor_d1omni::preprocess(const float *                 samples,
+                                                size_t                        n_samples,
+                                                std::vector<mtmd_audio_mel> & output) const {
+    if (n_samples == 0) {
+        return false;
+    }
+    const size_t n_max = 30 * hparams.audio_sample_rate;
+    const size_t n_min = hparams.audio_sample_rate / 2;
+
+    std::vector<float> buf(samples, samples + std::min(n_samples, n_max));
+    buf.resize(std::max(buf.size(), n_min), 0.0f);
+
+    if (!mtmd_audio_preprocessor_conformer::preprocess(buf.data(), buf.size(), output)) {
+        return false;
+    }
+
+    // the encoder reads one frame per hop, not the extra frame of the centre padding (NeMo: seq_len)
+    const int64_t n_frames = buf.size() / hparams.audio_hop_len;
+    for (auto & mel : output) {
+        if (mel.n_len <= n_frames) {
+            continue;
+        }
+        std::vector<float> data((size_t) mel.n_mel * n_frames);
+        for (int64_t j = 0; j < mel.n_mel; ++j) {
+            std::copy_n(mel.data.begin() + (size_t) j * mel.n_len, n_frames, data.begin() + (size_t) j * n_frames);
+        }
+        mel.n_len = n_frames;
+        mel.data  = std::move(data);
+    }
     return true;
 }
 

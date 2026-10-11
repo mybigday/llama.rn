@@ -3269,7 +3269,7 @@ void mmv_fn(
         device       char * dst,
         threadgroup  char * shmem,
         uint3  tgpig,
-        uint   tiitg,
+        ushort tiitg,
         ushort tiisg,
         ushort sgitg) {
     disp_fn(args, src0, src1, dst, tgpig, tiisg);
@@ -3283,7 +3283,7 @@ void mmv_fn(
         device       char * dst,
         threadgroup  char * shmem,
         uint3  tgpig,
-        uint   tiitg,
+        ushort tiitg,
         ushort tiisg,
         ushort sgitg) {
     disp_fn(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
@@ -3300,7 +3300,7 @@ kernel void kernel_mul_mv_id(
         device const char * ids,
         threadgroup  char * shmem [[threadgroup(0)]],
         uint3  tgpig[[threadgroup_position_in_grid]],
-        uint   tiitg[[thread_index_in_threadgroup]],
+        ushort tiitg[[thread_index_in_threadgroup]],
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
     const int iid1 = tgpig.z/args.nei0;
