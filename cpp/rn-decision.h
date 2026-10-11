@@ -20,7 +20,9 @@
 //     llama_rn_decision_profile_for(): a new model that combines conventions
 //     that already exist is one more row, not new code
 //   - a template may ask for its prompt to be tokenized piece by piece ({{ sep }})
-//     for every type, not only for the joint one
+//     for every type, not only for the joint one, with images too
+//   - a label model takes images when its template has a place for them, whatever its
+//     type (upstream lets only some types take images; nimble's own prompt has no place)
 //   - the decode loop is llama.rn's own (llama_rn_decision_eval), the server's
 //     task queue and its shared-prefix grouping are not ported
 //   - the media of a prompt that is read from the embeddings output (clef, lfm2-d1-omni)
@@ -150,8 +152,9 @@ struct llama_rn_decision_prompt {
     size_t variant  = 0;
 
     std::vector<llama_token> tokens;
-    // a prompt with images is evaluated from its chunks, tokens is then empty
-    std::shared_ptr<mtmd_input_chunks> chunks;
+    // a prompt with images is evaluated from its chunks, tokens is then empty; a prompt that is
+    // tokenized piece by piece ({{ sep }}) has one list per piece, evaluated in order
+    std::vector<std::shared_ptr<mtmd_input_chunks>> chunks;
     // system_one with images: the state, segment by segment, evaluated before tokens (the
     // question blocks, whose slots are relative to them)
     std::vector<llama_rn_decision_piece> state_pieces;
@@ -321,12 +324,12 @@ private:
 // What a sequence holds from the previous prompt, so that the next one evaluates only what
 // differs from it. Empty for a cleared sequence.
 struct llama_rn_decision_cache {
-    std::vector<llama_token>           tokens; // a text prompt
-    std::shared_ptr<mtmd_input_chunks> chunks; // a prompt with images
+    std::vector<llama_token>                        tokens; // a text prompt
+    std::vector<std::shared_ptr<mtmd_input_chunks>> chunks; // a prompt with images
 
     void clear() {
         tokens.clear();
-        chunks.reset();
+        chunks.clear();
     }
 };
 

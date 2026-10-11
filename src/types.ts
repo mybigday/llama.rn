@@ -763,7 +763,11 @@ export type NativeLlamaContext = {
       type: DecisionModelType
       /** Most options a `choice` question can have */
       nOptionsMax: number
-      /** The prompt has a place for images (multimodal still has to be initialized) */
+      /**
+       * The prompt has a place for images (multimodal still has to be initialized).
+       * For a model read from its label logits (openjev, lev, nimble, ...) this
+       * follows from its template: a template that writes `images` takes them.
+       */
       imageInput: boolean
       /** The prompt has a place for an audio clip (multimodal still has to be initialized) */
       audioInput: boolean

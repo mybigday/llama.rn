@@ -157,6 +157,12 @@ void llama_rn_decision_context::init(const llama_model * model) {
     }
     tmpl = std::make_shared<const common_chat_template>(tmpl_src, "", "");
 
+    // a label model whose template has a place for images takes them, whatever its type says
+    // (a type's own prompt may have none, e.g. nimble's); fill_prompt() checks that it uses them
+    if (profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS && std::string(tmpl_src).find("images") != std::string::npos) {
+        profile.image_input = true;
+    }
+
     const std::string prefix_temp = prefix + "temperature.";
     for (int32_t i = 0; i < llama_model_meta_count(model); i++) {
         char key[256];
@@ -270,7 +276,10 @@ json llama_rn_decision_context::info() const {
 }
 
 size_t llama_rn_decision_prompt::n_tokens() const {
-    size_t n = chunks ? mtmd_helper_get_n_tokens(chunks.get()) : tokens.size();
+    size_t n = tokens.size();
+    for (const auto & piece : chunks) {
+        n += mtmd_helper_get_n_tokens(piece.get());
+    }
     if (media) {
         n += mtmd_helper_get_n_tokens(media.get());
     }
@@ -1286,12 +1295,33 @@ llama_rn_decision_prompt llama_rn_decision_context::fill_prompt(
 
     if (!request.images.empty()) {
         GGML_ASSERT(profile.readout == LLAMA_RN_DECISION_READOUT_LABEL_LOGITS); // see profile.image_input
-        if (prompt_text.find(DECISION_SEP) != std::string::npos) {
-            // the pieces would have to be tokenized around the media chunks
-            throw std::runtime_error("this decision model tokenizes its prompt piece by piece, "
-                                     "which is not supported together with an image");
+        size_t n_markers = 0;
+        for (size_t pos = prompt_text.find(mtmd_default_marker()); pos != std::string::npos; pos = prompt_text.find(mtmd_default_marker(), pos + 1)) {
+            n_markers++;
         }
-        prompt.chunks = decision_tokenize_media(mctx, prompt_text, bitmaps, true);
+        if (n_markers != request.images.size()) {
+            throw std::runtime_error("the template of this decision model has no place for images");
+        }
+        const std::vector<std::string> pieces = string_split(prompt_text, DECISION_SEP);
+        if (pieces.size() == 1) {
+            // the special tokens are added as llama-server does (process_mtmd_prompt)
+            prompt.chunks.push_back(decision_tokenize_media(mctx, prompt_text, bitmaps, true));
+        } else {
+            // piece by piece, as a prompt without images; a piece takes the images of its markers
+            size_t next_image = 0;
+            for (const std::string & piece : pieces) {
+                size_t n = 0;
+                for (size_t pos = piece.find(mtmd_default_marker()); pos != std::string::npos; pos = piece.find(mtmd_default_marker(), pos + 1)) {
+                    n++;
+                }
+                const std::vector<const mtmd_bitmap *> piece_bitmaps(bitmaps.begin() + next_image, bitmaps.begin() + next_image + n);
+                next_image += n;
+                auto chunks = decision_tokenize_media(mctx, piece, piece_bitmaps, false);
+                if (mtmd_input_chunks_size(chunks.get()) > 0) {
+                    prompt.chunks.push_back(std::move(chunks));
+                }
+            }
+        }
         fill_labels(question, prompt);
         return prompt;
     }
@@ -1906,6 +1936,17 @@ static void decision_eval_mixed(
     }
 }
 
+// the chunks of a prompt's pieces, in order
+static std::vector<const mtmd_input_chunk *> decision_flatten(const std::vector<std::shared_ptr<mtmd_input_chunks>> & pieces) {
+    std::vector<const mtmd_input_chunk *> out;
+    for (const auto & piece : pieces) {
+        for (size_t i = 0; i < mtmd_input_chunks_size(piece.get()); i++) {
+            out.push_back(mtmd_input_chunks_get(piece.get(), i));
+        }
+    }
+    return out;
+}
+
 // Evaluate a prompt with images from the start of the sequence, the way llama-server does
 // (process_mtmd_chunk): a media chunk is encoded in one mtmd batch with the media chunks
 // that follow it, then its embeddings are decoded; text is decoded in batches of n_batch.
@@ -1915,17 +1956,17 @@ static void decision_eval_chunks(
         mtmd_context * mctx,
         llama_context * ctx,
         llama_seq_id seq_id,
-        const mtmd_input_chunks * chunks,
+        const std::vector<const mtmd_input_chunk *> & chunks,
         llama_pos & n_past,
         bool logits_last,
         size_t first_chunk = 0,
         size_t first_token = 0) {
-    const size_t  n_chunks = mtmd_input_chunks_size(chunks);
+    const size_t  n_chunks = chunks.size();
     const int32_t n_batch  = llama_n_batch(ctx);
 
     mtmd::batch_ptr mbatch;
     for (size_t i = first_chunk; i < n_chunks; i++) {
-        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+        const mtmd_input_chunk * chunk = chunks[i];
         const bool is_last = i + 1 == n_chunks;
 
         if (mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT) {
@@ -1957,7 +1998,7 @@ static void decision_eval_chunks(
             mbatch.reset(mtmd_batch_init(mctx));
             GGML_ASSERT(mtmd_batch_add_chunk(mbatch.get(), chunk) == 0);
             for (size_t j = i + 1; j < n_chunks; j++) {
-                const mtmd_input_chunk * next = mtmd_input_chunks_get(chunks, j);
+                const mtmd_input_chunk * next = chunks[j];
                 if (mtmd_input_chunk_get_type(next) == MTMD_INPUT_CHUNK_TYPE_TEXT) {
                     continue;
                 }
@@ -1984,19 +2025,19 @@ static void decision_eval_chunks(
 // (its id is the image's hash) with the same tokens, a text chunk token by token. The last token of
 // b is always evaluated again, its logits are read.
 static void decision_common_prefix(
-        const mtmd_input_chunks * a,
-        const mtmd_input_chunks * b,
+        const std::vector<const mtmd_input_chunk *> & a,
+        const std::vector<const mtmd_input_chunk *> & b,
         size_t & i_chunk,
         size_t & i_token,
         llama_pos & n_pos) {
     i_chunk = 0;
     i_token = 0;
     n_pos   = 0;
-    const size_t n_b = mtmd_input_chunks_size(b);
-    const size_t n   = std::min(mtmd_input_chunks_size(a), n_b);
+    const size_t n_b = b.size();
+    const size_t n   = std::min(a.size(), n_b);
     for (; i_chunk < n; i_chunk++) {
-        const mtmd_input_chunk * ca = mtmd_input_chunks_get(a, i_chunk);
-        const mtmd_input_chunk * cb = mtmd_input_chunks_get(b, i_chunk);
+        const mtmd_input_chunk * ca = a[i_chunk];
+        const mtmd_input_chunk * cb = b[i_chunk];
         const auto type = mtmd_input_chunk_get_type(cb);
         if (mtmd_input_chunk_get_type(ca) != type) {
             return;
@@ -2030,9 +2071,9 @@ static void decision_common_prefix(
     // the last token of b must be evaluated: if b matched up to its very end, step back onto it
     if (i_chunk >= n_b) {
         i_chunk = n_b - 1;
-        i_token = mtmd_input_chunk_get_n_tokens(mtmd_input_chunks_get(b, i_chunk));
+        i_token = mtmd_input_chunk_get_n_tokens(b[i_chunk]);
     }
-    const mtmd_input_chunk * last = mtmd_input_chunks_get(b, n_b - 1);
+    const mtmd_input_chunk * last = b[n_b - 1];
     const size_t n_last = mtmd_input_chunk_get_n_tokens(last);
     if (i_chunk == n_b - 1 && i_token >= n_last) {
         if (mtmd_input_chunk_get_type(last) != MTMD_INPUT_CHUNK_TYPE_TEXT || n_last == 0) {
@@ -2086,7 +2127,7 @@ static std::vector<float> decision_eval_state_pieces(
         for (const auto & piece : prompt.state_pieces) {
             if (piece.chunks) {
                 GGML_ASSERT(mctx != nullptr);
-                decision_eval_chunks(mctx, ctx, seq_id, piece.chunks.get(), n_past, false);
+                decision_eval_chunks(mctx, ctx, seq_id, decision_flatten({piece.chunks}), n_past, false);
             } else {
                 decode(piece.tokens, n_past, {});
                 n_past += piece.tokens.size();
@@ -2125,7 +2166,7 @@ std::vector<float> llama_rn_decision_eval(
         const llama_rn_decision_prompt & prompt,
         llama_rn_decision_cache & cache,
         mtmd_context * mctx) {
-    if (prompt.chunks) {
+    if (!prompt.chunks.empty()) {
         // continue from the previous prompt where the two agree: its images are encoded and
         // decoded already, as llama-server keeps them in the slot
         llama_memory_t mem = llama_get_memory(ctx);
@@ -2133,8 +2174,9 @@ std::vector<float> llama_rn_decision_eval(
         size_t    first_chunk = 0;
         size_t    first_token = 0;
         llama_pos n_past      = 0;
-        if (mem != nullptr && cache.chunks) {
-            decision_common_prefix(cache.chunks.get(), prompt.chunks.get(), first_chunk, first_token, n_past);
+        const std::vector<const mtmd_input_chunk *> chunks = decision_flatten(prompt.chunks);
+        if (mem != nullptr && !cache.chunks.empty()) {
+            decision_common_prefix(decision_flatten(cache.chunks), chunks, first_chunk, first_token, n_past);
         }
         // a recurrent state cannot be rolled back, start over
         if (mem == nullptr || !llama_memory_seq_rm(mem, seq_id, n_past, -1)) {
@@ -2147,7 +2189,7 @@ std::vector<float> llama_rn_decision_eval(
         }
         cache.clear();
         try {
-            decision_eval_chunks(mctx, ctx, seq_id, prompt.chunks.get(), n_past, true, first_chunk, first_token);
+            decision_eval_chunks(mctx, ctx, seq_id, chunks, n_past, true, first_chunk, first_token);
         } catch (...) {
             if (mem != nullptr) {
                 llama_memory_seq_rm(mem, seq_id, -1, -1);
@@ -2198,7 +2240,7 @@ std::vector<float> llama_rn_decision_eval(
             n_keep = 0;
         }
     }
-    cache.chunks.reset();
+    cache.chunks.clear();
     cache.tokens.assign(tokens.begin(), tokens.begin() + n_keep);
 
     common_batch batch(ctx);
