@@ -1817,7 +1817,7 @@ completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_part
     common_chat_parser_params syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
     syntax.reasoning_format = current_reasoning_format;
-    syntax.generation_prompt = current_generation_prompt;
+    syntax.generation_prompt = common_chat_input(current_generation_prompt);
     syntax.parse_tool_calls = true;
 
     // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)
@@ -1825,7 +1825,7 @@ completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_part
         syntax.parser.load(current_chat_parser);
     }
 
-    common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, is_partial, syntax);
+    common_chat_msg parsed_msg = common_chat_parse(common_chat_input(prefill_text + generated_text), is_partial, syntax);
 
     completion_chat_output result;
 
