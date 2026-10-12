@@ -576,6 +576,9 @@ export type DecisionModelType =
   | 'nimble'
   | 'laya'
   | 'clef'
+  | 'pplx-decider'
+  | 'lfm2-d1'
+  | 'lfm2-d1-omni'
   | 'system_one'
   | 'unknown'
 
@@ -624,7 +627,13 @@ export type DecisionScoreQuestion = {
 export type DecisionNoulQuestion = {
   type: 'noul'
   instructions: DecisionContent
-  criteria?: { true?: string | null; false?: string | null }
+  /** `lfm2-d1-omni` also takes the descriptions under `yes` and `no` */
+  criteria?: {
+    true?: string | null
+    false?: string | null
+    yes?: string | null
+    no?: string | null
+  }
 }
 
 export type DecisionQuestion =
@@ -638,17 +647,21 @@ export type DecisionRequest<Q extends DecisionQuestions = DecisionQuestions> = {
   /**
    * The content to evaluate. A state made of chat messages (an array of
    * messages, or an object with a `messages` array) may carry `image_url`
-   * parts, they are taken as images and removed from the state.
+   * and `input_audio` parts, they are taken as media and removed from the state.
    * For a `system_one` model the state may also be a list of content parts
    * (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`):
    * the text is joined and each image stays where it is.
+   * `lfm2-d1` and `lfm2-d1-omni` take `null`, to ask about the media only.
    */
-  state: DecisionContent
+  state: DecisionContent | null
   questions: Q
   /**
-   * Images, as file paths or data URLs. Needs a model that supports image
-   * input and `initMultimodal()`. All images go before the state, these first.
+   * Images, or audio clips for a model with `audioInput`, as file paths or
+   * data URLs. Needs `initMultimodal()`. All media go before the state, these
+   * first. `lfm2-d1-omni` takes images or one audio clip, not both.
    */
+  files?: string[]
+  /** Alias of `files` */
   images?: string[]
 }
 
@@ -750,8 +763,14 @@ export type NativeLlamaContext = {
       type: DecisionModelType
       /** Most options a `choice` question can have */
       nOptionsMax: number
-      /** The prompt has a place for images (multimodal still has to be initialized) */
+      /**
+       * The prompt has a place for images (multimodal still has to be initialized).
+       * For a model read from its label logits (openjev, lev, nimble, ...) this
+       * follows from its template: a template that writes `images` takes them.
+       */
       imageInput: boolean
+      /** The prompt has a place for an audio clip (multimodal still has to be initialized) */
+      audioInput: boolean
       /** If false, `completion()` rejects: the model only answers decisions (clef, for one) */
       textGeneration: boolean
       /** Only for `system_one` models */

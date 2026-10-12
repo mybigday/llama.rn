@@ -4,15 +4,15 @@
 // Typed decision models (TypeSafe /v1/systemone API): a model answers typed
 // questions about a state in one forward pass, no token is generated.
 //
-// Ported from llama.cpp tools/server/server-decision.{h,cpp} at b11385 (bf9a0cc),
+// Ported from llama.cpp tools/server/server-decision.{h,cpp} at b11530 (a518119),
 // plus eb2b96dd5 "server : tokenize a decision prompt piece by piece when its
 // template asks", which is not upstream yet: render() passing {{ sep }} to every
 // template and fill_prompt() splitting on it come from that commit.
 //
 // The blobs ported from, checked by scripts/sync-vendor.sh: when upstream changes
 // them, carry the change over and update these lines.
-// upstream-blob: tools/server/server-decision.cpp 522aa2bed4ff96c7e16d7c508b1f605363d1af5a
-// upstream-blob: tools/server/server-decision.h 93480ba26974519cf7920105af640421eb58827d
+// upstream-blob: tools/server/server-decision.cpp 11ad66a19e60ffb578bf229275d6b4d7b72af679
+// upstream-blob: tools/server/server-decision.h 5c7e44f37b8a2747fdb7559d7b746ae6ec23a3ab
 //
 // The functions keep upstream's names and split so that an upstream change can
 // be carried over function by function. What differs:
@@ -20,9 +20,13 @@
 //     llama_rn_decision_profile_for(): a new model that combines conventions
 //     that already exist is one more row, not new code
 //   - a template may ask for its prompt to be tokenized piece by piece ({{ sep }})
-//     for every type, not only for the joint one
+//     for every type, not only for the joint one, with images too
+//   - a label model takes images when its template has a place for them, whatever its
+//     type (upstream lets only some types take images; nimble's own prompt has no place)
 //   - the decode loop is llama.rn's own (llama_rn_decision_eval), the server's
 //     task queue and its shared-prefix grouping are not ported
+//   - the media of a prompt that is read from the embeddings output (clef, lfm2-d1-omni)
+//     go in one batch with its text, as llama-server's add_prompt_mixed() does
 //   - a model with no <arch>.decision.type but a `system_one` template is read the
 //     way mybigday's system-one library does (tools/system-one at feat/system-one):
 //     the readout is derived from what the model is rather than declared, see
@@ -71,12 +75,13 @@ enum llama_rn_decision_labels {
     LLAMA_RN_DECISION_LABELS_NONE,
     LLAMA_RN_DECISION_LABELS_LETTERS, // A..Z then a..z, every one must be a single token
     LLAMA_RN_DECISION_LABELS_CODES,   // A..Z then AA..ZZ, the ones that are a single token, at most 255
+    LLAMA_RN_DECISION_LABELS_PER_QUESTION, // depend on the question, a group of tokens per option, see d1_labels()
 };
 
 // the marker token of MARKER_EMBD and POINTER
 enum llama_rn_decision_marker {
     LLAMA_RN_DECISION_MARKER_NONE,
-    LLAMA_RN_DECISION_MARKER_VOCAB_MASK, // the vocab's mask token, the vocab's sep token delimits the options
+    LLAMA_RN_DECISION_MARKER_VOCAB_MASK, // the vocab's mask token; with truncate_head, the vocab's sep token delimits the options
     LLAMA_RN_DECISION_MARKER_TEXT,       // marker_text, a single special token
 };
 
@@ -102,7 +107,18 @@ struct llama_rn_decision_profile {
     bool reverse_variant  = false; // a choice is also shown in reverse order, the two are averaged
     bool truncate_head    = false; // question and options are cut to <arch>.decision.max_head_tokens
     bool image_input      = false; // the prompt has a place for images
+    bool audio_input      = false; // the prompt has a place for one audio clip, instead of images
+    bool null_state       = false; // the state may be null, e.g. to ask about the media only
+    bool noul_yes_no      = false; // a noul also takes its descriptions under "no" and "yes"
+    bool escape_special   = false; // special tokens written in the input, keys included, are not parsed as such
+    bool media_raw_probs  = false; // the temperatures are not applied to an answer about media
     size_t n_noul_ratings = 0;     // if set, noul is the expected value of a rating scale of that many labels
+
+    // if set, the pieces of the prompt are cut to their budgets, the media and the text share max_tokens,
+    // see fill_prompt_budget(); max_tokens_image and max_tokens_audio cap the text after the media
+    size_t max_tokens       = 0;
+    size_t max_tokens_image = 0;
+    size_t max_tokens_audio = 0;
 
     llama_rn_decision_temperature_buckets temperature_buckets = LLAMA_RN_DECISION_TEMPERATURE_BUCKETS_DEFAULT;
 };
@@ -136,16 +152,21 @@ struct llama_rn_decision_prompt {
     size_t variant  = 0;
 
     std::vector<llama_token> tokens;
-    // a prompt with images is evaluated from its chunks, tokens is then empty
-    std::shared_ptr<mtmd_input_chunks> chunks;
+    // a prompt with images is evaluated from its chunks, tokens is then empty; a prompt that is
+    // tokenized piece by piece ({{ sep }}) has one list per piece, evaluated in order
+    std::vector<std::shared_ptr<mtmd_input_chunks>> chunks;
     // system_one with images: the state, segment by segment, evaluated before tokens (the
     // question blocks, whose slots are relative to them)
     std::vector<llama_rn_decision_piece> state_pieces;
+    // a prompt read from the embeddings output, with media: these chunks, then tokens, all in one
+    // batch; the positions that are read count the tokens of the media first
+    std::shared_ptr<mtmd_input_chunks> media;
 
     // text and media tokens, the state pieces included
     size_t n_tokens() const;
 
     std::vector<llama_token> labels;  // LABEL_LOGITS: logits of these tokens, at the last token
+    std::vector<int32_t>     label_groups; // LABEL_LOGITS: if set, labels per output, the output is their max
     std::vector<int32_t>     slots;   // LETTER_SLOTS: where each question's labels are read
     std::vector<int32_t>     slot_n_labels; // LETTER_SLOTS: how many labels each slot reads
     bool                     pooled = false; // RANK_HEAD: the score is the sequence's pooled output
@@ -179,7 +200,7 @@ struct llama_rn_decision_prompt {
 struct llama_rn_decision_request {
     common_json state;
     std::vector<llama_rn_decision_question> questions;
-    std::vector<std::string> images; // file paths or data URLs
+    std::vector<std::string> images; // file paths or data URLs, of images or audio clips
 };
 
 struct llama_rn_decision_context {
@@ -269,7 +290,8 @@ private:
             const std::vector<llama_rn_decision_question> & questions,
             const llama_rn_decision_question & question,
             size_t variant,
-            size_t n_images) const;
+            size_t n_images,
+            bool is_audio = false) const;
     common_json render_options(const llama_rn_decision_question & question, size_t variant) const;
     size_t n_outputs(const llama_rn_decision_question & question) const;
 
@@ -279,22 +301,35 @@ private:
             size_t variant,
             mtmd_context * mctx,
             const std::vector<const mtmd_bitmap *> & bitmaps) const;
-    llama_rn_decision_prompt fill_prompt_joint(const llama_rn_decision_request & request) const;
+    llama_rn_decision_prompt fill_prompt_joint(
+            const llama_rn_decision_request & request,
+            mtmd_context * mctx,
+            const std::vector<const mtmd_bitmap *> & bitmaps) const;
     void fill_prompt_laya(std::vector<llama_token> & tokens, const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const;
+    void fill_prompt_budget(
+            const llama_rn_decision_request & request,
+            size_t i_question,
+            size_t variant,
+            mtmd_context * mctx,
+            const std::vector<const mtmd_bitmap *> & bitmaps,
+            llama_rn_decision_prompt & prompt) const;
+    void fill_labels(const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const;
+    // LABELS_PER_QUESTION: label text and tokens of each option
+    void d1_labels(const llama_rn_decision_question & question, std::vector<std::string> & texts, std::vector<std::vector<llama_token>> & groups) const;
 
     float get_temperature(const llama_rn_decision_question & question) const;
-    common_json format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores) const;
+    common_json format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores, bool has_media) const;
 };
 
 // What a sequence holds from the previous prompt, so that the next one evaluates only what
 // differs from it. Empty for a cleared sequence.
 struct llama_rn_decision_cache {
-    std::vector<llama_token>           tokens; // a text prompt
-    std::shared_ptr<mtmd_input_chunks> chunks; // a prompt with images
+    std::vector<llama_token>                        tokens; // a text prompt
+    std::vector<std::shared_ptr<mtmd_input_chunks>> chunks; // a prompt with images
 
     void clear() {
         tokens.clear();
-        chunks.reset();
+        chunks.clear();
     }
 };
 

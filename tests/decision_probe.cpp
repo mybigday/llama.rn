@@ -2,7 +2,7 @@
 // llama_rn_context::decide() (or the slot manager, --parallel N) and prints the
 // response JSON, so it can be diffed against llama-server's /v1/systemone.
 //
-//   decision_probe <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F] [--pooling rank]
+//   decision_probe <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F] [--pooling rank] [--batch N]
 
 #include "rn-llama.h"
 #include "rn-slot-manager.h"
@@ -18,7 +18,7 @@ using namespace rnllama;
 
 int main(int argc, char ** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F] [--pooling rank]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <model.gguf> <request.json> [--threads N] [--ctx N] [--parallel N] [--mmproj F] [--pooling rank] [--batch N]\n", argv[0]);
         return 1;
     }
     const std::string model_path   = argv[1];
@@ -26,6 +26,7 @@ int main(int argc, char ** argv) {
     int threads    = 8;
     int n_ctx      = 4096;
     int n_parallel = 0;
+    int n_batch    = 0; // --batch N: n_batch = n_ubatch = N, a memory-less model reads its prompt in one ubatch
     std::string mmproj_path;
     bool rank_pooling = false; // --pooling rank: a classification-head model, set up by the caller
     std::string complete_media; // --complete-media F: run <request.json> as a raw prompt through completion() instead
@@ -35,6 +36,8 @@ int main(int argc, char ** argv) {
             threads = std::atoi(argv[i + 1]);
         } else if (arg == "--ctx") {
             n_ctx = std::atoi(argv[i + 1]);
+        } else if (arg == "--batch") {
+            n_batch = std::atoi(argv[i + 1]);
         } else if (arg == "--parallel") {
             n_parallel = std::atoi(argv[i + 1]);
         } else if (arg == "--pooling") {
@@ -59,6 +62,10 @@ int main(int argc, char ** argv) {
     params.cpuparams.n_threads = threads;
     params.cpuparams_batch.n_threads = threads;
     params.n_gpu_layers = 0;
+    if (n_batch > 0) {
+        params.n_batch  = n_batch;
+        params.n_ubatch = n_batch;
+    }
     if (rank_pooling) {
         params.embedding = true;
         params.pooling_type = LLAMA_POOLING_TYPE_RANK;

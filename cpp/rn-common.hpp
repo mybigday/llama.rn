@@ -81,7 +81,8 @@ inline static json backend_devices_info() {
                 if (metal_props) {
                     // Add Metal-specific metadata
                     json metadata;
-                    metadata["supportsMTLGPUFamilyApple7"] = metal_props->supports_gpu_family_apple7;
+                    // gpu_family is the highest MTLGPUFamilyAppleN the device supports
+                    metadata["supportsMTLGPUFamilyApple7"] = metal_props->gpu_family >= 7;
                     metadata["hasBFloat16"] = metal_props->has_bfloat;
                     metadata["hasSimdgroupReduction"] = metal_props->has_simdgroup_reduction;
                     metadata["hasSimdgroupMM"] = metal_props->has_simdgroup_mm;

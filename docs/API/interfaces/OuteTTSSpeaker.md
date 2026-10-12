@@ -16,4 +16,4 @@
 
 #### Defined in
 
-[tts-voices.ts:16](https://github.com/mybigday/llama.rn/blob/3ee457d5/src/tts-voices.ts#L16)
+[tts-voices.ts:16](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/tts-voices.ts#L16)
