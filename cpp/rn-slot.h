@@ -116,7 +116,7 @@ struct llama_rn_slot {
     bool post_sampling_probs = true;
     common_sampler* ctx_sampling;
 
-    // Speculative decoding context for MTP.
+    // Speculative decoding context (MTP or classic draft-simple).
     common_speculative *spec = nullptr;
     llama_context *spec_ctx = nullptr;
     bool spec_is_shared = false;

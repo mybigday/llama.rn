@@ -138,7 +138,7 @@ struct llama_rn_context_completion {
     // Sampling context
     common_sampler *ctx_sampling = nullptr;
 
-    // Speculative decoding context for MTP.
+    // Speculative decoding context (MTP or classic draft-simple).
     common_speculative *spec = nullptr;
     llama_context_ptr spec_ctx;
     common_batch spec_batch;
