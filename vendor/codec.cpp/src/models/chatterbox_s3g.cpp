@@ -1,4 +1,5 @@
 #include "chatterbox_s3g.h"
+#include <cstdlib>
 
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"

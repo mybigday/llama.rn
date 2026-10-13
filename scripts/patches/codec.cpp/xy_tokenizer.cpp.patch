@@ -1,0 +1,15 @@
+codec.cpp does not compile with libc++ (clang): std::malloc is used without
+including <cstdlib>. GCC and Apple clang accept this through transitive
+includes; libc++ does not. Found while building the C++ test suite with
+clang (tests/build_and_test.sh).
+
+--- a/src/models/xy_tokenizer.cpp
++++ b/src/models/xy_tokenizer.cpp
+@@ -21,6 +21,7 @@
+ // what wavtokenizer/snac already do.
+ 
+ #include "xy_tokenizer.h"
++#include <cstdlib>
+ 
+ #include "../codec_internal.h"
+ #include "../runtime/audio_dsp.h"
