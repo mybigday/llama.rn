@@ -1,0 +1,15 @@
+--- common/chat.cpp
++++ common/chat.cpp
+@@ -1127,6 +1138,12 @@
+     if (src.find(">>>all") != std::string::npos && src.find(">>>${recipient}") != std::string::npos) {
+         LOG_DBG("Using specialized template: Functionary v3.2\n");
+         return common_chat_params_init_functionary_v3_2(tmpl, params);
++    }
++
++    // FunctionGemma - uses <start_function_call>call:name{...}<end_function_call>
++    if (src.find("<start_function_call>") != std::string::npos) {
++        LOG_DBG("Using specialized template: FunctionGemma\n");
++        return common_chat_params_init_function_gemma(tmpl, params);
+     }
+ 
+     // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
