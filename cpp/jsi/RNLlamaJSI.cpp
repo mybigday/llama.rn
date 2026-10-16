@@ -1154,7 +1154,7 @@ namespace rnllama_jsi {
                     }
 
                     if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
-                        throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
+                        throw std::runtime_error("speculative decoding currently supports text-only completion");
                     }
 
                     // NOTE: no rewind() here — it already ran on the JS thread

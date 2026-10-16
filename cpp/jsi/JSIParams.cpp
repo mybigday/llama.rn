@@ -286,6 +286,12 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             cparams.speculative.draft.n_max <= 0) {
             throw std::invalid_argument("MTP requires spec_draft_n_max > 0");
         }
+
+        // A draft-simple pair with n_max <= 0 would silently run without speculation.
+        if (hasSpeculativeType(cparams.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE) &&
+            cparams.speculative.draft.n_max <= 0) {
+            throw std::invalid_argument("draft-simple requires spec_draft_n_max > 0");
+        }
     }
 
     // ---- context params ---------------------------------------------------

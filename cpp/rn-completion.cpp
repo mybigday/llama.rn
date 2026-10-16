@@ -713,8 +713,12 @@ void llama_rn_context_completion::updateGenerationTiming() {
 }
 
 bool llama_rn_context_completion::shouldUseMTP() const {
+    // Draft-simple pairs run the same draft/process/accept cycle as MTP in the direct
+    // completion path; keeping this gate MTP-only silently disabled speculation for
+    // draft-simple in normal (non-queued) completions.
     const auto & types = parent_ctx->params.speculative.types;
-    return std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
+    return (std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() ||
+            std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE) != types.end()) &&
         parent_ctx->params.speculative.draft.n_max > 0;
 }
 
@@ -737,14 +741,21 @@ void llama_rn_context_completion::initMTP() {
         return;
     }
     if (llama_model_has_encoder(parent_ctx->model)) {
-        throw std::runtime_error("MTP speculative decoding is only supported for decoder-only models");
+        throw std::runtime_error("speculative decoding is only supported for decoder-only models");
     }
     if (embd.empty()) {
-        throw std::runtime_error("MTP speculative decoding requires a non-empty prompt");
+        throw std::runtime_error("speculative decoding requires a non-empty prompt");
     }
 
     const auto n_mtp = parent_ctx->params.speculative.draft.n_max;
-    if ((llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
+    // Rollback (rs) sequences belong to embedded MTP drafts: they share the target's
+    // memory. A classic standalone draft has its own KV cache and needs none of this.
+    const bool is_mtp = std::find(
+        parent_ctx->params.speculative.types.begin(),
+        parent_ctx->params.speculative.types.end(),
+        COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != parent_ctx->params.speculative.types.end();
+    if (is_mtp &&
+        (llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
         llama_n_rs_seq(parent_ctx->ctx) < (uint32_t) n_mtp) {
         throw std::runtime_error(
             "MTP for recurrent or hybrid models must be enabled when loading the model "
@@ -755,7 +766,7 @@ void llama_rn_context_completion::initMTP() {
 
     spec_ctx.reset(parent_ctx->createMTPDraftContext(parent_ctx->params));
     if (spec_ctx == nullptr) {
-        throw std::runtime_error("failed to create MTP draft context");
+        throw std::runtime_error("failed to create draft context");
     }
 
     parent_ctx->params.speculative.draft.ctx_tgt = parent_ctx->ctx;
@@ -763,7 +774,7 @@ void llama_rn_context_completion::initMTP() {
 
     spec = common_speculative_init(parent_ctx->params.speculative, 1);
     if (spec == nullptr) {
-        throw std::runtime_error("failed to initialize MTP speculative decoding");
+        throw std::runtime_error("failed to initialize speculative decoding");
     }
 
     spec_batch = common_batch(parent_ctx->ctx);

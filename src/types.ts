@@ -6,6 +6,10 @@ export type NativeSpeculativeType =
   | 'none'
   | 'draft-mtp'
   /**
+   * Classic standalone draft model (a separate, vocab-compatible GGUF).
+   */
+  | 'draft-simple'
+  /**
    * Alias for draft-mtp.
    */
   | 'mtp'

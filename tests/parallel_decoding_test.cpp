@@ -183,6 +183,36 @@ bool test_slot_mtp_params_and_reset() {
     }
 }
 
+// draft-simple pairs run through the same speculative gates as MTP: both types must
+// enable speculation, and n_max <= 0 or an empty type list must disable it.
+bool test_slot_draft_simple_params() {
+    try {
+        llama_rn_slot slot;
+        slot.id = 0;
+        slot.reset();
+
+        common_params params;
+        params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE };
+        params.speculative.draft.n_max = 4;
+
+        slot.params_storage = params;
+        slot.params = &slot.params_storage;
+
+        if (!slot.should_use_mtp()) return false;
+
+        // n_max <= 0 disables speculative decoding, same as MTP
+        slot.params_storage.speculative.draft.n_max = 0;
+        if (slot.should_use_mtp()) return false;
+
+        // an empty type list also disables it
+        slot.params_storage.speculative.types = {};
+        slot.params_storage.speculative.draft.n_max = 4;
+        return !slot.should_use_mtp();
+    } catch (...) {
+        return false;
+    }
+}
+
 // Test 4: Slot Manager initialization with actual context
 bool test_slot_manager_initialization() {
     try {
@@ -1523,6 +1553,7 @@ int main() {
     results.run_test("Slot State Transitions", test_slot_state_transitions());
     results.run_test("Slot Prompt Loading", test_slot_prompt_loading());
     results.run_test("Slot MTP Params and Reset", test_slot_mtp_params_and_reset());
+    results.run_test("Slot draft-simple Params", test_slot_draft_simple_params());
     results.run_test("Slot Cache Prefix Matching", test_cache_prefix_matching());
     results.run_test("Slot has_next_token Logic", test_has_next_token());
     results.run_test("Slot Request Lifecycle", test_slot_request_lifecycle());
