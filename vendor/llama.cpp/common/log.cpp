@@ -14,10 +14,6 @@
 #include <vector>
 #include <algorithm>
 
-#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-#include <android/log.h>
-#endif
-
 int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
 
 int common_log_get_verbosity_thold(void) {
@@ -92,36 +88,7 @@ struct common_log_entry {
 
     common_log_entry(size_t size = 256) : msg(size) { }
 
-    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-    void android_print() const {
-        int android_log_priority;
-        switch (level) {
-            case GGML_LOG_LEVEL_INFO:
-                android_log_priority = ANDROID_LOG_INFO;
-                break;
-            case GGML_LOG_LEVEL_WARN:
-                android_log_priority = ANDROID_LOG_WARN;
-                break;
-            case GGML_LOG_LEVEL_ERROR:
-                android_log_priority = ANDROID_LOG_ERROR;
-                break;
-            case GGML_LOG_LEVEL_DEBUG:
-                android_log_priority = ANDROID_LOG_DEBUG;
-                break;
-            default:
-                android_log_priority = ANDROID_LOG_DEFAULT;
-                break;
-        }
-
-        const char * tag = "RNLLAMA_LOG_ANDROID";
-        __android_log_print(android_log_priority, tag, "%s", msg.data());
-    }
-    #endif
-
     void print(FILE * file = nullptr) const {
-        #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-        android_print();
-        #else
         FILE * fcur = file;
         if (!fcur) {
             // stderr displays DBG messages only when their verbosity level is not higher than the threshold
@@ -188,7 +155,6 @@ struct common_log_entry {
         fprintf(fcur, "%.*s%s%s", (int) end, msg.data(), reset ? g_col[COMMON_LOG_COL_DEFAULT] : "", msg.data() + end);
 
         fflush(fcur);
-        #endif
     }
 };
 
@@ -196,6 +162,7 @@ struct common_log {
     // default capacity
     common_log(size_t capacity = 512) {
         file       = nullptr;
+        stdo       = true;
         colors     = false;
         prefix     = false;
         timestamps = false;
@@ -224,6 +191,7 @@ private:
 
     FILE * file;
 
+    bool stdo;
     bool colors;
     bool prefix;
     bool timestamps;
@@ -239,7 +207,9 @@ private:
     bool print_entry(const common_log_entry & e) const {
         if (e.is_end) return true;
 
-        e.print();
+        if (stdo) {
+            e.print();
+        }
         if (file) {
             e.print(file);
         }
@@ -434,6 +404,14 @@ public:
         resume();
     }
 
+    void set_stdo(bool enabled) {
+        pause();
+
+        stdo = enabled;
+
+        resume();
+    }
+
     bool get_colors() const {
         return colors;
     }
@@ -529,6 +507,10 @@ void common_log_add_json(struct common_log * log, const char * type, const commo
 
 void common_log_set_file(struct common_log * log, const char * file) {
     log->set_file(file);
+}
+
+void common_log_set_stdo(struct common_log * log, bool enabled) {
+    log->set_stdo(enabled);
 }
 
 void common_log_set_colors(struct common_log * log, log_colors colors) {
