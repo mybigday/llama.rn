@@ -217,6 +217,32 @@ export const MODELS = {
       size: '178MB',
     },
   },
+  CHATTERBOX_TURBO: {
+    name: 'Chatterbox Turbo T3 (Q4_K_M) + MeanFlow S3G + codec_lm (Q4_K_M)',
+    repo: 'BricksDisplay/Chatterbox-Turbo-GGUF',
+    filename: 'chatterbox-turbo-t3-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '259MB (T3) + 217MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'BricksDisplay/Chatterbox-Turbo-GGUF',
+      filename: 'chatterbox-turbo-codec-q4_k_m.gguf',
+      size: '217MB',
+    },
+  },
+  BREEZYVOICE: {
+    // CosyVoice v1 family; the speech LM runs on the `cosyvoice` arch, whose
+    // relative-position attention needs an F16 KV cache (no flash attention).
+    name: 'BreezyVoice LM (Q4_K_M) + CosyVoice flow/HiFT + codec_lm (Q5_K_M)',
+    repo: 'BricksDisplay/BreezyVoice-GGUF',
+    filename: 'breezyvoice-lm-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '161MB (LM) + 316MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'BricksDisplay/BreezyVoice-GGUF',
+      filename: 'breezyvoice-codec-q5_k_m.gguf',
+      size: '316MB',
+    },
+  },
   BLUEMAGPIE_TTS: {
     name: 'BlueMagpie-TTS Barbet-1B (Q4_K_M) + AudioVAE (Q8_0) + codec_lm',
     repo: 'BricksDisplay/BlueMagpie-TTS-GGUF',

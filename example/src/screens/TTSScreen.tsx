@@ -53,6 +53,8 @@ const models: (typeof MODELS.OUTE_TTS_0_3)[] = [
   MODELS.MOSS_TTS_REALTIME,
   MODELS.MOSS_TTSD_V05,
   MODELS.CHATTERBOX_MULTILINGUAL,
+  MODELS.CHATTERBOX_TURBO,
+  MODELS.BREEZYVOICE,
   MODELS.BLUEMAGPIE_TTS,
 ]
 
@@ -434,6 +436,9 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const isBlueMagpie = ttsPath
         .toLowerCase()
         .match(/bluemagpie|barbet/)
+      // CosyVoice-family LMs (BreezyVoice) put their relative positions in a
+      // KQ bias that only runs without flash attention, so keep the KV in F16.
+      const isCosyVoice = ttsPath.toLowerCase().match(/breezyvoice|cosyvoice/)
       const ttsParams = {
         ...params,
         n_ctx: Math.min(params.n_ctx ?? 8192, 4096),
@@ -442,6 +447,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           ? {
               cache_type_k: 'q8_0' as const,
               cache_type_v: 'q8_0' as const,
+            }
+          : {}),
+        ...(isCosyVoice
+          ? {
+              cache_type_k: 'f16' as const,
+              cache_type_v: 'f16' as const,
             }
           : {}),
       }
@@ -462,8 +473,19 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       // Initialize vocoder directly after TTS model
       try {
-        await llamaContext.initVocoder({ path: vocoderPath, n_batch: 4096 })
+        await llamaContext.initVocoder({
+          path: vocoderPath,
+          n_batch: 4096,
+          // The flow decoder runs 2 U-Net passes per Euler step; 6 steps
+          // (default 10) keeps phone latency reasonable.
+          ...(isCosyVoice
+            ? { kv_overrides: ['cosyvoice.flow.n_timesteps=int:6'] }
+            : {}),
+        })
         setIsVocoderReady(true)
+        if (isCosyVoice && !inputText.trim()) {
+          setInputText('今天天氣真好，我們一起去公園走走吧。')
+        }
       } catch (vocoderError) {
         console.log('Vocoder initialization error:', vocoderError)
           Alert.alert(
@@ -520,8 +542,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       } = await context.getFormattedAudioCompletion({
         prompt,
         speaker: resolvedSpeaker,
+        // The IPA phonemizer is for the English phoneme families; Chinese
+        // text (BreezyVoice's bopomofo frontend) goes in as typed.
         phonemizer: (text: string, language: string) =>
-          toIPA(text, { anyAscii: true, language })
+          language.startsWith('zh')
+            ? text
+            : toIPA(text, { anyAscii: true, language })
             .replace(/ɫ/g, 'l')
             .replace(/oʊ/g, 'əʊ')
             .replace(/ˈ\b/g, ''),
@@ -553,15 +579,32 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const collectedTokens: number[] = []
       const genStartTime = Date.now()
 
+      // Reference sampling stored in the codec GGUF (e.g. Chatterbox Turbo's
+      // repetition penalty) wins over the generic chat defaults; without the
+      // penalty Turbo can get stuck emitting silence tokens.
+      const modelSampling = caps.samplingDefaults ?? {}
+
       const result = await context.completion(
         {
           prompt: formattedPrompt,
           grammar,
           embedding,
           n_predict: params?.n_predict || 4096,
-          temperature: params.temperature ?? ttsSamplingDefaults.temperature,
-          top_p: params.top_p ?? ttsSamplingDefaults.top_p,
-          top_k: (params as { top_k?: number }).top_k ?? ttsSamplingDefaults.top_k,
+          temperature:
+            modelSampling.temperature ??
+            params.temperature ??
+            ttsSamplingDefaults.temperature,
+          top_p: modelSampling.top_p ?? params.top_p ?? ttsSamplingDefaults.top_p,
+          top_k:
+            modelSampling.top_k ??
+            (params as { top_k?: number }).top_k ??
+            ttsSamplingDefaults.top_k,
+          ...(modelSampling.min_p !== undefined
+            ? { min_p: modelSampling.min_p }
+            : {}),
+          ...(modelSampling.penalty_repeat !== undefined
+            ? { penalty_repeat: modelSampling.penalty_repeat }
+            : {}),
           stop: params.stop || ['<|im_end|>', '<|SPEECH_GENERATION_END|>'],
         },
         (data) => {

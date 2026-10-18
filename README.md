@@ -824,7 +824,7 @@ Legend: ✅ pass · ⚠️ works but output is unreliable · ❌ fails · — no
 | **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ✅ Correct on latest run |
 | **OuteTTS** v0.1 · v0.2 | — | — | — | — | Not covered by this run |
 
-Chatterbox Turbo, BreezyVoice and CosyVoice2 have so far only been run on a Linux CPU host (`tests/tts_probe`), not on a device. Turbo transcribed exactly with the builtin voice and with a cloned voice. BreezyVoice and CosyVoice2 were compared against codec.cpp's own `tts-cli` on the same seeds and produced the same transcripts (and mostly the same token counts). Cloning raised the speaker similarity to the reference clip in every case.
+Chatterbox Turbo, BreezyVoice and CosyVoice2 were validated on a Linux CPU host (`tests/tts_probe`). Turbo transcribed exactly with the builtin voice and with a cloned voice. BreezyVoice and CosyVoice2 were compared against codec.cpp's own `tts-cli` on the same seeds and produced the same transcripts (and mostly the same token counts). Cloning raised the speaker similarity to the reference clip in every case. Turbo and BreezyVoice were also run in the example app on a Pixel 7 Pro (Tensor G2, CPU, 4 threads, builtin voices): both produced intelligible speech, but the codec decode is slow on phone CPUs: about 68 s for 2.7 s of Turbo audio and about 130 s for 3.3 s of BreezyVoice audio (`cosyvoice.flow.n_timesteps=int:6`), while the LM part takes a few seconds.
 
 Caveats:
 
