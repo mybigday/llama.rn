@@ -333,7 +333,7 @@ static enum codec_status codec_s3g_speaker_from_audio(
     }
     if (!codec_graph_prepare_io(ctx, entry, &err) ||
         !codec_runtime_write_tensor(t_pcm, pcm.data(), pcm.size() * sizeof(float), &err) ||
-        !codec_graph_compute(ctx, entry, std::max(1, ctx->model->n_threads), &err)) {
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, "speaker graph: " + err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -588,7 +588,7 @@ enum codec_status codec_chatterbox_s3g_decode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (!codec_graph_compute(ctx, entry, std::max(1, ctx->model->n_threads), &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }

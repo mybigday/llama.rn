@@ -713,7 +713,7 @@ static enum codec_status codec_xy_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -807,7 +807,7 @@ static enum codec_status codec_xy_decode_chunk(
                                      qt.size() * sizeof(int32_t), err)) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, err)) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 

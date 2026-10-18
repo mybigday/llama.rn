@@ -1313,7 +1313,7 @@ static enum codec_status codec_neu_decode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    const int32_t n_threads = ctx->model->n_threads > 0 ? ctx->model->n_threads : 1;
+    const int32_t n_threads = ctx->n_threads;
     if (!codec_graph_compute(ctx, entry, n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -1529,7 +1529,7 @@ static enum codec_status codec_neu_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }

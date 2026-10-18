@@ -407,7 +407,7 @@ enum codec_status speaker_from_audio(codec_context * ctx, const std::vector<floa
     }
     if (!codec_graph_prepare_io(ctx, entry, &err) ||
         !codec_runtime_write_tensor(t_pcm, pcm.data(), pcm.size() * sizeof(float), &err) ||
-        !codec_graph_compute(ctx, entry, std::max(1, ctx->model->n_threads), &err)) {
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, "speaker graph: " + err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -523,7 +523,7 @@ enum codec_status decode(codec_context * ctx, const codec_token_buffer * tokens,
         !codec_runtime_write_tensor(t_z, noise_z.data(), noise_z.size() * sizeof(float), &err) ||
         (t_phase != nullptr && !codec_runtime_write_tensor(t_phase, nsf_phase.data(), nsf_phase.size() * sizeof(float), &err)) ||
         !codec_runtime_write_tensor(t_noise, nsf_noise.data(), nsf_noise.size() * sizeof(float), &err) ||
-        !codec_graph_compute(ctx, entry, std::max(1, ctx->model->n_threads), &err)) {
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }

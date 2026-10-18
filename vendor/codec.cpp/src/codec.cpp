@@ -568,6 +568,7 @@ struct codec_context * codec_init_from_model(struct codec_model * model, struct 
     ctx->model = model;
     ctx->backend = model->backend;
     ctx->params = params;
+    ctx->n_threads = std::max(1, model->n_threads);
     ctx->last_error.clear();
 
     std::string err;
@@ -629,6 +630,7 @@ static enum codec_status codec_encode_impl(
     if (params.n_threads <= 0) {
         params.n_threads = ctx->model->n_threads;
     }
+    ctx->n_threads = std::max(1, params.n_threads);
 
     return codec_dispatch_encode(ctx, mono, out_tokens, out_latent, params);
 }
@@ -680,6 +682,7 @@ enum codec_status codec_decode(
     if (params.n_threads <= 0) {
         params.n_threads = ctx->model->n_threads;
     }
+    ctx->n_threads = std::max(1, params.n_threads);
 
     if (params.speaker != nullptr) {
         const codec_model * model = ctx->model;
@@ -715,6 +718,7 @@ enum codec_status codec_decode_quantized_representation(
     if (params.n_threads <= 0) {
         params.n_threads = ctx->model->n_threads;
     }
+    ctx->n_threads = std::max(1, params.n_threads);
 
     if (ctx->model->vtable == nullptr || ctx->model->vtable->decode_latent == nullptr) {
         codec_context_set_error(ctx, "codec_decode_quantized_representation is not implemented for this architecture");

@@ -563,7 +563,7 @@ static enum codec_status codec_snac_run_encode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    const int32_t n_threads = ctx->model->n_threads > 0 ? ctx->model->n_threads : 1;
+    const int32_t n_threads = ctx->n_threads;
     if (!codec_graph_compute(ctx, entry, n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -705,7 +705,7 @@ static enum codec_status codec_snac_run_decode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    const int32_t n_threads = ctx->model->n_threads > 0 ? ctx->model->n_threads : 1;
+    const int32_t n_threads = ctx->n_threads;
     if (!codec_graph_compute(ctx, entry, n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;

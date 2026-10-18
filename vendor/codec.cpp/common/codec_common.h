@@ -80,9 +80,8 @@ struct audio_lm_input {
     // Synthesis target text.
     std::string   text;
 
-    // Model-specific knobs (language_id, speaker_id, x_vector_only_mode,
-    // …).  Keys + semantics live in docs/codec_common_input_keys.md
-    // (to be authored alongside the first 2–3 model integrations).
+    // Model-specific knobs; read by audio_lm_build_prompt (currently
+    // `ref_speech_tokens_csv`).
     std::map<std::string, std::string> extra;
 };
 

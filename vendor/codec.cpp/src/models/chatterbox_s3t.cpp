@@ -129,7 +129,7 @@ enum codec_status codec_chatterbox_s3t_encode(
     tok.resize((size_t) ggml_nelements(t_out));
     if (!codec_graph_prepare_io(ctx, entry, &err) ||
         !codec_runtime_write_tensor(t_pcm, pcm.data(), pcm.size() * sizeof(float), &err) ||
-        !codec_graph_compute(ctx, entry, ctx->model->n_threads, &err) ||
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err) ||
         !codec_runtime_read_tensor(t_out, tok.data(), tok.size() * sizeof(int32_t), &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;

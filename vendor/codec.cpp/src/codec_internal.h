@@ -122,6 +122,7 @@ struct codec_context {
     ggml_backend_t cpu_backend = nullptr;
     ggml_backend_sched_t sched = nullptr;
     struct codec_context_params params;
+    int32_t n_threads = 1; // threads for the current public call (its params.n_threads, else the model's)
     std::string last_error;
     std::vector<codec_graph_cache_entry> graph_cache;
     void * eval_arena_buf = nullptr;

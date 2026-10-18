@@ -278,6 +278,7 @@ enum codec_status codec_speaker_from_audio(
     }
     *out = nullptr;
     codec_context_set_error(ctx, "");
+    ctx->n_threads = std::max(1, ctx->model->n_threads);
     const codec_model * model = ctx->model;
     if (!codec_model_can_speaker_from_audio(model)) {
         codec_context_set_error(ctx, "model cannot derive a speaker from audio (no speaker encoder bundled)");
