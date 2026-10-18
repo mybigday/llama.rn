@@ -1,0 +1,47 @@
+TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
+(BlueMagpie-TTS) and CosyVoice (CosyVoice-300M / BreezyVoice speech LM).
+
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -158,6 +158,8 @@
+     { LLM_ARCH_GLM5_NEXT,        "glm5-next"        },
+     { LLM_ARCH_TALKIE,           "talkie"           },
+     { LLM_ARCH_MELLUM,           "mellum"           },
++    { LLM_ARCH_BARBET,           "barbet"           },
++    { LLM_ARCH_COSYVOICE,        "cosyvoice"        },
+     { LLM_ARCH_NANBEIGE,         "nanbeige"         },
+     { LLM_ARCH_QWEN3TTS,         "qwen3tts"         },
+     { LLM_ARCH_POCKETTTS,        "pockettts"        },
+@@ -729,6 +731,11 @@
+     { LLM_TENSOR_MASKED_EMBD_ORDERING,                   "masked_embd_ordering" },
+     { LLM_TENSOR_FC,                                     "fc" },
+     { LLM_TENSOR_D2T,                                    "d2t" },
++    { LLM_TENSOR_INP_PROJ,                               "inp_proj" },
++    { LLM_TENSOR_INP_NORM,                               "inp_norm" },
++    { LLM_TENSOR_ATTN_POS,                               "blk.%d.attn_pos" },
++    { LLM_TENSOR_ATTN_POS_BIAS_U,                        "blk.%d.attn_pos_bias_u" },
++    { LLM_TENSOR_ATTN_POS_BIAS_V,                        "blk.%d.attn_pos_bias_v" },
+     { LLM_TENSOR_DSPARK_MARKOV_W1,                       "markov_w1" },
+     { LLM_TENSOR_DSPARK_MARKOV_W2,                       "markov_w2" },
+     { LLM_TENSOR_DSPARK_CONF_PROJ,                       "conf_proj" },
+@@ -1040,6 +1047,12 @@
+     // eagle3
+     {LLM_TENSOR_FC,                         {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_MUL_MAT}},
+     {LLM_TENSOR_D2T,                        {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_GET_ROWS}},
++    // cosyvoice
++    {LLM_TENSOR_INP_PROJ,                   {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL_MAT}},
++    {LLM_TENSOR_INP_NORM,                   {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL}},
++    {LLM_TENSOR_ATTN_POS,                   {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT}},
++    {LLM_TENSOR_ATTN_POS_BIAS_U,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_ADD}},
++    {LLM_TENSOR_ATTN_POS_BIAS_V,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_ADD}},
+     // dspark
+     {LLM_TENSOR_DSPARK_MARKOV_W1,           {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_GET_ROWS}},
+     {LLM_TENSOR_DSPARK_MARKOV_W2,           {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_MUL_MAT}},
+@@ -1150,6 +1163,7 @@
+         case LLM_ARCH_QWEN4EXP:
+         case LLM_ARCH_DEEPSEEK4:
+         case LLM_ARCH_MINIMAX_01:
++        case LLM_ARCH_BARBET:
+             return true;
+         default:
+             return false;

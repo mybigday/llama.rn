@@ -162,6 +162,7 @@ enum llm_arch {
     LLM_ARCH_MINIMAX_M3,
     LLM_ARCH_DFLASH,
     LLM_ARCH_BARBET,
+    LLM_ARCH_COSYVOICE,
     LLM_ARCH_NANBEIGE,
     LLM_ARCH_QWEN3TTS,
     LLM_ARCH_POCKETTTS,
@@ -737,6 +738,11 @@ enum llm_tensor {
     LLM_TENSOR_HRM_Z_L_INIT,
     LLM_TENSOR_FC,
     LLM_TENSOR_D2T,
+    LLM_TENSOR_INP_PROJ,          // cosyvoice: input Linear (LegacyLinearNoSubsampling)
+    LLM_TENSOR_INP_NORM,          // cosyvoice: input LayerNorm
+    LLM_TENSOR_ATTN_POS,          // cosyvoice: rel-pos linear_pos, per head
+    LLM_TENSOR_ATTN_POS_BIAS_U,   // cosyvoice: rel-pos pos_bias_u
+    LLM_TENSOR_ATTN_POS_BIAS_V,   // cosyvoice: rel-pos pos_bias_v
     LLM_TENSOR_DSPARK_MARKOV_W1,
     LLM_TENSOR_DSPARK_MARKOV_W2,
     LLM_TENSOR_DSPARK_CONF_PROJ,

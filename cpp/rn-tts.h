@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <random>
 #include <unordered_map>
 #include <vector>
 #include <string>
@@ -319,6 +320,21 @@ struct llama_rn_context_tts {
     int pending_chatterbox_ref_n_samples = 0;
     int pending_chatterbox_ref_sample_rate = 0;
 
+    // ── CosyVoice (BreezyVoice / CosyVoice-300M, CosyVoice2/3) ───────────
+    // Same shape as the Chatterbox flow: getFormattedAudioCompletion arms the
+    // prefill (flow="cosyvoice_embd"), rn-completion.cpp runs
+    // tryCosyVoicePrefill, then each step samples one speech token from the
+    // codec_lm speech head and feeds its speech embedding back.  The prompt
+    // conditioning (prompt speech tokens, x-vector, transcript) comes from
+    // the decoder speaker.  Set at getFormattedAudioCompletion, survives
+    // rewind()/reset().
+    bool cosyvoice_prefill_pending = false;
+    std::string cosyvoice_text;
+    std::vector<int32_t> cosyvoice_decoded;  // sampled speech tokens (RAS window)
+    int  cosyvoice_min_len = 0;              // eos is masked before this many tokens
+    int  cosyvoice_max_len = 0;
+    std::mt19937 cosyvoice_rng;
+
     // Payload text stashed at getFormattedAudioCompletion time so
     // tryCodecLmAudioStep can call codec_common::tts_auto_grammar(pi, text)
     // with the *actual* text — the metadata-derived GBNF for MOSS-TTSD's
@@ -452,6 +468,13 @@ struct llama_rn_context_tts {
                               const float * ref_pcm,
                               int ref_n_samples, int ref_sample_rate,
                               float cfg_weight);
+
+    // CosyVoice prefill: builds [sos][text][task_id][prompt speech] from the
+    // decoder speaker and decodes it.  Returns the KV position after the
+    // prompt, or -1 on failure.
+    int tryCosyVoicePrefill(llama_rn_context * main_ctx, const std::string & text);
+    // One CosyVoice AR step on the backbone's last hidden state.
+    bool tryCosyVoiceStep(llama_rn_context * main_ctx, const float * hidden, int hidden_dim);
 
     // True when the loaded codec.gguf's codec_lm reports a codebook AR kind
     // (`residual_depth_ar` or `parallel_heads_delay`).  Probed lazily

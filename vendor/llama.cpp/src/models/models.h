@@ -1600,6 +1600,37 @@ struct llama_model_barbet : public llama_model_base {
 };
 
 
+// CosyVoice-300M / BreezyVoice speech-token LM (WeNet TransformerEncoder with
+// Espnet relative-position self-attention), driven by input embeddings.
+struct llama_model_cosyvoice : public llama_model_base {
+    llama_model_cosyvoice(const struct llama_model_params & params) : llama_model_base(params) {}
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    struct layer_ext {
+        ggml_tensor * bq = nullptr;
+        ggml_tensor * bk = nullptr;
+        ggml_tensor * bv = nullptr;
+        ggml_tensor * pos = nullptr;     // [head_dim, n_embd, n_head]: linear_pos rows of each head
+        ggml_tensor * pos_bu = nullptr;  // [head_dim, n_head]
+        ggml_tensor * pos_bv = nullptr;
+        ggml_tensor * ffn_up_b = nullptr;
+        ggml_tensor * ffn_down_b = nullptr;
+    };
+    std::vector<layer_ext> ext;
+    ggml_tensor * inp_proj = nullptr;
+    ggml_tensor * inp_proj_b = nullptr;
+    ggml_tensor * inp_norm = nullptr;
+    ggml_tensor * inp_norm_b = nullptr;
+
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params);
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
+
 struct llama_model_exaone : public llama_model_base {
     llama_model_exaone(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;

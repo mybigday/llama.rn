@@ -1135,7 +1135,8 @@ completion_token_output llama_rn_context_completion::nextToken()
         // prefix, Chatterbox prefill) must not get this prefix as well.
         const bool own_speaker_flow =
             parent_ctx->tts_wrapper->talker_prefix_rows > 0 ||
-            parent_ctx->tts_wrapper->chatterbox_prefill_pending;
+            parent_ctx->tts_wrapper->chatterbox_prefill_pending ||
+            parent_ctx->tts_wrapper->cosyvoice_prefill_pending;
         const int speaker_id = own_speaker_flow ? -1 : parent_ctx->tts_wrapper->pending_speaker_id;
         if (own_speaker_flow) parent_ctx->tts_wrapper->pending_speaker_id = -1;
         const float * emb_data   = nullptr;
@@ -1329,6 +1330,36 @@ completion_token_output llama_rn_context_completion::nextToken()
             has_next_token = false;
             return result;
         }
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
+    // CosyVoice prefill: flow="cosyvoice_embd" — the whole prompt is built
+    // from embeddings (speaker conditioning + text + prompt speech tokens),
+    // decoded from position 0, then the first step fires on its last hidden.
+    // Pad embd to n_past so the inject_ar_embd cycle continues from there.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->cosyvoice_prefill_pending) {
+        parent_ctx->tts_wrapper->cosyvoice_prefill_pending = false;
+        const int prefill_n_past = parent_ctx->tts_wrapper->tryCosyVoicePrefill(
+            parent_ctx, parent_ctx->tts_wrapper->cosyvoice_text);
+        if (prefill_n_past < 0) {
+            LOG_ERROR("tryCosyVoicePrefill failed");
+            has_next_token = false;
+            return result;
+        }
+        n_past = prefill_n_past;
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0 ||
+            !parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("CosyVoice: first step failed");
+            has_next_token = false;
+            return result;
+        }
+        embd.resize(std::min<size_t>(embd.size(), (size_t) n_past));
         while ((llama_pos) embd.size() < n_past) {
             embd.push_back(llama_vocab_bos(vocab));
         }

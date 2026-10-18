@@ -609,6 +609,7 @@ enum class tts_prompt_kind {
     MOSS_TTSD,
     CHATTERBOX,
     BLUEMAGPIE,
+    COSYVOICE,
 };
 
 enum class tts_decode_kind {
@@ -685,6 +686,10 @@ static const tts_model_profile TTS_PROFILES[] = {
     // Chatterbox Turbo: GPT-2 T3 (backbone vocab tokenizes the text, no CFG)
     // + MeanFlow S3Gen; same prefill / step hooks as the Llama T3.
     {CHATTERBOX_TURBO,           tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
+    // CosyVoice (BreezyVoice / CosyVoice-300M: `cosyvoice` llama arch; v2/v3:
+    // Qwen2): embedding-only prompt, the speech head lives in the codec_lm,
+    // one S3 token per step decoded by the CosyVoice flow + HiFT.
+    {COSYVOICE,                  tts_prompt_kind::COSYVOICE,  {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
     // BlueMagpie-TTS (OpenFormosa): Barbet (Mamba2+attn hybrid) backbone + AudioVAE
     // continuous-latent codec_lm.  Continuous flow doesn't consume codebooks; the
     // completion loop's `tryContinuousAudioStep` hook drives codec_lm_step_generate
@@ -766,6 +771,9 @@ static tts_type type_from_string(const std::string &value) {
     if (contains_case_insensitive(value, "chatterbox-multilingual") || contains_case_insensitive(value, "chatterbox_multilingual") ||
         contains_case_insensitive(value, "mtl23ls")) {
         return CHATTERBOX_T3_MULTILINGUAL;
+    }
+    if (contains_case_insensitive(value, "cosyvoice") || contains_case_insensitive(value, "breezyvoice")) {
+        return COSYVOICE;
     }
     if (contains_case_insensitive(value, "chatterbox-turbo") || contains_case_insensitive(value, "chatterbox_turbo")) {
         return CHATTERBOX_TURBO;
@@ -1138,6 +1146,7 @@ tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speak
         if (info && info->is_continuous) {
             if (host_arch == "barbet") return BLUEMAGPIE_TTS;
         }
+        if (::codec_lm_cosyvoice_get_info(codec_lm) != nullptr) return COSYVOICE;
         // Chatterbox T3 adaptors describe their variant themselves.
         if (const ::codec_lm_chatterbox_info * ci = ::codec_lm_chatterbox_get_info(codec_lm)) {
             if (ci->is_turbo)        return CHATTERBOX_TURBO;
@@ -1280,6 +1289,10 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
             cap.prompt_kind = "bluemagpie";
             cap.family = "bluemagpie";
             break;
+        case tts_prompt_kind::COSYVOICE:
+            cap.prompt_kind = "cosyvoice";
+            cap.family = "cosyvoice";
+            break;
     }
     cap.requires_phonemes = (profile.prompt_kind == tts_prompt_kind::NEUTTS);
     if (codec_model != nullptr) {
@@ -1296,6 +1309,15 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
     // JS-side language picker defaults right; other families keep en-us.
     cap.default_language =
         (profile.prompt_kind == tts_prompt_kind::BLUEMAGPIE) ? "zh-tw" : "en-us";
+    if (profile.prompt_kind == tts_prompt_kind::COSYVOICE) {
+        ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
+        const ::codec_lm_cosyvoice_info * ci = lm != nullptr ? ::codec_lm_cosyvoice_get_info(lm) : nullptr;
+        // BreezyVoice reads Mandarin with 注音 annotations (g2pw upstream):
+        // the phonemizer hook is where the app adds them.
+        const bool bopomofo = ci != nullptr && ci->bopomofo_frontend != 0;
+        cap.requires_phonemes = bopomofo;
+        cap.default_language  = bopomofo ? "zh-tw" : "zh";
+    }
     return cap;
 }
 
@@ -1456,6 +1478,8 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     talker_trailing              = 0;
     chatterbox_prefill_pending   = false;
     chatterbox_text.clear();
+    cosyvoice_prefill_pending    = false;
+    cosyvoice_text.clear();
     pending_chatterbox_ref_pcm.clear();
     pending_chatterbox_ref_n_samples  = 0;
     pending_chatterbox_ref_sample_rate = 0;
@@ -1655,6 +1679,19 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         return res;
     }
 
+    // CosyVoice: the prompt is built from embeddings in tryCosyVoicePrefill
+    // (called by rn-completion.cpp on flow=="cosyvoice_embd").
+    if (profile.prompt_kind == tts_prompt_kind::COSYVOICE && audio_lm_ctx != nullptr) {
+        cosyvoice_prefill_pending = true;
+        cosyvoice_text            = text_to_speak;
+        llama_rn_audio_completion_result res;
+        res.prompt    = "";
+        res.grammar   = "";
+        res.embedding = true;
+        res.flow      = "cosyvoice_embd";
+        return res;
+    }
+
     // MOSS-TTS-Realtime (streaming_interleave): the per-backbone-step input is
     // text_embd[text_token] + compose_audio_codes_embd(prev_frame_codes), with
     // ONE payload text token consumed per audio frame.  This is structurally
@@ -1771,6 +1808,10 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
             // BlueMagpie uses a fixed <|bm_spk|> token at position 0; speaker
             // conditioning is not yet wired through the registry — skip marker.
             return {build_bluemagpie_prompt(speaker, text_to_speak), "", embedding, flow};
+        case tts_prompt_kind::COSYVOICE:
+            // Only reached without audio_lm_ctx, which CosyVoice cannot run without.
+            LOG_ERROR("CosyVoice: codec GGUF has no CosyVoice LM adaptor");
+            return {"", "", false, ""};
     }
     return {"", "", false, ""};
 }
@@ -2197,7 +2238,8 @@ bool llama_rn_context_tts::isTTSCodecLmAR(llama_rn_context * main_ctx) {
     const tts_model_profile & profile = profile_for_type(type);
     const bool is_codec_lm_ar_family =
         profile.decode_kind == tts_decode_kind::CODEC_LM_AR ||
-        profile.prompt_kind == tts_prompt_kind::CHATTERBOX;
+        profile.prompt_kind == tts_prompt_kind::CHATTERBOX ||
+        profile.prompt_kind == tts_prompt_kind::COSYVOICE;
     if (!is_codec_lm_ar_family) {
         return false;
     }
@@ -2386,12 +2428,15 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
     const float *      hidden,
     int                hidden_dim) {
 
-    if (codec_lm == nullptr) {
-        LOG_ERROR("tryCodecLmAudioStep: codec_lm not created");
-        return false;
-    }
     if (hidden == nullptr || hidden_dim <= 0) {
         LOG_ERROR("tryCodecLmAudioStep: null / empty hidden state");
+        return false;
+    }
+    if (getTTSType(main_ctx) == COSYVOICE) {
+        return tryCosyVoiceStep(main_ctx, hidden, hidden_dim);
+    }
+    if (codec_lm == nullptr) {
+        LOG_ERROR("tryCodecLmAudioStep: codec_lm not created");
         return false;
     }
     const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
@@ -3011,6 +3056,310 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
     return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// CosyVoice (v1 300M / BreezyVoice, CosyVoice2, CosyVoice3).
+//
+// Mirrors codec.cpp's tts_runner run_cosyvoice (cosyvoice/llm/llm.py):
+//   v1:    [sos] [spk row + text_encoder(prompt_text ++ text)] [task_id] [speech_emb(prompt tokens)]
+//   v2/v3: [sos] [backbone embed(prompt_text ++ text)]          [task_id] [speech_emb(prompt tokens)]
+// Mode follows CosyVoiceFrontEnd from the decoder speaker: zero-shot when it
+// carries prompt tokens and a transcript, cross-lingual with prompt tokens
+// only (the LM sees neither), SFT for x-vector-only voices.
+// ─────────────────────────────────────────────────────────────────────
+
+// Decode `n` rows (embeddings when `embd`, else `tokens`) at n_past in
+// n_batch-sized chunks; only the very last row requests output.
+static bool decode_rows_chunked(llama_context * ctx, const float * embd, const llama_token * tokens,
+                                int32_t n, int32_t dim, int32_t n_past) {
+    const int32_t n_batch = std::max<int32_t>(1, (int32_t) llama_n_batch(ctx));
+    for (int32_t off = 0; off < n; off += n_batch) {
+        const int32_t m = std::min(n_batch, n - off);
+        llama_batch b = llama_batch_init(m, embd != nullptr ? dim : 0, 1);
+        b.n_tokens = m;
+        if (embd != nullptr) {
+            std::memcpy(b.embd, embd + (size_t) off * dim, (size_t) m * dim * sizeof(float));
+        } else {
+            std::memcpy(b.token, tokens + off, (size_t) m * sizeof(llama_token));
+        }
+        for (int32_t i = 0; i < m; ++i) {
+            b.pos[i]       = n_past + off + i;
+            b.n_seq_id[i]  = 1;
+            b.seq_id[i][0] = 0;
+            b.logits[i]    = (off + i == n - 1) ? 1 : 0;
+        }
+        const int rc = llama_decode(ctx, b);
+        llama_batch_free(b);
+        if (rc != 0) return false;
+    }
+    return true;
+}
+
+int llama_rn_context_tts::tryCosyVoicePrefill(llama_rn_context * main_ctx, const std::string & text) {
+    ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
+    const ::codec_lm_cosyvoice_info * ci = lm != nullptr ? ::codec_lm_cosyvoice_get_info(lm) : nullptr;
+    if (ci == nullptr || main_ctx == nullptr || main_ctx->ctx == nullptr) {
+        LOG_ERROR("tryCosyVoicePrefill: no CosyVoice LM adaptor in the codec GGUF");
+        return -1;
+    }
+    const int32_t H = llama_model_n_embd(main_ctx->model);
+    if (H != ci->hidden_dim) {
+        LOG_ERROR("tryCosyVoicePrefill: backbone n_embd=%d != CosyVoice hidden=%d (wrong backbone?)",
+                  H, ci->hidden_dim);
+        return -1;
+    }
+
+    const ::codec_speaker * spk = resolveDecodeSpeaker();
+    if (spk == nullptr) spk = codec_get_speaker(codec_model, nullptr);
+    if (spk == nullptr) {
+        LOG_ERROR("tryCosyVoicePrefill: no speaker; pass a builtin voice name or a LlamaSpeaker");
+        return -1;
+    }
+    std::vector<int32_t> prompt_tokens;
+    std::vector<float> xvec;
+    {
+        enum codec_speaker_slot_type ty;
+        int64_t ne[4];
+        const void * d = nullptr;
+        if (codec_speaker_get_slot(spk, "prompt_token", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32) {
+            const auto * v = static_cast<const int32_t *>(d);
+            prompt_tokens.assign(v, v + ne[0]);
+        }
+        if (codec_speaker_get_slot(spk, "embedding", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_F32) {
+            const auto * v = static_cast<const float *>(d);
+            xvec.assign(v, v + ne[0] * ne[1]);
+        }
+    }
+    const char * spk_ref_text = codec_speaker_ref_text(spk);
+    const std::string ref_text = spk_ref_text != nullptr ? spk_ref_text : "";
+    const std::string prefix = ci->prompt_prefix != nullptr ? ci->prompt_prefix : "";
+
+    std::string prompt_text, tts_text = text;
+    std::vector<int32_t> llm_prompt_tokens;
+    const char * mode = "sft";
+    if (!prompt_tokens.empty() && !ref_text.empty()) {
+        mode = "zero_shot";
+        prompt_text = prefix + ref_text;
+        llm_prompt_tokens = prompt_tokens;
+    } else if (!prompt_tokens.empty()) {
+        mode = "cross_lingual";
+        tts_text = prefix + tts_text;
+    } else if (!prefix.empty()) {
+        tts_text = prefix + tts_text;
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
+    const std::vector<llama_token> ptxt = prompt_text.empty()
+        ? std::vector<llama_token>() : common_tokenize(vocab, prompt_text, false, true);
+    const std::vector<llama_token> ttxt = common_tokenize(vocab, tts_text, false, true);
+    if (ttxt.empty()) {
+        LOG_ERROR("tryCosyVoicePrefill: empty text");
+        return -1;
+    }
+    std::vector<llama_token> all_txt(ptxt);
+    all_txt.insert(all_txt.end(), ttxt.begin(), ttxt.end());
+
+    // A fresh sequence: the prompt always starts at position 0.
+    llama_memory_seq_rm(llama_get_memory(main_ctx->ctx), -1, 0, -1);
+    int32_t n_past = 0;
+
+    std::vector<float> head((size_t) H);
+    if (::codec_lm_cosyvoice_special_embd(lm, 0, head.data(), H) != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryCosyVoicePrefill: sos row failed: %s", ::codec_lm_get_last_error(lm));
+        return -1;
+    }
+    if (ci->text_in_backbone) {
+        // v2/v3: sos row, then the text through the backbone's own embeddings.
+        if (!decode_rows_chunked(main_ctx->ctx, head.data(), nullptr, 1, H, n_past) ||
+            !decode_rows_chunked(main_ctx->ctx, nullptr, all_txt.data(), (int32_t) all_txt.size(), H, n_past + 1)) {
+            LOG_ERROR("tryCosyVoicePrefill: text prefill decode failed");
+            return -1;
+        }
+        n_past += 1 + (int32_t) all_txt.size();
+    } else {
+        // v1 / BreezyVoice: [x-vector row] + text-encoder rows from the codec.
+        const std::vector<int32_t> ids(all_txt.begin(), all_txt.end());
+        const int32_t cap = (int32_t) ids.size() + 1;
+        std::vector<float> rows((size_t) cap * H);
+        int32_t n_rows = 0;
+        if (::codec_lm_cosyvoice_text_rows(lm, ids.data(), (int32_t) ids.size(),
+                                           xvec.empty() ? nullptr : xvec.data(), (int32_t) xvec.size(),
+                                           rows.data(), cap, &n_rows) != CODEC_STATUS_SUCCESS) {
+            LOG_ERROR("tryCosyVoicePrefill: text rows failed: %s", ::codec_lm_get_last_error(lm));
+            return -1;
+        }
+        head.insert(head.end(), rows.begin(), rows.begin() + (long) n_rows * H);
+        if (!decode_rows_chunked(main_ctx->ctx, head.data(), nullptr, 1 + n_rows, H, n_past)) {
+            LOG_ERROR("tryCosyVoicePrefill: text prefill decode failed");
+            return -1;
+        }
+        n_past += 1 + n_rows;
+    }
+    const int32_t n_tail = 1 + (int32_t) llm_prompt_tokens.size();
+    std::vector<float> tail((size_t) n_tail * H);
+    if (::codec_lm_cosyvoice_special_embd(lm, 1, tail.data(), H) != CODEC_STATUS_SUCCESS ||
+        (!llm_prompt_tokens.empty() &&
+         ::codec_lm_cosyvoice_speech_embd(lm, llm_prompt_tokens.data(), (int32_t) llm_prompt_tokens.size(),
+                                          tail.data() + H, (int32_t) llm_prompt_tokens.size()) != CODEC_STATUS_SUCCESS)) {
+        LOG_ERROR("tryCosyVoicePrefill: prompt rows failed: %s", ::codec_lm_get_last_error(lm));
+        return -1;
+    }
+    if (!decode_rows_chunked(main_ctx->ctx, tail.data(), nullptr, n_tail, H, n_past)) {
+        LOG_ERROR("tryCosyVoicePrefill: prompt speech decode failed");
+        return -1;
+    }
+    n_past += n_tail;
+
+    const int32_t text_len = (int32_t) ttxt.size();
+    cosyvoice_min_len = (int) (text_len * ci->min_token_text_ratio);
+    // Bounded by the backbone context: a 30 s v1 prompt alone is 1500 rows.
+    cosyvoice_max_len = std::min((int) (text_len * ci->max_token_text_ratio),
+                                 (int) llama_n_ctx(main_ctx->ctx) - n_past - 1);
+    cosyvoice_decoded.clear();
+    const auto & sp = main_ctx->params.sampling;
+    cosyvoice_rng.seed(sp.seed != 0 && sp.seed != LLAMA_DEFAULT_SEED ? sp.seed : 0xC0DEC1ABu);
+    codec_common::audio_lm_set_uses_embed_override(audio_lm_ctx, true, 1);
+
+    LOG_INFO("tryCosyVoicePrefill: v%d %s, %zu prompt-text + %d text tokens, %zu prompt speech tokens, "
+             "min_len=%d max_len=%d, n_past=%d",
+             ci->version, mode, ptxt.size(), text_len, llm_prompt_tokens.size(),
+             cosyvoice_min_len, cosyvoice_max_len, n_past);
+    if (cosyvoice_max_len <= 0) {
+        LOG_ERROR("tryCosyVoicePrefill: prompt fills the context (n_past=%d, n_ctx=%u)",
+                  n_past, llama_n_ctx(main_ctx->ctx));
+        return -1;
+    }
+    return n_past;
+}
+
+namespace {
+
+// ras_sampling / BreezyVoice top-k helpers (cosyvoice/utils/common.py).
+void cosyvoice_softmax(const std::vector<float> & x, std::vector<double> * p) {
+    double mx = -INFINITY;
+    for (float v : x) mx = std::max(mx, (double) v);
+    p->resize(x.size());
+    double s = 0.0;
+    for (size_t i = 0; i < x.size(); ++i) {
+        (*p)[i] = std::isinf(x[i]) && x[i] < 0 ? 0.0 : std::exp(x[i] - mx);
+        s += (*p)[i];
+    }
+    for (double & v : *p) v /= s;
+}
+
+int32_t cosyvoice_draw(std::mt19937 & rng, const std::vector<double> & w, const std::vector<int32_t> & ids) {
+    std::discrete_distribution<int32_t> d(w.begin(), w.end());
+    return ids[(size_t) d(rng)];
+}
+
+// Top-k ids by probability (ties to the lower id).
+std::vector<int32_t> cosyvoice_top_k(const std::vector<double> & p, int32_t top_k) {
+    std::vector<int32_t> order(p.size());
+    for (size_t i = 0; i < p.size(); ++i) order[i] = (int32_t) i;
+    const size_t k = std::min<size_t>((size_t) std::max(top_k, 1), order.size());
+    std::partial_sort(order.begin(), order.begin() + (long) k, order.end(), [&](int32_t a, int32_t b) {
+        return p[(size_t) a] > p[(size_t) b] || (p[(size_t) a] == p[(size_t) b] && a < b);
+    });
+    order.resize(k);
+    return order;
+}
+
+}  // namespace
+
+bool llama_rn_context_tts::tryCosyVoiceStep(llama_rn_context * main_ctx, const float * hidden, int hidden_dim) {
+    ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
+    const ::codec_lm_cosyvoice_info * ci = lm != nullptr ? ::codec_lm_cosyvoice_get_info(lm) : nullptr;
+    if (ci == nullptr) {
+        LOG_ERROR("tryCosyVoiceStep: no CosyVoice LM adaptor");
+        return false;
+    }
+    if (!codec_common::audio_lm_step_begin(audio_lm_ctx, hidden, hidden_dim)) {
+        LOG_ERROR("tryCosyVoiceStep: speech head failed: %s", codec_common::audio_lm_last_error(audio_lm_ctx));
+        return false;
+    }
+    int32_t cb = 0, n_logits = 0;
+    const float * lg = codec_common::audio_lm_step_logits(audio_lm_ctx, &cb, &n_logits);
+    if (lg == nullptr || n_logits <= 0) {
+        LOG_ERROR("tryCosyVoiceStep: no speech logits");
+        return false;
+    }
+    std::vector<float> logits(lg, lg + n_logits);
+    codec_common::audio_lm_step_push_code(audio_lm_ctx, 0);
+    int32_t unused = 0;
+    codec_common::audio_lm_step_finish(audio_lm_ctx, &unused, 1);
+
+    // No temperature in the reference sampler; temp <= 0 still means greedy.
+    // top_k / top_p / RAS window come from the GGUF (`codec.lm.cosyvoice.*`,
+    // overridable through initVocoder kv_overrides).
+    const bool greedy = main_ctx->params.sampling.temp <= 0.0f;
+    const bool ignore_eos = (int) cosyvoice_decoded.size() < cosyvoice_min_len;
+    std::vector<double> prob;
+    int32_t id = 0;
+    if (greedy) {
+        if (ignore_eos) logits[(size_t) ci->ignore_eos_id] = -INFINITY;
+        id = (int32_t) (std::max_element(logits.begin(), logits.end()) - logits.begin());
+    } else if (ci->ras_sampling) {
+        // ras_sampling: nucleus pick, redrawn from the full distribution when
+        // it already occurs >= win_size * tau_r times in the last win_size.
+        if (ignore_eos) logits[(size_t) ci->ignore_eos_id] = -INFINITY;
+        cosyvoice_softmax(logits, &prob);
+        std::vector<double> w;
+        std::vector<int32_t> ids;
+        double cum = 0.0;
+        for (int32_t i : cosyvoice_top_k(prob, ci->top_k)) {
+            if (cum >= ci->top_p) break;
+            cum += prob[(size_t) i];
+            w.push_back(prob[(size_t) i]);
+            ids.push_back(i);
+        }
+        id = cosyvoice_draw(cosyvoice_rng, w, ids);
+        const size_t win = (size_t) std::max(ci->win_size, 0);
+        const size_t from = cosyvoice_decoded.size() > win ? cosyvoice_decoded.size() - win : 0;
+        int32_t rep = 0;
+        for (size_t i = from; i < cosyvoice_decoded.size(); ++i) rep += cosyvoice_decoded[i] == id;
+        if ((float) rep >= (float) ci->win_size * ci->tau_r) {
+            logits[(size_t) id] = -INFINITY;
+            cosyvoice_softmax(logits, &prob);
+            std::vector<int32_t> all(prob.size());
+            for (size_t i = 0; i < prob.size(); ++i) all[i] = (int32_t) i;
+            id = cosyvoice_draw(cosyvoice_rng, prob, all);
+        }
+    } else {
+        // BreezyVoice (TransformerLM.sampling_ids): top-k multinomial,
+        // redrawn while eos is still masked.
+        cosyvoice_softmax(logits, &prob);
+        const std::vector<int32_t> ids = cosyvoice_top_k(prob, ci->top_k);
+        std::vector<double> w;
+        for (int32_t i : ids) w.push_back(prob[(size_t) i]);
+        for (int32_t tries = 0; tries < 100; ++tries) {
+            id = cosyvoice_draw(cosyvoice_rng, w, ids);
+            if (!ignore_eos || id != ci->ignore_eos_id) break;
+        }
+    }
+
+    if (id >= ci->stop_begin && id < ci->stop_end) {
+        codec_lm_ar_done           = true;
+        codec_lm_ar_stopped_on_eos = true;
+        codec_lm_ar_pending_embd   = false;
+        return true;
+    }
+    cosyvoice_decoded.push_back(id);
+    audio_tokens.push_back(id);
+    if ((int) cosyvoice_decoded.size() >= cosyvoice_max_len) {
+        codec_lm_ar_done         = true;
+        codec_lm_ar_pending_embd = false;
+        return true;
+    }
+    pending_next_embd.assign((size_t) hidden_dim, 0.0f);
+    if (::codec_lm_cosyvoice_speech_embd(lm, &id, 1, pending_next_embd.data(), 1) != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryCosyVoiceStep: speech_embd failed: %s", ::codec_lm_get_last_error(lm));
+        return false;
+    }
+    codec_lm_ar_pending_embd = true;
+    codec_lm_ar_step += 1;
+    return true;
+}
+
+
 bool llama_rn_context_tts::tryContinuousAudioStep(
     llama_rn_context * main_ctx,
     const float *      hidden,
@@ -3273,22 +3622,33 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         return decodeAudioEmbeddings(main_ctx, main_ctx->completion->embeddings, main_ctx->completion->embedding_dim);
     }
     if (profile.decode_kind == tts_decode_kind::UNSUPPORTED) {
-        // Single-codebook S3 token stream (Chatterbox S3G).  Decode directly
+        // Single-codebook S3 token stream (Chatterbox S3G, CosyVoice).  Decode directly
         // so the decoder speaker can be passed; codes outside the codebook
         // (start/stop speech tokens the T3 head can emit) are dropped, never
         // clamped into it.
-        if (profile.prompt_kind != tts_prompt_kind::CHATTERBOX) {
+        if (profile.prompt_kind != tts_prompt_kind::CHATTERBOX &&
+            profile.prompt_kind != tts_prompt_kind::COSYVOICE) {
             LOG_ERROR("This TTS model's codec is not supported by codec.cpp yet");
             return std::vector<float>();
         }
-        const int32_t codebook_size = codec_model_codebook_size(codec_model);
+        ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
+        const ::codec_lm_cosyvoice_info * cvi = lm != nullptr ? ::codec_lm_cosyvoice_get_info(lm) : nullptr;
+        const int32_t codebook_size = cvi != nullptr ? cvi->speech_token_size : codec_model_codebook_size(codec_model);
         std::vector<int32_t> codes;
         codes.reserve(tokens.size() + 4);
+        int32_t silent_run = 0;
         for (llama_token t : tokens) {
+            if (cvi != nullptr && cvi->max_silent_run > 0) {
+                // CosyVoice3 llm_job: tokens past max_silent_run consecutive
+                // silent / breath tokens are dropped from the flow input.
+                bool silent = false;
+                for (int32_t i = 0; i < cvi->n_silent_tokens; ++i) silent = silent || cvi->silent_tokens[i] == t;
+                silent_run = silent ? silent_run + 1 : 0;
+                if (silent && silent_run > cvi->max_silent_run) continue;
+            }
             if (t >= 0 && (codebook_size <= 0 || t < codebook_size)) codes.push_back(t);
         }
         // Chatterbox Turbo appends S3GEN_SIL x 3 before S3Gen (tts_turbo.py).
-        ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
         const ::codec_lm_chatterbox_info * ci = lm != nullptr ? ::codec_lm_chatterbox_get_info(lm) : nullptr;
         if (!codes.empty() && ci != nullptr && ci->silence_token >= 0) {
             codes.insert(codes.end(), (size_t) std::max(0, ci->n_trailing_silence), ci->silence_token);
