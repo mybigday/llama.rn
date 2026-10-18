@@ -41,7 +41,7 @@
 
 #### Defined in
 
-[index.ts:414](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L414)
+[index.ts:414](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L414)
 
 ## Properties
 
@@ -51,7 +51,7 @@
 
 #### Defined in
 
-[index.ts:410](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L410)
+[index.ts:410](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L410)
 
 ___
 
@@ -61,7 +61,7 @@ ___
 
 #### Defined in
 
-[index.ts:412](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L412)
+[index.ts:412](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L412)
 
 ___
 
@@ -71,7 +71,7 @@ ___
 
 #### Defined in
 
-[index.ts:406](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L406)
+[index.ts:406](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L406)
 
 ___
 
@@ -81,7 +81,7 @@ ___
 
 #### Defined in
 
-[index.ts:404](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L404)
+[index.ts:404](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L404)
 
 ___
 
@@ -91,7 +91,7 @@ ___
 
 #### Defined in
 
-[index.ts:408](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L408)
+[index.ts:408](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L408)
 
 ## Methods
 
@@ -105,7 +105,7 @@ ___
 
 #### Defined in
 
-[index.ts:422](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L422)
+[index.ts:422](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L422)
 
 ___
 
@@ -119,7 +119,7 @@ ___
 
 #### Defined in
 
-[index.ts:440](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L440)
+[index.ts:440](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L440)
 
 ___
 
@@ -144,4 +144,4 @@ Reload it with `LlamaContext.loadSpeakerFile`.
 
 #### Defined in
 
-[index.ts:434](https://github.com/mybigday/llama.rn/blob/635eb92d/src/index.ts#L434)
+[index.ts:434](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L434)

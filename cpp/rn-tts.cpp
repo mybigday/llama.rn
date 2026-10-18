@@ -3159,7 +3159,7 @@ int llama_rn_context_tts::tryCosyVoicePrefill(llama_rn_context * main_ctx, const
     all_txt.insert(all_txt.end(), ttxt.begin(), ttxt.end());
 
     // A fresh sequence: the prompt always starts at position 0.
-    llama_memory_seq_rm(llama_get_memory(main_ctx->ctx), -1, 0, -1);
+    llama_memory_seq_rm(llama_get_memory(main_ctx->ctx), 0, 0, -1);
     int32_t n_past = 0;
 
     std::vector<float> head((size_t) H);

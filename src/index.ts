@@ -1288,15 +1288,20 @@ export class LlamaContext {
     //    which means 'default' — resolves against the built-in voice table,
     //    whose entries are themselves pre-baked payloads. Native never sees a
     //    voice-name key; voice resolution is JS-only.
+    // A builtin decoder voice of the codec GGUF (codec_speaker); 'default'
+    // also names the codec's default voice (e.g. BreezyVoice's zh_female).
+    const codecVoice =
+      typeof options.speaker === 'string'
+        ? cap.codecVoices.find((v) => v.name === options.speaker) ??
+          (options.speaker === 'default'
+            ? cap.codecVoices.find((v) => v.isDefault)
+            : undefined)
+        : undefined
     let payload: Record<string, any> | null
     if (options.speaker && typeof options.speaker === 'object') {
       payload = { ...options.speaker }
-    } else if (
-      typeof options.speaker === 'string' &&
-      cap.codecVoices.some((v) => v.name === options.speaker)
-    ) {
-      // A builtin decoder voice of the codec GGUF (codec_speaker).
-      payload = { codec_voice: options.speaker }
+    } else if (codecVoice) {
+      payload = { codec_voice: codecVoice.name }
     } else {
       const name =
         typeof options.speaker === 'string' ? options.speaker : 'default'
