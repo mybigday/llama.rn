@@ -114,7 +114,7 @@ ggml_tensor * codec_moss_transformer_layer_tc(
 
     // h_tc → h_ct (mul_mat needs ne[0]=in_dim).
     ggml_tensor * h_ct = ggml_cont(ctx, ggml_transpose(ctx, h));   // [c=hidden, t]
-    ggml_tensor * qkv = ggml_mul_mat(ctx, qkv_w, h_ct);            // [3*hidden, t]
+    ggml_tensor * qkv = codec_mul_mat(ctx, qkv_w, h_ct);            // [3*hidden, t]
     if (qkv == nullptr) return nullptr;
     ggml_tensor * q = ggml_cont(ctx, ggml_view_2d(ctx, qkv, hidden, t, qkv->nb[1], 0));
     ggml_tensor * k = ggml_cont(ctx, ggml_view_2d(ctx, qkv, hidden, t, qkv->nb[1], (size_t) hidden * qkv->nb[0]));
@@ -127,7 +127,7 @@ ggml_tensor * codec_moss_transformer_layer_tc(
     // ordering) and call ggml_rope_ext directly with the natural (d, h, t)
     // layout — that matches ggml's expected (n_embd_per_head, n_head,
     // n_tokens) shape and uses NEOX-mode for interleaved pairs.
-    ggml_tensor * t_pos = ggml_cast(ctx, ggml_arange(ctx, 0.0f, (float) t, 1.0f), GGML_TYPE_I32);
+    ggml_tensor * t_pos = ggml_cast(ctx, codec_op_arange(ctx, 0.0f, (float) t, 1.0f), GGML_TYPE_I32);
     // ggml NEOX = half-split pairs (k, k+D/2); NORMAL = interleaved (2k, 2k+1).
     // MOSS does `q.view(..., D//2, 2)` which is interleaved → NORMAL mode.
     ggml_tensor * q_rope_dht = ggml_rope_ext(ctx, q_dht, t_pos, nullptr,
@@ -152,16 +152,15 @@ ggml_tensor * codec_moss_transformer_layer_tc(
     // Permute back (d, t, h) → (d, h, t) → reshape (hidden, t).
     ggml_tensor * attn_dht = ggml_cont(ctx, ggml_permute(ctx, attn_dth, 0, 2, 1, 3));
     ggml_tensor * attn_ct = ggml_reshape_2d(ctx, attn_dht, hidden, t);
-    ggml_tensor * out_ct = ggml_mul_mat(ctx, out_w, attn_ct);                            // [hidden, t]
+    ggml_tensor * out_ct = codec_mul_mat(ctx, out_w, attn_ct);                            // [hidden, t]
     if (out_ct == nullptr) return nullptr;
     ggml_tensor * out_tc = ggml_cont(ctx, ggml_transpose(ctx, out_ct));                   // [t, hidden]
 
     // LayerScale_1: per-channel multiply.  Broadcast ls1 (ne=(hidden,)) over
-    // the time axis via reshape (1, hidden) + ggml_repeat to match out_tc.
+    // the time axis via reshape (1, hidden); ggml_mul broadcasts it.
     if (ls1 != nullptr) {
         ggml_tensor * ls1_2d = ggml_reshape_2d(ctx, ls1, 1, hidden);
-        ggml_tensor * ls1_rep = ggml_repeat(ctx, ls1_2d, out_tc);
-        out_tc = ggml_mul(ctx, out_tc, ls1_rep);
+        out_tc = ggml_mul(ctx, out_tc, ls1_2d);
     }
     x_tc = ggml_add(ctx, res, out_tc);
 
@@ -169,17 +168,16 @@ ggml_tensor * codec_moss_transformer_layer_tc(
     res = x_tc;
     h = codec_op_layer_norm_tc(ctx, x_tc, 1e-5f, n2_w, n2_b);
     h_ct = ggml_cont(ctx, ggml_transpose(ctx, h));            // [hidden, t]
-    ggml_tensor * ff = ggml_mul_mat(ctx, fc1_w, h_ct);        // [ffn_dim, t]
+    ggml_tensor * ff = codec_mul_mat(ctx, fc1_w, h_ct);        // [ffn_dim, t]
     ff = ggml_cont(ctx, ggml_transpose(ctx, ff));             // [t, ffn_dim] — gelu reads any layout
     ff = ggml_gelu(ctx, ff);
     ff = ggml_cont(ctx, ggml_transpose(ctx, ff));             // [ffn_dim, t]
-    ff = ggml_mul_mat(ctx, fc2_w, ff);                        // [hidden, t]
+    ff = codec_mul_mat(ctx, fc2_w, ff);                        // [hidden, t]
     if (ff == nullptr) return nullptr;
     ggml_tensor * ff_tc = ggml_cont(ctx, ggml_transpose(ctx, ff));
     if (ls2 != nullptr) {
         ggml_tensor * ls2_2d = ggml_reshape_2d(ctx, ls2, 1, hidden);
-        ggml_tensor * ls2_rep = ggml_repeat(ctx, ls2_2d, ff_tc);
-        ff_tc = ggml_mul(ctx, ff_tc, ls2_rep);
+        ff_tc = ggml_mul(ctx, ff_tc, ls2_2d);
     }
     return ggml_add(ctx, res, ff_tc);
 }
@@ -213,7 +211,7 @@ ggml_tensor * codec_moss_projected_transformer_ct(
     ggml_tensor * in_w  = W(base + ".input_proj.w");
     ggml_tensor * out_w = W(base + ".output_proj.w");
 
-    ggml_tensor * h_ct = (in_w != nullptr) ? ggml_mul_mat(ctx, in_w, x_ct) : x_ct;
+    ggml_tensor * h_ct = (in_w != nullptr) ? codec_mul_mat(ctx, in_w, x_ct) : x_ct;
     if (h_ct == nullptr) return nullptr;
     ggml_tensor * h_tc = ggml_cont(ctx, ggml_transpose(ctx, h_ct));   // [t, d_model]
     (void) d_model;
@@ -237,7 +235,7 @@ ggml_tensor * codec_moss_projected_transformer_ct(
 
     h_ct = ggml_cont(ctx, ggml_transpose(ctx, h_tc));     // [d_model, t]
     if (out_w == nullptr) return h_ct;
-    return ggml_mul_mat(ctx, out_w, h_ct);                // [out_dim, t]
+    return codec_mul_mat(ctx, out_w, h_ct);                // [out_dim, t]
     (void) out_dim;
 }
 
@@ -357,7 +355,7 @@ static bool codec_moss_build_encode(ggml_context * ctx_eval, void * user_data, g
         // mul_mat which contracts ne[0]=cb_dim.
         ggml_tensor * cb_norm = W(base + ".codebook_norm");
         if (cb_norm == nullptr) return false;
-        cb_norm = codec_graph_cast_f32(ctx_eval, cb_norm);
+        cb_norm = codec_graph_stored_weight(ctx_eval, cb_norm);                      // search at the stored type
         ggml_tensor * sims = ggml_mul_mat(ctx_eval, cb_norm, z_n_ct);                // [cb_size, t]
         ggml_tensor * idx = ggml_argmax(ctx_eval, sims);                              // ne=(t,) i32
         codes_per_level[qi] = idx;
@@ -365,8 +363,7 @@ static bool codec_moss_build_encode(ggml_context * ctx_eval, void * user_data, g
         // Reconstruction: gather codebook (raw, not normalised) + out_proj.
         ggml_tensor * cb = W(base + ".codebook");
         if (cb == nullptr) return false;
-        cb = codec_graph_cast_f32(ctx_eval, cb);
-        ggml_tensor * z_q_ct = ggml_get_rows(ctx_eval, cb, idx);                      // [cb_dim, t]
+        ggml_tensor * z_q_ct = ggml_get_rows(ctx_eval, codec_graph_stored_weight(ctx_eval, cb), idx);                      // [cb_dim, t]
         ggml_tensor * z_q_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_q_ct));
         ggml_tensor * z_q_proj = codec_conv1d(ctx_eval, z_q_tc,
                                               W(base + ".out_proj.w"),
@@ -426,8 +423,7 @@ static bool codec_moss_build_decode(ggml_context * ctx_eval, void * user_data, g
         const std::string base = "moss.q." + std::to_string(qi);
         ggml_tensor * cb = W(base + ".codebook");
         if (cb == nullptr) return false;
-        cb = codec_graph_cast_f32(ctx_eval, cb);
-        ggml_tensor * z_p_ct = ggml_get_rows(ctx_eval, cb, idx);                      // [cb_dim, t]
+        ggml_tensor * z_p_ct = ggml_get_rows(ctx_eval, codec_graph_stored_weight(ctx_eval, cb), idx);                      // [cb_dim, t]
         ggml_tensor * z_p_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_p_ct)); // [t, cb_dim]
         ggml_tensor * z_q = codec_conv1d(ctx_eval, z_p_tc,
                                          W(base + ".out_proj.w"),

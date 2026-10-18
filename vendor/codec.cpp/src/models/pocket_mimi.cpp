@@ -89,9 +89,9 @@ ggml_tensor * pm_transformer_block(
     if (h == nullptr) return nullptr;
     const int64_t t_cur = h->ne[1];
 
-    ggml_tensor * q = ggml_mul_mat(ctx_eval, q_w, h);
-    ggml_tensor * k = ggml_mul_mat(ctx_eval, k_w, h);
-    ggml_tensor * v = ggml_mul_mat(ctx_eval, v_w, h);
+    ggml_tensor * q = codec_mul_mat(ctx_eval, q_w, h);
+    ggml_tensor * k = codec_mul_mat(ctx_eval, k_w, h);
+    ggml_tensor * v = codec_mul_mat(ctx_eval, v_w, h);
     if (q == nullptr || k == nullptr || v == nullptr) return nullptr;
 
     ggml_tensor * q_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, q, head_dim, n_heads, t_cur), 0, 2, 1, 3);
@@ -111,16 +111,16 @@ ggml_tensor * pm_transformer_block(
 
     ggml_tensor * attn_ct = ggml_reshape_2d(
         ctx_eval, ggml_cont(ctx_eval, ggml_permute(ctx_eval, attn_ctx, 0, 2, 1, 3)), c, t_cur);
-    ggml_tensor * attn_proj = ggml_mul_mat(ctx_eval, o_w, attn_ct);
+    ggml_tensor * attn_proj = codec_mul_mat(ctx_eval, o_w, attn_ct);
     if (attn_proj == nullptr) return nullptr;
     x_ct = ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, attn_proj, sa_scale));
 
     ggml_tensor * m = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, paln_w, paln_b);
     if (m == nullptr) return nullptr;
-    m = ggml_mul_mat(ctx_eval, fc1_w, m);
+    m = codec_mul_mat(ctx_eval, fc1_w, m);
     if (m == nullptr) return nullptr;
     m = ggml_gelu_erf(ctx_eval, m);
-    m = ggml_mul_mat(ctx_eval, fc2_w, m);
+    m = codec_mul_mat(ctx_eval, fc2_w, m);
     if (m == nullptr) return nullptr;
     x_ct = ggml_add(ctx_eval, x_ct, codec_op_channel_scale(ctx_eval, m, mlp_scale));
     return x_ct;
@@ -136,10 +136,10 @@ ggml_tensor * pm_seanet_resblock(
     if (x == nullptr || c1_w == nullptr || c1_b == nullptr || c2_w == nullptr || c2_b == nullptr) {
         return nullptr;
     }
-    ggml_tensor * h = ggml_elu(ctx_eval, x);
+    ggml_tensor * h = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     h = codec_conv1d_causal(ctx_eval, h, c1_w, c1_b, 1, 1);
     if (h == nullptr) return nullptr;
-    h = ggml_elu(ctx_eval, h);
+    h = codec_op_unary(ctx_eval, h, CODEC_UNARY_ELU);
     h = codec_conv1d_causal(ctx_eval, h, c2_w, c2_b, 1, 1);
     if (h == nullptr) return nullptr;
     return ggml_cont(ctx_eval, ggml_add(ctx_eval, x, h));
@@ -217,19 +217,19 @@ bool pm_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** o
 
     x = codec_conv1d_causal(ctx_eval, x, l0_w, l0_b, 1, 1);          // conv 512->512 k7
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_convtr1d_causal(ctx_eval, x, l2_w, l2_b, m.decoder_ratios[0], 1);   // convtr s6
     x = pm_seanet_resblock(ctx_eval, x, r0c1_w, r0c1_b, r0c2_w, r0c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_convtr1d_causal(ctx_eval, x, l5_w, l5_b, m.decoder_ratios[1], 1);   // convtr s5
     x = pm_seanet_resblock(ctx_eval, x, r1c1_w, r1c1_b, r1c2_w, r1c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_convtr1d_causal(ctx_eval, x, l8_w, l8_b, m.decoder_ratios[2], 1);   // convtr s4
     x = pm_seanet_resblock(ctx_eval, x, r2c1_w, r2c1_b, r2c2_w, r2c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     ggml_tensor * t_pcm = codec_conv1d_causal(ctx_eval, x, l11_w, l11_b, 1, 1);   // conv 64->1 k3
     if (t_pcm == nullptr) return false;
 
@@ -292,20 +292,20 @@ bool pm_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** o
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r0c1_w, r0c1_b, r0c2_w, r0c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_conv1d_causal(ctx_eval, x, l3_w, l3_b, m.encoder_ratios[0], 1);    // down s4
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r1c1_w, r1c1_b, r1c2_w, r1c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_conv1d_causal(ctx_eval, x, l6_w, l6_b, m.encoder_ratios[1], 1);    // down s5
     if (x == nullptr) return false;
     x = pm_seanet_resblock(ctx_eval, x, r2c1_w, r2c1_b, r2c2_w, r2c2_b);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_conv1d_causal(ctx_eval, x, l9_w, l9_b, m.encoder_ratios[2], 1);    // down s6
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = codec_conv1d_causal(ctx_eval, x, l11_w, l11_b, 1, 1);                    // conv 512->512 k3
     if (x == nullptr) return false;
 

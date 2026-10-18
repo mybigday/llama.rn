@@ -45,6 +45,7 @@ struct phd_impl {
 
     // Tensor pointers into codec->weights, resolved at init.
     std::vector<ggml_tensor *> heads;       // [n_codebook]
+    std::vector<ggml_tensor *> head_biases; // [n_codebook]; optional `lm.heads_{i}.bias`
     std::vector<ggml_tensor *> audio_embds; // [n_codebook]
 
     // Optional learned per-step positional embedding.  Chatterbox T3
@@ -114,7 +115,10 @@ bool phd_build_logits(ggml_context * ctx_eval, void * user_data, ggml_tensor ** 
         // that runs every step (Chatterbox / WavTokenizer etc. hit this
         // path per AR step × n_codebook heads).
         ggml_tensor * head_in_ctx = codec_graph_mat_lhs(ctx_eval, head);
-        ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_in_ctx, t_h);
+        ggml_tensor * logits = codec_mul_mat(ctx_eval, head_in_ctx, t_h);
+        if (ggml_tensor * bias = impl->head_biases[(size_t) i]) {
+            logits = ggml_add(ctx_eval, logits, codec_graph_cast_f32(ctx_eval, bias));
+        }
         std::snprintf(buf, sizeof(buf), "lm.step.logits_%d", i);
         ggml_set_name(logits, buf);
         ggml_set_output(logits);
@@ -197,6 +201,7 @@ bool init(codec_lm * lm) {
     impl->hidden_dim      = lm->info.hidden_dim;
     impl->audio_embed_dim = lm->info.audio_embed_dim;
     impl->heads.resize((size_t) impl->n_codebook, nullptr);
+    impl->head_biases.resize((size_t) impl->n_codebook, nullptr);
     impl->audio_embds.resize((size_t) impl->n_codebook, nullptr);
 
     char buf[64];
@@ -211,6 +216,8 @@ bool init(codec_lm * lm) {
         } else {
             std::snprintf(buf, sizeof(buf), "lm.heads_%d.weight", i);
             impl->heads[(size_t) i] = ggml_get_tensor(lm->codec->weights, buf);
+            std::snprintf(buf, sizeof(buf), "lm.heads_%d.bias", i);
+            impl->head_biases[(size_t) i] = ggml_get_tensor(lm->codec->weights, buf);
         }
         if (impl->heads[(size_t) i] == nullptr || impl->audio_embds[(size_t) i] == nullptr) {
             // Already validated via codec_lm_check_unfused_audio_tables, but

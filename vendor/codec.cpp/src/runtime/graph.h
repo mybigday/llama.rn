@@ -36,8 +36,11 @@ enum codec_graph_kind {
     CODEC_GRAPH_LM_RDA_DEPTH_STEP     = 29,
     CODEC_GRAPH_LM_RDA_COMPOSE        = 30,
     CODEC_GRAPH_LM_RDA_DEPTH_STEP_KV  = 31,  // incremental, llama.cpp-style KV cache
+    CODEC_GRAPH_LM_RDA_TEXT_PROJ      = 34,  // Qwen3-TTS talker text_projection MLP
+    CODEC_GRAPH_LM_COSYVOICE_TEXT     = 35,  // CosyVoice v1 text encoder + speaker affine rows
 
-    CODEC_GRAPH_LM_SPEAKER_CHATTERBOX = 32,  // cond_enc + perceiver
+    CODEC_GRAPH_LM_SPEAKER_CHATTERBOX = 32,  // [VoiceEncoder +] cond_enc + perceiver
+    CODEC_GRAPH_LM_SPEAKER_QWEN3_TTS  = 33,  // ECAPA-TDNN x-vector
 
     CODEC_GRAPH_BLUEMAGPIE_AUDIOVAE_DECODE = 50,  // VoxCPM/BlueMagpie continuous-latent VAE decode
     CODEC_GRAPH_BLUEMAGPIE_AUDIOVAE_ENCODE = 55,  // AudioVAE encoder (audio → latent mu)
@@ -51,6 +54,10 @@ enum codec_graph_kind {
     CODEC_GRAPH_FLOW_LM_PREFILL = 62,  // Pocket-TTS FlowLM: text+voice prefix → KV cache
     CODEC_GRAPH_FLOW_LM_STEP    = 63,  // Pocket-TTS FlowLM: one AR frame (transformer + LSD flow + EOS)
     CODEC_GRAPH_FLOW_LM_SPKPROJ = 64,  // Pocket-TTS FlowLM: mu [ldim,T] → speaker_proj rows
+
+    CODEC_GRAPH_CHATTERBOX_S3G_SPEAKER = 65,
+    CODEC_GRAPH_COSYVOICE_DECODE = 66,   // CosyVoice tokens → flow → HiFT PCM
+    CODEC_GRAPH_COSYVOICE_SPEAKER = 67,  // reference PCM → CosyVoice speaker slots  // reference PCM → S3G speaker slots (S3T + mel + CAMPPlus [+ x-vector])
 };
 
 bool codec_runtime_init(codec_context * ctx, std::string * error);
@@ -77,6 +84,56 @@ bool codec_graph_prepare_io(
     std::string * error);
 
 void codec_graph_release(codec_context * ctx);
+
+// A constant input of the graph being built (call from a build_fn only):
+// creates `name` in `ctx_eval` with a copy of `data`, written automatically by
+// codec_graph_prepare_io. Lets reusable blocks carry their own lookup tables.
+// A second call with the same name returns the existing tensor.
+ggml_tensor * codec_graph_const(
+    ggml_context * ctx_eval,
+    const char * name,
+    ggml_type type,
+    int n_dims,
+    const int64_t * ne,
+    const void * data);
+// Run `node` on the CPU backend even when the graph is offloaded (call from a
+// build_fn only). For precision-critical ops: ggml-vulkan's F32 matmul stages
+// tiles in fp16 shared memory, too coarse for framed DFTs whose quiet bins
+// come from cancelling large terms. Returns `node`.
+ggml_tensor * codec_graph_pin_cpu(ggml_tensor * node);
+// Whether the backend the current graph is built for runs `node` natively
+// (true outside a graph build).  Ops in src/ops use it to fall back to a
+// composition of more common ops instead of letting the scheduler split the
+// graph to the CPU (ggml-opencl has no SIN / COS, ggml-vulkan no ELU, ...).
+// CODEC_FORCE_COMPOSITE_OPS=1 answers false, to test those fallbacks on CPU.
+bool codec_graph_backend_supports(const ggml_tensor * node);
+// Whether the graph being built targets a non-CPU backend (false outside a
+// build).  For layout / algorithm choices that are measurably faster on GPUs
+// and slower on CPUs.
+bool codec_graph_backend_is_gpu();
+// Registry name of that backend's device ("CPU", "MTL" for Metal, "Vulkan",
+// "CUDA", ...); "" outside a build.
+const char * codec_graph_backend_reg_name();
+// Slot memoizing the F32 cast of stored weight `w` within the graph being
+// built (nullptr outside a build), so unrolled passes (20 CFM estimator calls)
+// share one cast node instead of re-casting every bias per pass.
+ggml_tensor ** codec_graph_weight_cast_slot(ggml_context * ctx_eval, const ggml_tensor * w);
+
+// Pins every op created in `ctx_eval` while the scope is alive. Views of
+// pinned tensors cannot cross backends, so a scope should end on a non-view
+// tensor (ggml_cont or a compute op) that later ops consume.
+struct codec_graph_cpu_scope {
+    explicit codec_graph_cpu_scope(ggml_context * ctx_eval);
+    ~codec_graph_cpu_scope();
+    codec_graph_cpu_scope(const codec_graph_cpu_scope &) = delete;
+    codec_graph_cpu_scope & operator=(const codec_graph_cpu_scope &) = delete;
+
+    ggml_context * ctx;
+    ggml_tensor * last_before;
+};
+ggml_tensor * codec_graph_const_f32(
+    ggml_context * ctx_eval, const char * name, const std::vector<float> & data,
+    int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1);
 ggml_tensor * codec_graph_get_tensor(codec_context * ctx, codec_graph_cache_entry * entry, const char * name);
 
 // RAII cleanup for the per-call eval graph.  By default the guard releases the

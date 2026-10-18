@@ -195,8 +195,8 @@ static ggml_tensor * codec_neu_grn_tc(
     // which simplifies to x + gamma * x + beta.
     ggml_tensor * g2 = ggml_reshape_2d(ctx_eval, gamma, 1, x_tc->ne[1]);
     ggml_tensor * b2 = ggml_reshape_2d(ctx_eval, beta, 1, x_tc->ne[1]);
-    ggml_tensor * y = ggml_mul(ctx_eval, x_tc, ggml_repeat(ctx_eval, g2, x_tc));
-    y = ggml_add(ctx_eval, y, ggml_repeat(ctx_eval, b2, y));
+    ggml_tensor * y = ggml_mul(ctx_eval, x_tc, g2);
+    y = ggml_add(ctx_eval, y, b2);
     y = ggml_add(ctx_eval, y, x_tc);
     return y;
 }
@@ -211,10 +211,9 @@ static ggml_tensor * codec_neu_snake_tc(
         return nullptr;
     }
     ggml_tensor * alpha_2d = ggml_reshape_2d(ctx_eval, alpha, 1, x_tc->ne[1]);
-    ggml_tensor * alpha_rep = ggml_repeat(ctx_eval, alpha_2d, x_tc);
-    ggml_tensor * alpha_eps = ggml_scale_bias(ctx_eval, alpha_rep, 1.0f, eps);
-    ggml_tensor * ax = ggml_mul(ctx_eval, alpha_rep, x_tc);
-    ggml_tensor * s = ggml_sin(ctx_eval, ax);
+    ggml_tensor * alpha_eps = ggml_scale_bias(ctx_eval, alpha_2d, 1.0f, eps);
+    ggml_tensor * ax = ggml_mul(ctx_eval, x_tc, alpha_2d);
+    ggml_tensor * s = codec_op_sin(ctx_eval, ax);
     ggml_tensor * s2 = ggml_mul(ctx_eval, s, s);
     ggml_tensor * frac = ggml_div(ctx_eval, s2, alpha_eps);
     return ggml_add(ctx_eval, x_tc, frac);
@@ -327,7 +326,7 @@ static ggml_tensor * codec_neu_transformer_block(
         return nullptr;
     }
 
-    ggml_tensor * qkv = ggml_mul_mat(ctx_eval, att_c_attn_w, h); // [3*hidden, t]
+    ggml_tensor * qkv = codec_mul_mat(ctx_eval, att_c_attn_w, h); // [3*hidden, t]
     if (qkv == nullptr) {
         return nullptr;
     }
@@ -362,7 +361,7 @@ static ggml_tensor * codec_neu_transformer_block(
         hidden_dim,
         t);
 
-    ggml_tensor * attn_proj = ggml_mul_mat(ctx_eval, att_c_proj_w, attn_ct); // [hidden, t]
+    ggml_tensor * attn_proj = codec_mul_mat(ctx_eval, att_c_proj_w, attn_ct); // [hidden, t]
     if (attn_proj == nullptr) {
         return nullptr;
     }
@@ -372,9 +371,9 @@ static ggml_tensor * codec_neu_transformer_block(
     if (m == nullptr) {
         return nullptr;
     }
-    ggml_tensor * ff = ggml_mul_mat(ctx_eval, mlp_fc1_w, m);
+    ggml_tensor * ff = codec_mul_mat(ctx_eval, mlp_fc1_w, m);
     ff = ggml_silu(ctx_eval, ff);
-    ff = ggml_mul_mat(ctx_eval, mlp_fc2_w, ff);
+    ff = codec_mul_mat(ctx_eval, mlp_fc2_w, ff);
     if (ff == nullptr) {
         return nullptr;
     }
@@ -1194,7 +1193,7 @@ static bool codec_neu_build_encode(ggml_context * ctx_eval, void * user_data, gg
     z_bound = ggml_scale_bias(ctx_eval, z_bound, half_l, -offset);
     z_bound = ggml_tanh(ctx_eval, ggml_scale_bias(ctx_eval, z_bound, 1.0f, shift));
     z_bound = ggml_scale_bias(ctx_eval, z_bound, half_l, -offset);
-    ggml_tensor * zq = ggml_scale(ctx_eval, ggml_round(ctx_eval, z_bound), 1.0f / half_width);
+    ggml_tensor * zq = ggml_scale(ctx_eval, codec_op_round_bounded(ctx_eval, z_bound, 2), 1.0f / half_width);   // z in (-2.0015, 1.0015)
 
     // indices
     ggml_tensor * basis = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, p->codebook_dim);

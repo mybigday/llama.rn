@@ -1,11 +1,14 @@
 #include "codec_internal.h"
 
+#include <cstdio>
+
 #include "runtime/perf_log.h"
 #include "batch/batch.h"
 #include "models/dac.h"
 #include "models/mimi.h"
 #include "models/qwen3_tts_tokenizer.h"
 #include "models/chatterbox_s3g.h"
+#include "models/cosyvoice.h"
 #include "models/chatterbox_s3t.h"
 #include "models/soprano.h"
 #include "models/nemo_nano_codec.h"
@@ -146,6 +149,9 @@ enum codec_arch codec_arch_from_string(const std::string & arch) {
     if (arch == "pocket_mimi" || arch == "pocket-mimi" || arch == "pocket_tts") {
         return CODEC_ARCH_POCKET_MIMI;
     }
+    if (arch == "cosyvoice") {
+        return CODEC_ARCH_COSYVOICE;
+    }
 
     return CODEC_ARCH_UNKNOWN;
 }
@@ -184,6 +190,8 @@ static const codec_model_vtable * codec_model_vtable_for_arch(enum codec_arch ar
             return codec_bluemagpie_audiovae_vtable();
         case CODEC_ARCH_POCKET_MIMI:
             return codec_pocket_mimi_vtable();
+        case CODEC_ARCH_COSYVOICE:
+            return codec_cosyvoice_vtable();
         case CODEC_ARCH_UNKNOWN:
         default:
             return nullptr;
@@ -208,6 +216,7 @@ const char * codec_arch_name(enum codec_arch arch) {
         case CODEC_ARCH_XY_TOKENIZER:       return "XY-Tokenizer";
         case CODEC_ARCH_BLUEMAGPIE_AUDIOVAE:return "BlueMagpie-AudioVAE";
         case CODEC_ARCH_POCKET_MIMI:        return "Pocket-TTS-Mimi";
+        case CODEC_ARCH_COSYVOICE:          return "CosyVoice";
         case CODEC_ARCH_UNKNOWN:
         default:                            return "unknown";
     }
@@ -295,12 +304,59 @@ struct codec_decode_params codec_decode_default_params(void) {
     struct codec_decode_params result = {
         /*.n_threads =*/ 0,
         /*.n_q =*/ 0,
+        /*.speaker =*/ nullptr,
     };
 
     return result;
 }
 
+// Rewrites gguf KV entries in place so every codec_read_*_kv sees the override.
+// Integer overrides keep an existing key's integer width (u32 vs i32) so readers
+// that only accept one of them still match.
+static bool codec_apply_kv_overrides(struct gguf_context * gf, const struct codec_model_kv_override * ov) {
+    for (; ov != nullptr && ov->key[0] != '\0'; ++ov) {
+        const int key_id = gguf_find_key(gf, ov->key);
+        const enum gguf_type cur = key_id >= 0 ? gguf_get_kv_type(gf, key_id) : GGUF_TYPE_COUNT;
+        switch (ov->tag) {
+            case CODEC_KV_OVERRIDE_TYPE_INT:
+                if (cur == GGUF_TYPE_UINT32) {
+                    if (ov->val_i64 < 0 || ov->val_i64 > (int64_t) UINT32_MAX) return false;
+                    gguf_set_val_u32(gf, ov->key, (uint32_t) ov->val_i64);
+                } else if (cur == GGUF_TYPE_INT64) {
+                    gguf_set_val_i64(gf, ov->key, ov->val_i64);
+                } else {
+                    if (ov->val_i64 < INT32_MIN || ov->val_i64 > INT32_MAX) return false;
+                    gguf_set_val_i32(gf, ov->key, (int32_t) ov->val_i64);
+                }
+                break;
+            case CODEC_KV_OVERRIDE_TYPE_FLOAT:
+                if (cur == GGUF_TYPE_FLOAT64) {
+                    gguf_set_val_f64(gf, ov->key, ov->val_f64);
+                } else {
+                    gguf_set_val_f32(gf, ov->key, (float) ov->val_f64);
+                }
+                break;
+            case CODEC_KV_OVERRIDE_TYPE_BOOL:
+                gguf_set_val_bool(gf, ov->key, ov->val_bool);
+                break;
+            case CODEC_KV_OVERRIDE_TYPE_STR:
+                gguf_set_val_str(gf, ov->key, ov->val_str);
+                break;
+            default:
+                return false;
+        }
+    }
+    return true;
+}
+
 struct codec_model * codec_model_load_from_file(const char * path_model, struct codec_model_params params) {
+    return codec_model_load_from_file_ext(path_model, params, nullptr);
+}
+
+struct codec_model * codec_model_load_from_file_ext(
+        const char * path_model,
+        struct codec_model_params params,
+        const struct codec_model_kv_override * kv_overrides) {
     if (path_model == nullptr) {
         return nullptr;
     }
@@ -315,6 +371,11 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     if (gf == nullptr) {
         return nullptr;
     }
+    if (!codec_apply_kv_overrides(gf, kv_overrides)) {
+        gguf_free(gf);
+        ggml_free(weights);
+        return nullptr;
+    }
 
     codec_model * model = new (std::nothrow) codec_model();
     if (model == nullptr) {
@@ -325,6 +386,9 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
 
     model->gguf = gf;
     model->weights = weights;
+    for (ggml_tensor * t = ggml_get_first_tensor(weights); t != nullptr; t = ggml_get_next_tensor(weights, t)) {
+        model->weight_index.emplace(ggml_get_name(t), t);
+    }
     model->metadata = { nullptr, 0 };
     model->arch = CODEC_ARCH_UNKNOWN;
     model->name = "unknown";
@@ -418,6 +482,7 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
         const char * arch = gguf_get_val_str(gf, arch_id);
         if (arch != nullptr) {
             model->arch = codec_arch_from_string(arch);
+            model->arch_name = arch;
         }
     }
 
@@ -443,6 +508,15 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     if (init_st != CODEC_STATUS_SUCCESS) {
         codec_model_free(model);
         return nullptr;
+    }
+
+    {
+        std::string spk_err;
+        if (!codec_model_load_speakers(model, &spk_err)) {
+            std::fprintf(stderr, "codec_model_load: %s\n", spk_err.c_str());
+            codec_model_free(model);
+            return nullptr;
+        }
     }
 
     return model;
@@ -605,6 +679,19 @@ enum codec_status codec_decode(
 
     if (params.n_threads <= 0) {
         params.n_threads = ctx->model->n_threads;
+    }
+
+    if (params.speaker != nullptr) {
+        const codec_model * model = ctx->model;
+        if (model->vtable == nullptr || model->vtable->speaker_validate == nullptr) {
+            codec_context_set_error(ctx, "model architecture takes no speaker");
+            return CODEC_STATUS_NOT_SUPPORTED;
+        }
+        if (params.speaker->arch != model->arch_name ||
+            params.speaker->encoder_hash != model->speaker_encoder_hash) {
+            codec_context_set_error(ctx, "speaker was produced by a different model architecture or encoder");
+            return CODEC_STATUS_INVALID_ARG;
+        }
     }
 
     return codec_dispatch_decode(ctx, tokens, out_pcm, params);

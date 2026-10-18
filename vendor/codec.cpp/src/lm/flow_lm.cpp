@@ -91,7 +91,7 @@ struct flow_state {
 bool alloc_kv(flow_state * s, const flow_impl * I, codec_model * codec);
 
 ggml_tensor * lin(ggml_context * c, ggml_tensor * w, ggml_tensor * x, ggml_tensor * b) {
-    ggml_tensor * y = ggml_mul_mat(c, w, x);
+    ggml_tensor * y = codec_mul_mat(c, w, x);
     return b ? ggml_add(c, y, codec_graph_cast_f32(c, b)) : y;
 }
 
@@ -114,8 +114,8 @@ ggml_tensor * rms_norm_unbiased(ggml_context * c, ggml_tensor * x, ggml_tensor *
     // unbiased variance: sum(sq)/(D-1)
     ggml_tensor * var  = ggml_scale(c, ggml_sum_rows(c, sq), 1.0f / (float) (D - 1));  // (1, N)
     ggml_tensor * denom = ggml_sqrt(c, ggml_scale_bias(c, var, 1.0f, eps));            // sqrt(var+eps), (1,N)
-    ggml_tensor * y    = ggml_div(c, x, ggml_repeat(c, denom, x));                     // x / sqrt(var+eps)
-    return ggml_mul(c, y, ggml_repeat(c, ggml_reshape_2d(c, codec_graph_cast_f32(c, alpha), D, 1), y));
+    ggml_tensor * y    = ggml_div(c, x, denom);                     // x / sqrt(var+eps)
+    return ggml_mul(c, y, ggml_reshape_2d(c, codec_graph_cast_f32(c, alpha), D, 1));
 }
 
 // One transformer layer, incremental KV step (T_new new tokens).  Causal,
@@ -134,9 +134,9 @@ ggml_tensor * flow_tf_layer(ggml_context * ctx, ggml_tensor * x_ct, const std::s
 
     // ---- self-attention ----
     ggml_tensor * h = codec_op_layer_norm_ct(ctx, x_ct, I.ln_eps, W(".inln.w"), W(".inln.b"));
-    ggml_tensor * q = ggml_mul_mat(ctx, WM(".attn.q_proj.w"), h);   // (d_model, Tn)
-    ggml_tensor * k = ggml_mul_mat(ctx, WM(".attn.k_proj.w"), h);
-    ggml_tensor * v = ggml_mul_mat(ctx, WM(".attn.v_proj.w"), h);
+    ggml_tensor * q = codec_mul_mat(ctx, WM(".attn.q_proj.w"), h);   // (d_model, Tn)
+    ggml_tensor * k = codec_mul_mat(ctx, WM(".attn.k_proj.w"), h);
+    ggml_tensor * v = codec_mul_mat(ctx, WM(".attn.v_proj.w"), h);
 
     // (d_model,Tn) -> (head_dim, H, Tn), rope over head_dim (NORMAL/interleaved).
     ggml_tensor * q3 = ggml_reshape_3d(ctx, q, D, H, Tn);
@@ -167,18 +167,18 @@ ggml_tensor * flow_tf_layer(ggml_context * ctx, ggml_tensor * x_ct, const std::s
 
     ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q3,    0, 2, 1, 3));   // (D, Tn, H)
     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k_all, 0, 2, 1, 3));   // (D, bucket+Tn, H)
-    ggml_tensor * scores = ggml_mul_mat(ctx, k_p, q_p);                          // (bucket+Tn, Tn, H)
+    ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);                          // (bucket+Tn, Tn, H)
     // Fused scale + additive mask (bucket+Tn, Tn) + softmax.
     scores = ggml_soft_max_ext(ctx, scores, mask, 1.0f / std::sqrt((float) D), 0.0f);
     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v_all, 1, 2, 0, 3));    // (bucket+Tn, D, H)
-    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, ggml_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
+    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, codec_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
     attn = ggml_reshape_2d(ctx, attn, (int64_t) D * H, Tn);
-    x_ct = ggml_add(ctx, x_ct, ggml_mul_mat(ctx, WM(".attn.o_proj.w"), attn));
+    x_ct = ggml_add(ctx, x_ct, codec_mul_mat(ctx, WM(".attn.o_proj.w"), attn));
 
     // ---- FFN (GELU-erf, no bias) ----
     ggml_tensor * f = codec_op_layer_norm_ct(ctx, x_ct, I.ln_eps, W(".paln.w"), W(".paln.b"));
-    f = ggml_gelu(ctx, ggml_mul_mat(ctx, WM(".mlp.fc1.w"), f));
-    f = ggml_mul_mat(ctx, WM(".mlp.fc2.w"), f);
+    f = ggml_gelu(ctx, codec_mul_mat(ctx, WM(".mlp.fc1.w"), f));
+    f = codec_mul_mat(ctx, WM(".mlp.fc2.w"), f);
     return ggml_add(ctx, x_ct, f);
 }
 
@@ -193,7 +193,7 @@ ggml_tensor * flow_time_embed(ggml_context * ctx, const codec_model * model, con
     const int64_t half = freqs->ne[0];
     ggml_tensor * args  = ggml_scale(ctx, freqs, sval);             // t*freqs
     // frequency embedding = cat([cos(args), sin(args)]) -> (2*half,) = freq_embed_size
-    ggml_tensor * emb   = ggml_concat(ctx, ggml_cos(ctx, args), ggml_sin(ctx, args), 0);
+    ggml_tensor * emb   = ggml_concat(ctx, codec_op_cos(ctx, args), codec_op_sin(ctx, args), 0);
     emb = ggml_reshape_2d(ctx, emb, 2 * half, 1);
     ggml_tensor * h = ggml_silu(ctx, lin(ctx, WM(".l1.w"), emb, W(".l1.b")));   // (flow_dim,1)
     h = lin(ctx, WM(".l2.w"), h, W(".l2.b"));
@@ -332,7 +332,7 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
         seq = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, 1);
         ggml_set_name(seq, "flow.st.latent_in"); ggml_set_input(seq);
     }
-    ggml_tensor * in = ggml_mul_mat(ctx, WM("lm.input_linear.w"), seq);   // (d_model,1)
+    ggml_tensor * in = codec_mul_mat(ctx, WM("lm.input_linear.w"), seq);   // (d_model,1)
 
     // ---- transformer step over KV cache (1 new token at pos = kv_pos) ----
     ggml_tensor * pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1);
@@ -385,7 +385,7 @@ bool build_spkproj(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     ggml_tensor * mu = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, p->T);
     ggml_set_name(mu, "flow.sp.mu"); ggml_set_input(mu);
     ggml_tensor * w = codec_graph_weight_mat(ctx, p->model, "lm.speaker_proj.w");   // (ldim, d_model)
-    ggml_tensor * rows = ggml_mul_mat(ctx, w, mu);   // (d_model, T)
+    ggml_tensor * rows = codec_mul_mat(ctx, w, mu);   // (d_model, T)
     ggml_set_name(rows, "flow.sp.rows"); ggml_set_output(rows);
     *out = rows;
     return true;

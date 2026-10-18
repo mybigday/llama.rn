@@ -71,10 +71,9 @@ ggml_tensor * codec_snac_snake_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_t
     if (ctx == nullptr || x_tc == nullptr || alpha == nullptr) return nullptr;
     alpha = codec_graph_cast_f32(ctx, alpha);
     ggml_tensor * a_2d = ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
-    ggml_tensor * a_rep = ggml_repeat(ctx, a_2d, x_tc);                         // [t, c]
-    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);             // alpha + 1e-9
-    ggml_tensor * ax = ggml_mul(ctx, a_rep, x_tc);                              // alpha * x
-    ggml_tensor * s = ggml_sin(ctx, ax);
+    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_2d, 1.0f, 1e-9f);             // alpha + 1e-9
+    ggml_tensor * ax = ggml_mul(ctx, x_tc, a_2d);                              // alpha * x
+    ggml_tensor * s = codec_op_sin(ctx, ax);
     ggml_tensor * s2 = ggml_mul(ctx, s, s);
     ggml_tensor * frac = ggml_div(ctx, s2, a_eps);                              // sin^2 / (alpha + eps)
     return ggml_add(ctx, x_tc, frac);
@@ -207,12 +206,11 @@ static ggml_tensor * codec_snac_quantize_level(
     const std::string base = "snac.q." + std::to_string(qi);
 
     // 1) Avg-pool along time by `stride` (matches torch.nn.functional.avg_pool1d).
-    //    In TC layout (ne[0]=t, ne[1]=c), ggml_pool_1d reduces ne[0] which is
+    //    In TC layout (ne[0]=t, ne[1]=c), pooling reduces ne[0] which is
     //    exactly the time axis — no transpose needed.
     ggml_tensor * pooled_tc = residual_tc;
     if (stride > 1) {
-        pooled_tc = ggml_pool_1d(ctx_eval, residual_tc,
-                                 GGML_OP_POOL_AVG, stride, stride, 0);
+        pooled_tc = codec_op_pool_1d(ctx_eval, residual_tc, GGML_OP_POOL_AVG, stride, stride, 0);
         if (pooled_tc == nullptr) return nullptr;
         pooled_tc = ggml_cont(ctx_eval, pooled_tc);
     }
@@ -236,7 +234,7 @@ static ggml_tensor * codec_snac_quantize_level(
     //    cb_size), `mul_mat(codebook, z_n_ct)` returns (cb_size, t).
     ggml_tensor * cb_norm = W(base + ".codebook_norm");
     if (cb_norm == nullptr) return nullptr;
-    cb_norm = codec_graph_cast_f32(ctx_eval, cb_norm);
+    cb_norm = codec_graph_stored_weight(ctx_eval, cb_norm);                      // search at the stored type
 
     ggml_tensor * z_n_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_n));   // [d, t_lat]
     ggml_tensor * sims = ggml_mul_mat(ctx_eval, cb_norm, z_n_ct);                 // [cb_size, t_lat]
@@ -248,8 +246,7 @@ static ggml_tensor * codec_snac_quantize_level(
     // 6) Reconstruction: gather codebook[idx] (shape (t_lat, cb_dim)) → out_proj.
     ggml_tensor * cb = W(base + ".codebook");
     if (cb == nullptr) return nullptr;
-    cb = codec_graph_cast_f32(ctx_eval, cb);
-    ggml_tensor * z_q = ggml_get_rows(ctx_eval, cb, idx);                         // [cb_dim, t_lat]
+    ggml_tensor * z_q = ggml_get_rows(ctx_eval, codec_graph_stored_weight(ctx_eval, cb), idx);   // [cb_dim, t_lat]
     // out_proj is a 1×1 conv mapping cb_dim -> latent_dim.  Switch back to TC.
     ggml_tensor * z_q_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_q));    // [t_lat, cb_dim]
     z_q_tc = codec_conv1d(ctx_eval, z_q_tc,
@@ -441,8 +438,7 @@ static bool codec_snac_build_decode(ggml_context * ctx_eval, void * user_data, g
         const std::string base = "snac.q." + std::to_string(qi);
         ggml_tensor * cb = W(base + ".codebook");
         if (cb == nullptr) return false;
-        cb = codec_graph_cast_f32(ctx_eval, cb);
-        ggml_tensor * z_p = ggml_get_rows(ctx_eval, cb, codes[qi]);                 // [cb_dim, t_qi]
+        ggml_tensor * z_p = ggml_get_rows(ctx_eval, codec_graph_stored_weight(ctx_eval, cb), codes[qi]);   // [cb_dim, t_qi]
         ggml_tensor * z_p_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_p));  // [t_qi, cb_dim]
         ggml_tensor * z_qi = codec_conv1d(ctx_eval, z_p_tc,
                                           W(base + ".out_proj.w"),

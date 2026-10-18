@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <exception>
+
+#define POCKETFFT_NO_MULTITHREADING
+#include "../third_party/pocketfft/pocketfft_hdronly.h"
 
 bool codec_runtime_istft_from_head(
     const std::vector<float> & head,
@@ -46,37 +50,40 @@ bool codec_runtime_istft_from_head(
     const int32_t out_size = (n_frames - 1) * hop + n_fft;
     std::vector<float> y((size_t) out_size, 0.0f);
     std::vector<float> env((size_t) out_size, 0.0f);
-    std::vector<float> frame((size_t) n_fft, 0.0f);
-
-    for (int32_t ti = 0; ti < n_frames; ++ti) {
-        for (int32_t n = 0; n < n_fft; ++n) {
-            float sum = 0.0f;
-            if (!skip_dc_nyquist) {
-                float mag0 = std::exp(head[(size_t) 0 + (size_t) out_dim * (size_t) ti]);
-                if (mag0 > 1e2f) mag0 = 1e2f;
-                const float re0 = mag0 * std::cos(head[(size_t) n_bins + (size_t) out_dim * (size_t) ti]);
-                sum += re0;
-                float magn = std::exp(head[(size_t) (n_bins - 1) + (size_t) out_dim * (size_t) ti]);
-                if (magn > 1e2f) magn = 1e2f;
-                const float ren = magn * std::cos(head[(size_t) (2 * n_bins - 1) + (size_t) out_dim * (size_t) ti]);
-                sum += ren * ((n & 1) ? -1.0f : 1.0f);
-            }
-            for (int32_t k = 1; k < n_bins - 1; ++k) {
-                float mag = std::exp(head[(size_t) k + (size_t) out_dim * (size_t) ti]);
+    // Per frame: inverse real FFT of the (mag, phase) spectrum, then window and
+    // overlap-add. The plan (twiddle factors) is built once per call.
+    try {
+        const pocketfft::detail::pocketfft_r<float> plan((size_t) n_fft);
+        std::vector<float> frame((size_t) n_fft);
+        for (int32_t ti = 0; ti < n_frames; ++ti) {
+            const float * h = head.data() + (size_t) out_dim * (size_t) ti;
+            // FFTPACK halfcomplex layout: [r0, r1, i1, ..., r_{N/2-1}, i_{N/2-1}, r_{N/2}].
+            // DC / Nyquist imaginary parts are dropped (real output).
+            for (int32_t k = 0; k < n_bins; ++k) {
+                float mag = std::exp(h[k]);
                 if (mag > 1e2f) mag = 1e2f;
-                const float ph = head[(size_t) (n_bins + k) + (size_t) out_dim * (size_t) ti];
-                const float re = mag * std::cos(ph);
-                const float im = mag * std::sin(ph);
-                const float ang = 2.0f * pi * (float) k * (float) n / (float) n_fft;
-                sum += 2.0f * (re * std::cos(ang) - im * std::sin(ang));
+                const float re = mag * std::cos(h[n_bins + k]);
+                if (k == 0) {
+                    frame[0] = skip_dc_nyquist ? 0.0f : re;
+                } else if (k == n_bins - 1) {
+                    frame[(size_t) (n_fft - 1)] = skip_dc_nyquist ? 0.0f : re;
+                } else {
+                    frame[(size_t) (2 * k - 1)] = re;
+                    frame[(size_t) (2 * k)] = mag * std::sin(h[n_bins + k]);
+                }
             }
-            frame[(size_t) n] = (sum / (float) n_fft) * win[(size_t) n];
+            plan.exec(frame.data(), 1.0f / (float) n_fft, /*fwd=*/false);
+            const int32_t off = ti * hop;
+            for (int32_t n = 0; n < n_fft; ++n) {
+                y[(size_t) (off + n)] += frame[(size_t) n] * win[(size_t) n];
+                env[(size_t) (off + n)] += win[(size_t) n] * win[(size_t) n];
+            }
         }
-        const int32_t off = ti * hop;
-        for (int32_t n = 0; n < n_fft; ++n) {
-            y[(size_t) (off + n)] += frame[(size_t) n];
-            env[(size_t) (off + n)] += win[(size_t) n] * win[(size_t) n];
+    } catch (const std::exception & e) {
+        if (err != nullptr) {
+            *err = std::string("ISTFT failed: ") + e.what();
         }
+        return false;
     }
 
     const int32_t out_begin = std::max(0, pad);
@@ -316,277 +323,6 @@ void codec_runtime_ola_identity_kernel(int32_t n_fft, std::vector<float> * out) 
     for (int32_t i = 0; i < n_fft; ++i) {
         (*out)[(size_t) i + (size_t) i * (size_t) n_fft] = 1.0f;
     }
-}
-
-// ---------------------------------------------------------------------
-// Qwen3-TTS speaker-encoder mel pipeline.  See header for the recipe.
-// Diffs vs Chatterbox VE mel: reflect pad is `(n_fft - hop)/2` (not
-// `n_fft/2`), magnitude (not power), and a final log-clip @ 1e-5.
-// ---------------------------------------------------------------------
-
-bool codec_runtime_qwen3_tts_speaker_mel(
-    const std::vector<float> & pcm,
-    const std::vector<float> & mel_basis,
-    int32_t                    n_freq,
-    int32_t                    n_mels,
-    const std::vector<float> & window,
-    int32_t                    n_fft,
-    int32_t                    hop,
-    std::vector<float> *       out_features,
-    int32_t *                  out_n_frames,
-    std::string *              err) {
-
-    if (out_features == nullptr || out_n_frames == nullptr) {
-        if (err) *err = "null output";
-        return false;
-    }
-    if (n_fft <= 0 || hop <= 0 || n_mels <= 0 ||
-        n_freq != n_fft / 2 + 1 ||
-        (int32_t) mel_basis.size() != n_freq * n_mels ||
-        (int32_t) window.size() != n_fft) {
-        if (err) *err = "invalid Qwen3-TTS speaker mel arguments";
-        return false;
-    }
-    if (pcm.empty()) {
-        if (err) *err = "empty PCM";
-        return false;
-    }
-
-    const int32_t pad  = (n_fft - hop) / 2;
-    const int32_t n_in = (int32_t) pcm.size();
-    if (pad < 0 || pad >= n_in) {
-        if (err) *err = "PCM too short for the n_fft / hop pair";
-        return false;
-    }
-    std::vector<float> padded((size_t) (n_in + 2 * pad), 0.0f);
-    for (int32_t i = 0; i < pad; ++i)  padded[(size_t) i]                 = pcm[(size_t) (pad - i)];
-    for (int32_t i = 0; i < n_in; ++i) padded[(size_t) (pad + i)]         = pcm[(size_t) i];
-    for (int32_t i = 0; i < pad; ++i)  padded[(size_t) (pad + n_in + i)]  = pcm[(size_t) (n_in - 2 - i)];
-
-    // Frame count for center=False with reflect pad of `(n_fft-hop)/2`:
-    //   padded_len = n_in + (n_fft - hop)
-    //   n_frames = floor((padded_len - n_fft) / hop) + 1 = floor(n_in / hop)
-    // (matches HF / BigVGAN convention).
-    const int32_t n_frames = n_in / hop;
-    if (n_frames <= 0) {
-        if (err) *err = "no STFT frames";
-        return false;
-    }
-
-    std::vector<double> dft_cos((size_t) n_freq * (size_t) n_fft, 0.0);
-    std::vector<double> dft_sin((size_t) n_freq * (size_t) n_fft, 0.0);
-    const double two_pi = 2.0 * 3.14159265358979323846;
-    for (int32_t k = 0; k < n_freq; ++k) {
-        for (int32_t m = 0; m < n_fft; ++m) {
-            const double ang = -two_pi * (double) k * (double) m / (double) n_fft;
-            dft_cos[(size_t) k * (size_t) n_fft + (size_t) m] = std::cos(ang);
-            dft_sin[(size_t) k * (size_t) n_fft + (size_t) m] = std::sin(ang);
-        }
-    }
-
-    // Magnitude spectrogram (n_freq, n_frames).
-    std::vector<double> mag((size_t) n_freq * (size_t) n_frames, 0.0);
-    std::vector<double> buf((size_t) n_fft, 0.0);
-    for (int32_t ti = 0; ti < n_frames; ++ti) {
-        const int32_t off = ti * hop;
-        for (int32_t m = 0; m < n_fft; ++m) {
-            buf[(size_t) m] = (double) padded[(size_t) (off + m)] * (double) window[(size_t) m];
-        }
-        for (int32_t k = 0; k < n_freq; ++k) {
-            double re = 0.0, im = 0.0;
-            const double * cos_row = &dft_cos[(size_t) k * (size_t) n_fft];
-            const double * sin_row = &dft_sin[(size_t) k * (size_t) n_fft];
-            for (int32_t m = 0; m < n_fft; ++m) {
-                re += buf[(size_t) m] * cos_row[(size_t) m];
-                im += buf[(size_t) m] * sin_row[(size_t) m];
-            }
-            mag[(size_t) k * (size_t) n_frames + (size_t) ti] = std::sqrt(re * re + im * im);
-        }
-    }
-
-    // mel = mel_basis @ |X|.  Output (n_mels, n_frames) row-major.
-    out_features->assign((size_t) n_mels * (size_t) n_frames, 0.0f);
-    for (int32_t mi = 0; mi < n_mels; ++mi) {
-        const float * mb_row = &mel_basis[(size_t) mi * (size_t) n_freq];
-        for (int32_t ti = 0; ti < n_frames; ++ti) {
-            double acc = 0.0;
-            for (int32_t k = 0; k < n_freq; ++k) {
-                acc += (double) mb_row[(size_t) k] *
-                       mag[(size_t) k * (size_t) n_frames + (size_t) ti];
-            }
-            const double clipped = std::max(1e-5, acc);
-            (*out_features)[(size_t) mi * (size_t) n_frames + (size_t) ti] =
-                (float) std::log(clipped);
-        }
-    }
-    *out_n_frames = n_frames;
-    (void) err;
-    return true;
-}
-
-// ---------------------------------------------------------------------
-// Chatterbox VoiceEncoder mel pipeline.  See header for the recipe.
-// ---------------------------------------------------------------------
-
-bool codec_runtime_chatterbox_ve_mel_partials(
-    const std::vector<float> & pcm,
-    int32_t                    /*sample_rate*/,
-    const std::vector<float> & mel_basis,
-    int32_t                    n_freq,
-    int32_t                    n_mels,
-    const std::vector<float> & window,
-    int32_t                    n_fft,
-    int32_t                    hop,
-    int32_t                    partial_frames,
-    float                      overlap,
-    float                      rate,
-    float                      min_coverage,
-    std::vector<float> *       out_partials,
-    int32_t *                  out_n_partials,
-    std::string *              err) {
-
-    if (out_partials == nullptr || out_n_partials == nullptr) {
-        if (err != nullptr) *err = "null output";
-        return false;
-    }
-    if (n_fft <= 0 || hop <= 0 || n_mels <= 0 || partial_frames <= 0 ||
-        n_freq != n_fft / 2 + 1 ||
-        (int32_t) mel_basis.size() != n_freq * n_mels ||
-        (int32_t) window.size() != n_fft) {
-        if (err != nullptr) *err = "invalid VE mel arguments";
-        return false;
-    }
-    if (pcm.empty()) {
-        if (err != nullptr) *err = "empty PCM";
-        return false;
-    }
-
-    // 1. Reflect-pad PCM by n_fft/2 each side (librosa center=True default).
-    //    Reflection excludes the boundary sample: [a,b,c,d][reflect 2] =
-    //    [c,b,a,b,c,d,c,b].
-    const int32_t pad = n_fft / 2;
-    const int32_t n_in = (int32_t) pcm.size();
-    if (pad >= n_in) {
-        if (err != nullptr) *err = "PCM too short for reflect padding";
-        return false;
-    }
-    std::vector<float> padded((size_t) (n_in + 2 * pad), 0.0f);
-    for (int32_t i = 0; i < pad; ++i)            padded[(size_t) i]                  = pcm[(size_t) (pad - i)];
-    for (int32_t i = 0; i < n_in; ++i)           padded[(size_t) (pad + i)]          = pcm[(size_t) i];
-    for (int32_t i = 0; i < pad; ++i)            padded[(size_t) (pad + n_in + i)]   = pcm[(size_t) (n_in - 2 - i)];
-
-    // 2. n_frames = 1 + n_in / hop (librosa center=True convention).  The
-    //    final frame ends at sample n_in + n_fft within the padded buffer
-    //    (the frame at index i covers [i*hop, i*hop + n_fft)).
-    const int32_t n_frames = 1 + n_in / hop;
-    if (n_frames <= 0) {
-        if (err != nullptr) *err = "no STFT frames";
-        return false;
-    }
-
-    // Precompute DFT basis at double precision.
-    std::vector<double> dft_cos((size_t) n_freq * (size_t) n_fft, 0.0);
-    std::vector<double> dft_sin((size_t) n_freq * (size_t) n_fft, 0.0);
-    const double two_pi = 2.0 * 3.14159265358979323846;
-    for (int32_t k = 0; k < n_freq; ++k) {
-        for (int32_t m = 0; m < n_fft; ++m) {
-            const double ang = -two_pi * (double) k * (double) m / (double) n_fft;
-            dft_cos[(size_t) k * (size_t) n_fft + (size_t) m] = std::cos(ang);
-            dft_sin[(size_t) k * (size_t) n_fft + (size_t) m] = std::sin(ang);
-        }
-    }
-
-    // 3. STFT → power spectrogram.  Lay out as (n_freq, n_frames) so the
-    //    subsequent mel projection is a contiguous strided gather.
-    std::vector<double> power((size_t) n_freq * (size_t) n_frames, 0.0);
-    std::vector<double> buf  ((size_t) n_fft, 0.0);
-    for (int32_t ti = 0; ti < n_frames; ++ti) {
-        const int32_t off = ti * hop;
-        for (int32_t m = 0; m < n_fft; ++m) {
-            buf[(size_t) m] = (double) padded[(size_t) (off + m)] * (double) window[(size_t) m];
-        }
-        for (int32_t k = 0; k < n_freq; ++k) {
-            double re = 0.0, im = 0.0;
-            const double * cos_row = &dft_cos[(size_t) k * (size_t) n_fft];
-            const double * sin_row = &dft_sin[(size_t) k * (size_t) n_fft];
-            for (int32_t m = 0; m < n_fft; ++m) {
-                re += buf[(size_t) m] * cos_row[(size_t) m];
-                im += buf[(size_t) m] * sin_row[(size_t) m];
-            }
-            power[(size_t) k * (size_t) n_frames + (size_t) ti] = re * re + im * im;
-        }
-    }
-
-    // 4. Mel projection.  mel_basis is row-major `(n_mels, n_freq)` — the
-    //    same layout librosa.filters.mel returns; each row is a mel
-    //    triangle weighted across frequency bins.  Result is laid out
-    //    (n_frames, n_mels) ready for the strided partial gather.
-    std::vector<float> mel_TM((size_t) n_frames * (size_t) n_mels, 0.0f);
-    for (int32_t ti = 0; ti < n_frames; ++ti) {
-        for (int32_t mi = 0; mi < n_mels; ++mi) {
-            double acc = 0.0;
-            const float * mb_row = &mel_basis[(size_t) mi * (size_t) n_freq];
-            for (int32_t k = 0; k < n_freq; ++k) {
-                acc += power[(size_t) k * (size_t) n_frames + (size_t) ti] *
-                       (double) mb_row[(size_t) k];
-            }
-            mel_TM[(size_t) ti * (size_t) n_mels + (size_t) mi] = (float) acc;
-        }
-    }
-
-    // 5. Compute frame_step + n_partials matching `get_num_wins`.
-    int32_t frame_step;
-    if (rate <= 0.0f) {
-        frame_step = (int32_t) std::lround((double) partial_frames * (1.0 - (double) overlap));
-    } else {
-        // sample_rate / rate / partial_frames → frame_step in MEL frames.
-        // The vendored formula uses hp.sample_rate (== 16000 for Chatterbox);
-        // the relation `(sample_rate / rate) / partial_frames` is intentional
-        // (it makes frame_step independent of the input audio length).
-        frame_step = (int32_t) std::lround((double) 16000.0 / (double) rate / (double) partial_frames);
-    }
-    if (frame_step <= 0 || frame_step > partial_frames) {
-        if (err != nullptr) *err = "invalid frame_step (rate / overlap out of range)";
-        return false;
-    }
-
-    int32_t n_wins;
-    int32_t remainder;
-    {
-        const int32_t numer = std::max(n_frames - partial_frames + frame_step, 0);
-        n_wins    = numer / frame_step;
-        remainder = numer % frame_step;
-    }
-    if (n_wins == 0 ||
-        ((double) (remainder + (partial_frames - frame_step)) / (double) partial_frames
-            >= (double) min_coverage)) {
-        n_wins += 1;
-    }
-    const int32_t target_n = partial_frames + frame_step * (n_wins - 1);
-
-    // 6. Trim or zero-pad the mel to `target_n` frames so it strides into
-    //    a whole number of `partial_frames`-length windows.
-    if (target_n > n_frames) {
-        mel_TM.resize((size_t) target_n * (size_t) n_mels, 0.0f);
-    } else if (target_n < n_frames) {
-        mel_TM.resize((size_t) target_n * (size_t) n_mels);
-    }
-
-    // 7. Strided gather into (n_wins, partial_frames, n_mels).
-    out_partials->assign((size_t) n_wins * (size_t) partial_frames * (size_t) n_mels, 0.0f);
-    for (int32_t p = 0; p < n_wins; ++p) {
-        const int32_t start = p * frame_step;
-        for (int32_t t = 0; t < partial_frames; ++t) {
-            std::memcpy(
-                out_partials->data() + ((size_t) p * (size_t) partial_frames +
-                                        (size_t) t) * (size_t) n_mels,
-                mel_TM.data() + (size_t) (start + t) * (size_t) n_mels,
-                (size_t) n_mels * sizeof(float));
-        }
-    }
-    *out_n_partials = n_wins;
-    (void) err;
-    return true;
 }
 
 void codec_runtime_slaney_mel_filterbank(

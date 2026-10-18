@@ -109,6 +109,7 @@ set(RNLLAMA_VENDOR_SOURCES
 file(GLOB RNLLAMA_CODEC_SOURCES CONFIGURE_DEPENDS
     ${_codec}/src/*.cpp
     ${_codec}/src/batch/*.cpp
+    ${_codec}/src/blocks/*.cpp
     ${_codec}/src/lm/*.cpp
     ${_codec}/src/models/*.cpp
     ${_codec}/src/ops/*.cpp

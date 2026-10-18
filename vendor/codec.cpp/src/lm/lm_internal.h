@@ -17,6 +17,8 @@ struct codec_lm_kind_vtable;
 // `codec_lm_chatterbox_*` helpers.  No-op when none was created.
 // Implemented in chatterbox_t3.cpp; called from codec_lm_free.
 void codec_lm_chatterbox_free_state(struct codec_lm * lm);
+// Free the lazily-created CosyVoice helper state (cosyvoice_lm.cpp).
+void codec_lm_cosyvoice_free_state(struct codec_lm * lm);
 
 struct codec_lm {
     // Borrowed; not freed by codec_lm_free.  All weights and the
@@ -33,6 +35,9 @@ struct codec_lm {
     std::string          host_arch_buf;
 
     codec_lm_info info = {};
+
+    // CosyVoice helper state (codec_lm_cosyvoice_*), created on first use.
+    void * cosyvoice = nullptr;
 
     // Speaker-conditioning encoder info, populated from `codec.speaker.*`
     // GGUF metadata at create time.  `has_speaker_encoder = false` when

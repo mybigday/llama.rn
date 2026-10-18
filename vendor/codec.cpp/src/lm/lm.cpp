@@ -395,6 +395,7 @@ void codec_lm_free(struct codec_lm * lm) {
     }
     speaker_arch_free(lm);
     codec_lm_chatterbox_free_state(lm);
+    codec_lm_cosyvoice_free_state(lm);
     if (lm->vtable != nullptr && lm->vtable->free != nullptr) {
         lm->vtable->free(lm);
     }

@@ -636,7 +636,7 @@ static bool codec_x2_build_encode(ggml_context * ctx_eval, void * user_data, ggm
     // Build the bucket index tensor used by every conformer layer's rel-key
     // attention.  `bucket(t_q, t_k) = clamp(t_k - t_q, -L, R) + L`.
     const int64_t t_sem = h->ne[0];
-    ggml_tensor * t_arange = ggml_arange(ctx_eval, 0.0f, (float) t_sem, 1.0f);              // [t_sem]
+    ggml_tensor * t_arange = codec_op_arange(ctx_eval, 0.0f, (float) t_sem, 1.0f);              // [t_sem]
     ggml_tensor * tk_2d = ggml_reshape_2d(ctx_eval, t_arange, t_sem, 1);
     ggml_tensor * tq_2d = ggml_reshape_2d(ctx_eval, t_arange, 1, t_sem);
     ggml_tensor * full = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, t_sem, t_sem);
@@ -712,7 +712,7 @@ static bool codec_x2_build_encode(ggml_context * ctx_eval, void * user_data, ggm
     };
     z = fsq_bound(z);
     z = fsq_bound(z);
-    ggml_tensor * zq = ggml_scale(ctx_eval, ggml_round(ctx_eval, z), 1.0f / half_width);
+    ggml_tensor * zq = ggml_scale(ctx_eval, codec_op_round_bounded(ctx_eval, z, 2), 1.0f / half_width);   // z in (-2.0015, 1.0015)
 
     // Codebook indices: sum over feature axis (ne[1]) of zq_scaled * basis[k].
     // basis[k] = product(levels[:k]) = (1, 4, 16, 64, 256, 1024, 4096, 16384) for levels=[4]^8.

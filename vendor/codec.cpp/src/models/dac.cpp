@@ -112,11 +112,19 @@ static ggml_tensor * codec_dac_W_conv1d(ggml_context * ctx_eval, const codec_mod
     const int32_t n1 = (int32_t) src->ne[1];
     const int32_t n2 = (int32_t) src->ne[2];
     if (n0 == dk && n1 == din && n2 == dout) {
-        return codec_graph_cast_f32(ctx_eval, src);
+        return src;
+    }
+    if (n0 == dk * din && n1 == 1 && n2 == dout) {
+        return src;                                                          // flattened (dk*din, 1, dout)
     }
     if (n0 == dout && n1 == din && n2 == dk) {
-        ggml_tensor * f32 = codec_graph_cast_f32(ctx_eval, src);
-        return ggml_cont(ctx_eval, ggml_permute(ctx_eval, f32, 2, 1, 0, 3));
+        if (ggml_is_quantized(src->type)) {
+            std::fprintf(stderr, "dac: %s is %s in the legacy (dout, din, dk) layout, which a quantized conv cannot "
+                         "use; reconvert (quantized conv kernels are stored flattened (dk*din, 1, dout))\n",
+                         name.c_str(), ggml_type_name(src->type));
+            return nullptr;
+        }
+        return ggml_cont(ctx_eval, ggml_permute(ctx_eval, src, 2, 1, 0, 3));   // legacy layout, stored type
     }
     return nullptr;
 }
@@ -136,11 +144,11 @@ static ggml_tensor * codec_dac_W_convtr(ggml_context * ctx_eval, const codec_mod
     const int32_t n1 = (int32_t) src->ne[1];
     const int32_t n2 = (int32_t) src->ne[2];
     if (n0 == dk && n1 == dout && n2 == din) {
-        return codec_graph_cast_f32(ctx_eval, src);
+        return src;
     }
     if (n0 == din && n1 == dout && n2 == dk) {
-        ggml_tensor * f32 = codec_graph_cast_f32(ctx_eval, src);
-        return ggml_cont(ctx_eval, ggml_permute(ctx_eval, f32, 2, 1, 0, 3));
+        // C_in-major: codec_convtr1d runs it as stored (the layout quantized kernels need).
+        return ggml_is_quantized(src->type) ? src : ggml_cont(ctx_eval, ggml_permute(ctx_eval, src, 2, 1, 0, 3));
     }
     return nullptr;
 }
@@ -156,10 +164,10 @@ static ggml_tensor * codec_dac_W_codebook(ggml_context * ctx_eval, const codec_m
         return nullptr;
     }
     if (src->ne[0] == cb_dim && src->ne[1] == cb_size) {
-        return codec_graph_cast_f32(ctx_eval, src);
+        return src;
     }
-    if (src->ne[0] == cb_size && src->ne[1] == cb_dim) {
-        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, codec_graph_cast_f32(ctx_eval, src)));
+    if (src->ne[0] == cb_size && src->ne[1] == cb_dim && !ggml_is_quantized(src->type)) {
+        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, src));
     }
     return nullptr;
 }
@@ -178,16 +186,13 @@ static ggml_tensor * codec_dac_W_out_proj(ggml_context * ctx_eval, const codec_m
     const int64_t n1 = src->ne[1];
     const int64_t n2 = src->ne[2];
     if (n0 == cb_dim && n1 == hidden_dim && n2 == 1) {
-        return codec_graph_cast_f32(ctx_eval, src);
+        return src;
     }
-    if (n0 == 1 && n1 == cb_dim && n2 == hidden_dim) {
-        ggml_tensor * f32 = codec_graph_cast_f32(ctx_eval, src);
-        return ggml_reshape_2d(ctx_eval, f32, cb_dim, hidden_dim);
+    if ((n0 == 1 && n1 == cb_dim && n2 == hidden_dim) || (n0 == cb_dim && n1 == 1 && n2 == hidden_dim)) {
+        return ggml_reshape_2d(ctx_eval, src, cb_dim, hidden_dim);                // 1x1 conv, 3-D or flattened
     }
     if (n0 == 1 && n1 == hidden_dim && n2 == cb_dim) {
-        ggml_tensor * f32 = codec_graph_cast_f32(ctx_eval, src);
-        ggml_tensor * v2d = ggml_reshape_2d(ctx_eval, f32, hidden_dim, cb_dim);
-        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, v2d));
+        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, ggml_reshape_2d(ctx_eval, src, hidden_dim, cb_dim)));
     }
     return nullptr;
 }
@@ -302,12 +307,15 @@ static std::string codec_dac_model_resunit_conv2_b_name(int32_t naming_mode, int
     return codec_dac_model_block_prefix(naming_mode, bi) + "res_unit" + std::to_string(ri + 1) + ".conv2.bias";
 }
 
+// expect_in: the input channel count when the caller knows it (0 otherwise); a
+// flattened (kernel*in, 1, out) kernel needs it.
 static bool codec_dac_infer_conv1d_shape(
     ggml_tensor * w,
     ggml_tensor * b,
     int32_t * kernel,
     int32_t * in_c,
-    int32_t * out_c) {
+    int32_t * out_c,
+    int32_t expect_in) {
 
     if (w == nullptr || b == nullptr || kernel == nullptr || in_c == nullptr || out_c == nullptr) {
         return false;
@@ -316,6 +324,12 @@ static bool codec_dac_infer_conv1d_shape(
     const int32_t n1 = (int32_t) codec_ne(w, 1);
     const int32_t n2 = (int32_t) codec_ne(w, 2);
     const int32_t bo = (int32_t) codec_ne(b, 0);
+    if (n1 == 1 && n2 == bo && expect_in > 1 && n0 % expect_in == 0) {
+        *out_c = n2;
+        *in_c = expect_in;
+        *kernel = n0 / expect_in;
+        return true;
+    }
     if (n0 == bo) {
         *out_c = n0;
         *in_c = n1;
@@ -386,10 +400,10 @@ static ggml_tensor * codec_dac_sum_quantized_latent(
 
         ggml_tensor * t_idx = ggml_view_1d(ctx_eval, t_tok, t, (size_t) qi * t_tok->nb[1]);
         ggml_tensor * t_embed = ggml_get_rows(ctx_eval, t_codebook, t_idx);     // [codebook_dim, t]
-        ggml_tensor * t_lat_q = ggml_mul_mat(ctx_eval, t_out_proj, t_embed);     // [hidden_dim, t]
+        ggml_tensor * t_lat_q = codec_mul_mat(ctx_eval, t_out_proj, t_embed);     // [hidden_dim, t]
         ggml_tensor * t_lat_qt = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, t_lat_q));
         ggml_tensor * t_bias_2d = ggml_reshape_2d(ctx_eval, t_out_bias, 1, hidden_dim);
-        t_lat_qt = ggml_add(ctx_eval, t_lat_qt, ggml_repeat(ctx_eval, t_bias_2d, t_lat_qt));
+        t_lat_qt = ggml_add(ctx_eval, t_lat_qt, t_bias_2d);
         t_lat_q = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, t_lat_qt));
         acc = (acc == nullptr) ? t_lat_q : ggml_add(ctx_eval, acc, t_lat_q);
     }
@@ -586,7 +600,8 @@ static bool codec_dac_init_decode_build(
     ggml_tensor * conv1_w = codec_model_get_tensor(ctx->model, codec_dac_model_conv1_w_name(naming_mode));
     ggml_tensor * conv1_b = codec_model_get_tensor(ctx->model, codec_dac_model_conv1_b_name(naming_mode));
     if (conv1_w == nullptr || conv1_b == nullptr ||
-        !codec_dac_infer_conv1d_shape(conv1_w, conv1_b, &build->conv1_kernel, &build->hidden_dim, &build->conv1_out)) {
+        !codec_dac_infer_conv1d_shape(conv1_w, conv1_b, &build->conv1_kernel, &build->hidden_dim, &build->conv1_out,
+                                      build->hidden_dim)) {
         if (err != nullptr) {
             *err = "failed to infer DAC decoder conv1 shape";
         }
@@ -628,7 +643,7 @@ static bool codec_dac_init_decode_build(
     ggml_tensor * conv2_b = codec_model_get_tensor(ctx->model, codec_dac_model_conv2_b_name(naming_mode, build->n_blocks));
     int32_t conv2_out = 0;
     if (conv2_w == nullptr || conv2_b == nullptr ||
-        !codec_dac_infer_conv1d_shape(conv2_w, conv2_b, &build->conv2_kernel, &build->conv2_in, &conv2_out) ||
+        !codec_dac_infer_conv1d_shape(conv2_w, conv2_b, &build->conv2_kernel, &build->conv2_in, &conv2_out, prev_c) ||
         build->conv2_in != prev_c || conv2_out != 1) {
         if (err != nullptr) {
             *err = "failed to infer DAC decoder conv2 shape";
@@ -678,7 +693,7 @@ static bool codec_dac_init_encode_build(
     ggml_tensor * conv1_b = codec_model_get_tensor(ctx->model, codec_dac_model_enc_conv1_b_name());
     int32_t conv1_in = 0;
     if (conv1_w == nullptr || conv1_b == nullptr ||
-        !codec_dac_infer_conv1d_shape(conv1_w, conv1_b, &build->conv1_kernel, &conv1_in, &build->conv1_out)) {
+        !codec_dac_infer_conv1d_shape(conv1_w, conv1_b, &build->conv1_kernel, &conv1_in, &build->conv1_out, 1)) {
         if (err != nullptr) {
             *err = "failed to infer DAC encoder conv1 shape";
         }
@@ -696,7 +711,7 @@ static bool codec_dac_init_encode_build(
             break;
         }
         int32_t k = 0, in_c = 0, out_c = 0;
-        if (!codec_dac_infer_conv1d_shape(cw, cb, &k, &in_c, &out_c) || in_c != prev_c) {
+        if (!codec_dac_infer_conv1d_shape(cw, cb, &k, &in_c, &out_c, prev_c) || in_c != prev_c) {
             if (err != nullptr) {
                 *err = "invalid DAC encoder conv1 shape at block " + std::to_string(bi);
             }
@@ -721,7 +736,7 @@ static bool codec_dac_init_encode_build(
     ggml_tensor * conv2_b = codec_model_get_tensor(ctx->model, codec_dac_model_enc_conv2_b_name());
     int32_t conv2_out = 0;
     if (conv2_w == nullptr || conv2_b == nullptr ||
-        !codec_dac_infer_conv1d_shape(conv2_w, conv2_b, &build->conv2_kernel, &build->conv2_in, &conv2_out) ||
+        !codec_dac_infer_conv1d_shape(conv2_w, conv2_b, &build->conv2_kernel, &build->conv2_in, &conv2_out, prev_c) ||
         build->conv2_in != prev_c || conv2_out != build->hidden_dim) {
         if (err != nullptr) {
             *err = "failed to infer DAC encoder conv2 shape";
@@ -890,7 +905,8 @@ static bool codec_dac_build_encode(ggml_context * ctx_eval, void * user_data, gg
         ggml_set_name(z_tc, ("dac.encode.vq.q" + std::to_string(qi) + ".in").c_str());
         ggml_tensor * z_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_tc)); // [codebook_dim, t]
         ggml_tensor * z_norm_ct = ggml_l2_norm(ctx_eval, z_ct, 1e-12f);
-        ggml_tensor * codebook_norm_dc = ggml_l2_norm(ctx_eval, t_codebook, 1e-12f);
+        // The L2-normalised codebook is computed (F32) from the stored one.
+        ggml_tensor * codebook_norm_dc = ggml_l2_norm(ctx_eval, codec_graph_cast_f32(ctx_eval, t_codebook), 1e-12f);
         if (z_norm_ct == nullptr || codebook_norm_dc == nullptr) {
             return false;
         }

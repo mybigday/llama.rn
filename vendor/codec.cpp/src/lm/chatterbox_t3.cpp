@@ -8,7 +8,9 @@
 //
 // Reference: `.model-src/chatterbox/src/chatterbox/models/t3/t3.py`
 // (`inference` / `prepare_input_embeds`) and `tts.py` (`generate`,
-// `punc_norm`, `EnTokenizer`).
+// `punc_norm`, `EnTokenizer`).  Turbo (`tts_turbo.py`, `inference_turbo`)
+// is the same adaptor with layout flags flipped: GPT-2 backbone tokenizer,
+// no learned PEs, no start/stop text tokens, one speech BOS, no CFG lane.
 
 #include "speaker_chatterbox.h"
 
@@ -61,6 +63,11 @@ struct CbxState {
     int32_t text_pos_rows = 0;
     int32_t speech_pos_rows = 0;
 
+    // Layout flags (all true/2 for the Llama T3; Turbo flips them).
+    bool    learned_pos_emb  = true;
+    bool    wrap_text_tokens = true;
+    int32_t n_speech_bos     = 2;
+
     // Builtin conds.
     bool               have_builtin = false;
     std::vector<float> builtin_speaker_emb;
@@ -86,8 +93,10 @@ bool is_chatterbox(codec_lm * lm) {
 
 // ─── tokenizer helpers ───────────────────────────────────────────────
 
-// punc_norm from tts.py — deterministic English text cleanup.
-std::string punc_norm(const std::string & in) {
+// punc_norm from tts.py (turbo=false) / tts_turbo.py (turbo=true) —
+// deterministic English text cleanup.  Turbo drops the "...", " - " and ";"
+// replacements.
+std::string punc_norm(const std::string & in, bool turbo) {
     if (in.empty()) return "You need to add some text for me to talk.";
     std::string text = in;
 
@@ -110,16 +119,17 @@ std::string punc_norm(const std::string & in) {
     }
 
     // Replace uncommon / LLM punctuation (order matters — matches tts.py).
-    struct Rep { const char * from; const char * to; };
+    struct Rep { const char * from; const char * to; bool turbo; };
     static const Rep reps[] = {
-        {"...", ", "}, {"\xE2\x80\xA6", ", "},          // …
-        {":", ","}, {" - ", ", "}, {";", ", "},
-        {"\xE2\x80\x94", "-"}, {"\xE2\x80\x93", "-"},    // — –
-        {" ,", ","},
-        {"\xE2\x80\x9C", "\""}, {"\xE2\x80\x9D", "\""},  // “ ”
-        {"\xE2\x80\x98", "'"}, {"\xE2\x80\x99", "'"},    // ‘ ’
+        {"...", ", ", false}, {"\xE2\x80\xA6", ", ", true},          // …
+        {":", ",", true}, {" - ", ", ", false}, {";", ", ", false},
+        {"\xE2\x80\x94", "-", true}, {"\xE2\x80\x93", "-", true},    // — –
+        {" ,", ",", true},
+        {"\xE2\x80\x9C", "\"", true}, {"\xE2\x80\x9D", "\"", true},  // “ ”
+        {"\xE2\x80\x98", "'", true}, {"\xE2\x80\x99", "'", true},    // ‘ ’
     };
     for (const auto & r : reps) {
+        if (turbo && !r.turbo) continue;
         std::string from = r.from, to = r.to;
         size_t pos = 0;
         while ((pos = text.find(from, pos)) != std::string::npos) {
@@ -339,6 +349,19 @@ CbxState * ensure_state(codec_lm * lm) {
     ci.has_tokenizer      = gguf_find_key(gf, "codec.lm.chatterbox.tokenizer.tokens") >= 0 ? 1 : 0;
     ci.has_builtin_conds  = codec_read_bool_kv(gf, "codec.lm.chatterbox.has_builtin_conds", false) ? 1 : 0;
     ci.is_multilingual    = codec_read_bool_kv(gf, "codec.lm.chatterbox.is_multilingual", false) ? 1 : 0;
+    ci.is_turbo           = codec_read_str_kv(gf, "codec.lm.chatterbox.variant", "") == "turbo" ? 1 : 0;
+    ci.backbone_tokenizer = codec_read_bool_kv(gf, "codec.lm.chatterbox.backbone_tokenizer", false) ? 1 : 0;
+    ci.silence_token      = codec_read_i32_kv(gf, "codec.lm.chatterbox.silence_token", -1);
+    ci.n_trailing_silence = codec_read_i32_kv(gf, "codec.lm.chatterbox.n_trailing_silence", 0);
+    ci.temperature        = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.temperature", -1.0f);
+    ci.top_k              = codec_read_i32_kv(gf, "codec.lm.chatterbox.sampling.top_k", -1);
+    ci.top_p              = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.top_p", -1.0f);
+    ci.min_p              = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.min_p", -1.0f);
+    ci.repetition_penalty = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.repetition_penalty", -1.0f);
+    ci.cfg_weight         = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.cfg_weight", -1.0f);
+    st->learned_pos_emb   = codec_read_bool_kv(gf, "codec.lm.chatterbox.learned_pos_emb", true);
+    st->wrap_text_tokens  = codec_read_bool_kv(gf, "codec.lm.chatterbox.wrap_text_tokens", true);
+    st->n_speech_bos      = codec_read_i32_kv(gf, "codec.lm.chatterbox.n_speech_bos", 2);
     st->have_info = true;
 
     if (ci.has_tokenizer) load_tokenizer(lm, &st->tok);
@@ -368,7 +391,7 @@ bool ensure_tables(codec_lm * lm, CbxState * st) {
         lm->last_error = "chatterbox: text_emb.weight missing";
         return false;
     }
-    if (st->text_pos_emb.empty() &&
+    if (st->learned_pos_emb && st->text_pos_emb.empty() &&
         !dequant_table(lm, "lm.chatterbox.text_pos_emb.weight", &st->text_pos_emb,
                        &st->text_pos_rows, hidden)) {
         lm->last_error = "chatterbox: text_pos_emb.weight missing";
@@ -379,7 +402,7 @@ bool ensure_tables(codec_lm * lm, CbxState * st) {
         lm->last_error = "chatterbox: audio_embd_0.weight missing";
         return false;
     }
-    if (st->speech_pos_emb.empty() &&
+    if (st->learned_pos_emb && st->speech_pos_emb.empty() &&
         !dequant_table(lm, "lm.chatterbox.speech_pos_emb.weight", &st->speech_pos_emb,
                        &st->speech_pos_rows, hidden)) {
         lm->last_error = "chatterbox: speech_pos_emb.weight missing";
@@ -420,7 +443,7 @@ enum codec_status codec_lm_chatterbox_tokenize(
         if (lm) lm->last_error = "chatterbox: no tokenizer baked into GGUF";
         return CODEC_STATUS_NOT_SUPPORTED;
     }
-    std::string normed = punc_norm(text);
+    std::string normed = punc_norm(text, st->info.is_turbo != 0);
     std::vector<int32_t> ids;
     tokenize_bpe(st->tok, normed, &ids);
     if ((int32_t) ids.size() > cap) {
@@ -429,6 +452,22 @@ enum codec_status codec_lm_chatterbox_tokenize(
     }
     std::memcpy(out_ids, ids.data(), ids.size() * sizeof(int32_t));
     *n_out = (int32_t) ids.size();
+    return CODEC_STATUS_SUCCESS;
+}
+
+enum codec_status codec_lm_chatterbox_normalize_text(
+    struct codec_lm * lm, const char * text, char * out, int32_t cap) {
+    if (lm == nullptr || text == nullptr || out == nullptr || cap <= 0) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    CbxState * st = ensure_state(lm);
+    if (st == nullptr) return CODEC_STATUS_NOT_SUPPORTED;
+    const std::string normed = punc_norm(text, st->info.is_turbo != 0);
+    if ((int32_t) normed.size() >= cap) {
+        lm->last_error = "chatterbox: normalize_text output exceeds capacity";
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    std::memcpy(out, normed.c_str(), normed.size() + 1);
     return CODEC_STATUS_SUCCESS;
 }
 
@@ -449,8 +488,7 @@ enum codec_status codec_lm_chatterbox_build_prompt(
     if (st == nullptr) return CODEC_STATUS_NOT_SUPPORTED;
     if (!ensure_tables(lm, st)) return CODEC_STATUS_INTERNAL_ERROR;
 
-    const int32_t hidden    = st->info.hidden_dim;
-    const int32_t cond_rows = st->info.cond_rows;
+    const int32_t hidden = st->info.hidden_dim;
 
     // ── cond_emb block (spkr + perceiver + emotion) ─────────────────
     const float *   spk_ptr   = speaker_emb;
@@ -471,6 +509,9 @@ enum codec_status codec_lm_chatterbox_build_prompt(
         ref_n   = (int32_t) st->builtin_cond_tokens.size();
     }
 
+    // Perceiver variants always emit cond_rows; Turbo emits spkr + one row
+    // per cond-prompt token.
+    const int32_t cond_rows = st->info.is_turbo ? 1 + ref_n : st->info.cond_rows;
     std::vector<float> cond_emb((size_t) cond_rows * hidden, 0.0f);
     if (ref_pcm != nullptr && ref_n_samples > 0) {
         // Reference-audio path: run VE (mel + LSTM) + cond_enc to derive
@@ -494,19 +535,21 @@ enum codec_status codec_lm_chatterbox_build_prompt(
         if (rc != CODEC_STATUS_SUCCESS) return rc;
     }
 
-    // ── text-wrapped sequence: [sot | text_ids | eot] ────────────────
+    // ── text-wrapped sequence: [sot | text_ids | eot] (Turbo: text_ids) ─
     std::vector<int32_t> wrapped;
     wrapped.reserve((size_t) n_text + 2);
-    wrapped.push_back(st->info.start_text_token);
+    if (st->wrap_text_tokens) wrapped.push_back(st->info.start_text_token);
     for (int32_t i = 0; i < n_text; ++i) wrapped.push_back(text_ids[i]);
-    wrapped.push_back(st->info.stop_text_token);
+    if (st->wrap_text_tokens) wrapped.push_back(st->info.stop_text_token);
     const int32_t n_wrapped = (int32_t) wrapped.size();
 
-    // Layout per sequence: cond_rows + n_wrapped + 2 (speech_emb(6561)@0
-    // from prepare_input_embeds AND the separately-appended BOS(6561)@0 —
-    // reference emits both; see t3.py inference).
-    const int32_t seq_len = cond_rows + n_wrapped + 2;
-    const int32_t n_seq   = (cfg_weight > 0.0f) ? 2 : 1;
+    // Layout per sequence: cond_rows + n_wrapped + n_bos.  The Llama T3
+    // emits two BOS rows (speech_emb(6561)@0 from prepare_input_embeds AND
+    // the separately-appended BOS(6561)@0; see t3.py inference); Turbo's
+    // inference_turbo emits one.  Turbo never runs a CFG lane.
+    const int32_t n_bos   = st->n_speech_bos;
+    const int32_t seq_len = cond_rows + n_wrapped + n_bos;
+    const int32_t n_seq   = (cfg_weight > 0.0f && !st->info.is_turbo) ? 2 : 1;
     if ((int64_t) seq_len * n_seq > out_cap_rows) {
         lm->last_error = "chatterbox: build_prompt output capacity too small";
         return CODEC_STATUS_INVALID_ARG;
@@ -548,7 +591,7 @@ enum codec_status codec_lm_chatterbox_build_prompt(
 
         // speech_emb(bos)@pos0  (from prepare_input_embeds)
         // + separately appended BOS(bos)@pos0.  Two identical rows.
-        for (int32_t rep = 0; rep < 2; ++rep) {
+        for (int32_t rep = 0; rep < n_bos; ++rep) {
             float * dst = base + (size_t) row * hidden;
             if (bos >= 0 && bos < speech_vocab) {
                 const float * se = st->speech_emb.data() + (size_t) bos * hidden;

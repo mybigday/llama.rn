@@ -41,6 +41,11 @@ struct audio_lm_context {
     codec_lm       * lm         = nullptr;
     codec_lm_state * state      = nullptr;
 
+    // Decoder speaker: a builtin (owned by `model`) or one derived/loaded by
+    // the caller (owned here).  NULL = model default.
+    const codec_speaker * decode_speaker = nullptr;
+    codec_speaker       * owned_speaker  = nullptr;
+
     // Cached capabilities (read once at init).
     uint32_t modality_mask = 0;
     int32_t  n_cb          = 0;
@@ -299,6 +304,45 @@ static void init_decode_transform(audio_lm_context * ctx) {
 // Lifecycle
 // =====================================================================
 
+bool parse_kv_override(const char * spec, codec_model_kv_override * out) {
+    if (spec == nullptr || out == nullptr) return false;
+    const char * eq = std::strchr(spec, '=');
+    if (eq == nullptr || eq == spec || (size_t) (eq - spec) >= sizeof(out->key)) return false;
+    codec_model_kv_override ov{};
+    std::memcpy(ov.key, spec, (size_t) (eq - spec));
+    const char * v = eq + 1;
+    char * end = nullptr;
+    if (std::strncmp(v, "int:", 4) == 0) {
+        ov.tag = CODEC_KV_OVERRIDE_TYPE_INT;
+        ov.val_i64 = std::strtoll(v + 4, &end, 10);
+        if (end == v + 4 || *end != '\0') return false;
+    } else if (std::strncmp(v, "float:", 6) == 0) {
+        ov.tag = CODEC_KV_OVERRIDE_TYPE_FLOAT;
+        ov.val_f64 = std::strtod(v + 6, &end);
+        if (end == v + 6 || *end != '\0') return false;
+    } else if (std::strncmp(v, "bool:", 5) == 0) {
+        ov.tag = CODEC_KV_OVERRIDE_TYPE_BOOL;
+        if (std::strcmp(v + 5, "true") == 0) ov.val_bool = true;
+        else if (std::strcmp(v + 5, "false") == 0) ov.val_bool = false;
+        else return false;
+    } else if (std::strncmp(v, "str:", 4) == 0) {
+        ov.tag = CODEC_KV_OVERRIDE_TYPE_STR;
+        if (std::strlen(v + 4) >= sizeof(ov.val_str)) return false;
+        std::strcpy(ov.val_str, v + 4);
+    } else {
+        return false;
+    }
+    *out = ov;
+    return true;
+}
+
+codec_model * load_codec_model(const std::string & path, codec_model_params mp,
+                               const std::vector<codec_model_kv_override> & overrides) {
+    std::vector<codec_model_kv_override> ov = overrides;
+    ov.emplace_back();  // zero key terminates the list
+    return codec_model_load_from_file_ext(path.c_str(), mp, ov.data());
+}
+
 audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
     if (p.codec_path.empty()) {
         if (err) *err = "audio_lm_init: codec_path is empty";
@@ -313,7 +357,7 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
     auto mp = codec_model_default_params();
     mp.use_gpu   = p.use_gpu;
     if (p.n_threads > 0) mp.n_threads = p.n_threads;
-    ctx->model = codec_model_load_from_file(p.codec_path.c_str(), mp);
+    ctx->model = load_codec_model(p.codec_path, mp, p.kv_overrides);
     if (ctx->model == nullptr) {
         if (err) *err = "audio_lm_init: codec_model_load_from_file failed for " + p.codec_path;
         delete ctx;
@@ -353,6 +397,7 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
 
 void audio_lm_free(audio_lm_context * ctx) {
     if (ctx == nullptr) return;
+    if (ctx->owned_speaker) codec_speaker_free(ctx->owned_speaker);
     if (ctx->state)     codec_lm_state_free(ctx->state);
     if (ctx->lm)        codec_lm_free(ctx->lm);
     if (ctx->codec_ctx) codec_free(ctx->codec_ctx);
@@ -1822,6 +1867,7 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
     codec_pcm_buffer pcm = {};
     auto dp = codec_decode_default_params();
     dp.n_q = n_q;
+    dp.speaker = ctx->decode_speaker;
     const enum codec_status rc =
         codec_decode(ctx->codec_ctx, &tokens, &pcm, dp);
     if (rc != CODEC_STATUS_SUCCESS) {
@@ -1836,6 +1882,128 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
     out->n_channels  = pcm.n_channels;
     codec_pcm_buffer_free(&pcm);
     return true;
+}
+
+// ─── Decoder speaker ────────────────────────────────────────────────
+
+static void audio_lm_adopt_speaker(audio_lm_context * ctx, codec_speaker * spk) {
+    if (ctx->owned_speaker) codec_speaker_free(ctx->owned_speaker);
+    ctx->owned_speaker = spk;
+    ctx->decode_speaker = spk;
+}
+
+bool audio_lm_codec_has_speakers(const audio_lm_context * ctx) {
+    return ctx && ctx->model && codec_model_n_speakers(ctx->model) > 0;
+}
+
+bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx) {
+    if (ctx == nullptr || ctx->model == nullptr) return false;
+    return codec_model_can_speaker_from_audio(ctx->model);
+}
+
+bool audio_lm_set_decode_speaker(audio_lm_context * ctx, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr || name == nullptr) return false;
+    const codec_speaker * spk = codec_get_speaker(ctx->model, name);
+    if (spk == nullptr) {
+        std::string avail;
+        for (int32_t i = 0; i < codec_model_n_speakers(ctx->model); ++i) {
+            avail += (i ? ", " : "") + std::string(codec_model_speaker_name(ctx->model, i));
+        }
+        ctx->last_error = std::string("unknown voice '") + name + "' (available: " +
+                          (avail.empty() ? "none" : avail) + ")";
+        return false;
+    }
+    audio_lm_adopt_speaker(ctx, nullptr);
+    ctx->decode_speaker = spk;
+    return true;
+}
+
+bool audio_lm_load_decode_speaker(audio_lm_context * ctx, const char * path, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr || path == nullptr) return false;
+    codec_speaker * spk = nullptr;
+    if (codec_speaker_load(ctx->model, path, name, &spk) != CODEC_STATUS_SUCCESS) {
+        ctx->last_error = std::string("failed to load speaker ") + (name ? std::string("'") + name + "' " : "") +
+                          "from " + path;
+        return false;
+    }
+    audio_lm_adopt_speaker(ctx, spk);
+    return true;
+}
+
+bool audio_lm_decode_speaker_from_audio(audio_lm_context * ctx, const float * pcm,
+                                        int32_t n_samples, int32_t sample_rate,
+                                        const char * ref_text) {
+    if (ctx == nullptr || ctx->codec_ctx == nullptr || pcm == nullptr || n_samples <= 0) return false;
+    codec_audio ref = {pcm, n_samples, sample_rate, 1, CODEC_PCM_TYPE_F32};
+    codec_speaker * spk = nullptr;
+    if (codec_speaker_from_audio(ctx->codec_ctx, &ref, &spk) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_get_last_error(ctx->codec_ctx);
+        ctx->last_error = std::string("speaker from reference audio failed: ") + (raw ? raw : "?");
+        return false;
+    }
+    if (ref_text != nullptr && *ref_text) codec_speaker_set_ref_text(spk, ref_text);
+    audio_lm_adopt_speaker(ctx, spk);
+    return true;
+}
+
+bool audio_lm_save_decode_speaker(audio_lm_context * ctx, const char * path, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr || path == nullptr || name == nullptr) return false;
+    const codec_speaker * spk = ctx->decode_speaker ? ctx->decode_speaker : codec_get_speaker(ctx->model, nullptr);
+    if (spk == nullptr) {
+        ctx->last_error = "no speaker to save";
+        return false;
+    }
+    if (codec_speaker_save(ctx->model, spk, name, path) != CODEC_STATUS_SUCCESS) {
+        ctx->last_error = std::string("failed to save speaker to ") + path;
+        return false;
+    }
+    return true;
+}
+
+const codec_speaker * audio_lm_decode_speaker(const audio_lm_context * ctx) {
+    if (ctx == nullptr) return nullptr;
+    return ctx->decode_speaker ? ctx->decode_speaker : codec_get_speaker(ctx->model, nullptr);
+}
+
+static audio_lm_speaker_entry speaker_entry(const codec_speaker * spk, const codec_speaker * def) {
+    audio_lm_speaker_entry e;
+    e.name = codec_speaker_name(spk);
+    const char * rt = codec_speaker_ref_text(spk);
+    e.ref_text = rt ? rt : "";
+    e.is_default = (spk == def);
+    return e;
+}
+
+std::vector<audio_lm_speaker_entry> audio_lm_list_codec_speakers(const audio_lm_context * ctx) {
+    std::vector<audio_lm_speaker_entry> out;
+    if (ctx == nullptr || ctx->model == nullptr) return out;
+    const codec_speaker * def = codec_get_speaker(ctx->model, nullptr);
+    for (int32_t i = 0; i < codec_model_n_speakers(ctx->model); ++i) {
+        out.push_back(speaker_entry(codec_get_speaker(ctx->model, codec_model_speaker_name(ctx->model, i)), def));
+    }
+    return out;
+}
+
+bool audio_lm_list_speaker_file(audio_lm_context * ctx, const char * path,
+                                std::vector<audio_lm_speaker_entry> * out) {
+    if (ctx == nullptr || ctx->model == nullptr || path == nullptr || out == nullptr) return false;
+    codec_speaker_file * file = nullptr;
+    if (codec_speaker_file_open(ctx->model, path, &file) != CODEC_STATUS_SUCCESS) {
+        ctx->last_error = std::string("failed to open speaker file ") + path;
+        return false;
+    }
+    out->clear();
+    const codec_speaker * def = codec_speaker_file_get_speaker(file, nullptr);
+    for (int32_t i = 0; i < codec_speaker_file_n_speakers(file); ++i) {
+        out->push_back(speaker_entry(
+            codec_speaker_file_get_speaker(file, codec_speaker_file_speaker_name(file, i)), def));
+    }
+    codec_speaker_file_free(file);
+    return true;
+}
+
+const char * audio_lm_meta_str(const audio_lm_context * ctx, const char * key) {
+    return meta_str(ctx, key);
 }
 
 }  // namespace codec_common

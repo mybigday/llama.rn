@@ -27,6 +27,7 @@ static_assert(std::is_same<llama_token, int32_t>::value,
               "llama_logit_bias::token must be int32_t for the fallback typedef");
 
 #include "codec_common.h"
+#include "kitten_text.h"
 #include "utils/wav_io.h"
 #include "common.h"     // common_params_sampling, common_grammar
 #include "sampling.h"   // common_sampler_*
@@ -42,6 +43,7 @@ static_assert(std::is_same<llama_token, int32_t>::value,
 #include <exception>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -165,6 +167,12 @@ struct TextEmbdTable {
 // chain + grammar apply/resample) and accepts the token (penalty + grammar
 // state).  build() returns false + err on a grammar parse failure (clean
 // error, not a crash).
+// llama.cpp's penalties sampler clamps penalty_last_n to >= 0 and treats 0 as
+// "disabled" (common's old -1 -> n_ctx mapping is commented out), so "-1 =
+// whole history" silently turned repetition penalties off.  Use a window
+// larger than any generation instead.
+static constexpr int32_t kRepPenaltyFullHistory = 1 << 16;
+
 struct BackboneSampler {
     common_sampler * smpl = nullptr;
 
@@ -186,7 +194,7 @@ struct BackboneSampler {
         sp.top_p         = (top_p > 0.0f && top_p < 1.0f) ? top_p : 1.0f;
         sp.min_p         = min_p > 0.0f ? min_p : 0.0f;
         sp.penalty_repeat = rep_penalty;                 // 1.0 = disabled
-        sp.penalty_last_n = rep_penalty != 1.0f ? (rep_last_n > 0 ? rep_last_n : -1) : 0;
+        sp.penalty_last_n = rep_penalty != 1.0f ? (rep_last_n > 0 ? rep_last_n : kRepPenaltyFullHistory) : 0;
         sp.penalty_freq   = 0.0f;
         sp.penalty_present = 0.0f;
         // Reduce the chain to exactly the reference warpers (no DRY / XTC /
@@ -284,7 +292,7 @@ struct SamplerChain {
         sp.no_perf = true;
         chain = llama_sampler_chain_init(sp);
         if (rep_penalty != 1.0f) {
-            const int32_t last_n = rep_last_n > 0 ? rep_last_n : -1;  // -1 = full history
+            const int32_t last_n = rep_last_n > 0 ? rep_last_n : kRepPenaltyFullHistory;
             llama_sampler_chain_add(chain,
                 llama_sampler_init_penalties(last_n, rep_penalty, 0.0f, 0.0f));
             has_penalties = true;
@@ -294,6 +302,41 @@ struct SamplerChain {
         if (min_p > 0.0f)            llama_sampler_chain_add(chain, llama_sampler_init_min_p(min_p, 1));
         if (top_p > 0.0f && top_p < 1.0f)
             llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
+        llama_sampler_chain_add(chain, llama_sampler_init_dist(seed));
+    }
+
+    // HF LogitsProcessorList order used by Chatterbox Turbo
+    // (t3.py::inference_turbo): temp → top_k → top_p → repetition penalty
+    // → dist(seed).  Penalties run on the already-truncated candidates, so
+    // the kept set is chosen before the penalty, as in the reference.
+    void init_sampled_penalty_last(uint32_t seed, float temp, int32_t top_k, float top_p,
+                                   float rep_penalty) {
+        reset();
+        llama_sampler_chain_params sp = llama_sampler_chain_default_params();
+        sp.no_perf = true;
+        chain = llama_sampler_chain_init(sp);
+        llama_sampler_chain_add(chain, llama_sampler_init_temp(temp));
+        if (top_k > 0) llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
+        if (top_p > 0.0f && top_p < 1.0f)
+            llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
+        if (rep_penalty != 1.0f) {
+            llama_sampler_chain_add(chain, llama_sampler_init_penalties(kRepPenaltyFullHistory, rep_penalty, 0.0f, 0.0f));
+            has_penalties = true;
+        }
+        llama_sampler_chain_add(chain, llama_sampler_init_dist(seed));
+    }
+
+    // HF generate() warper order used by kittenml (logits.py): temp → top_k
+    // → top_p → min_p → dist(seed).  Penalties are applied by the caller.
+    void init_sampled_hf_order(uint32_t seed, float temp, int32_t top_k, float top_p, float min_p) {
+        reset();
+        llama_sampler_chain_params sp = llama_sampler_chain_default_params();
+        sp.no_perf = true;
+        chain = llama_sampler_chain_init(sp);
+        llama_sampler_chain_add(chain, llama_sampler_init_temp(temp));
+        if (top_k > 0) llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
+        if (top_p > 0.0f && top_p < 1.0f) llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
+        if (min_p > 0.0f) llama_sampler_chain_add(chain, llama_sampler_init_min_p(min_p, 1));
         llama_sampler_chain_add(chain, llama_sampler_init_dist(seed));
     }
 
@@ -1105,22 +1148,56 @@ bool run_chatterbox(audio_lm_context * ctx, llama_context * lctx,
                     const tts_runner_params & a, int32_t hidden, int32_t max_frames,
                     std::vector<int32_t> * out_codes,
                     int32_t * out_frames, const char ** out_stop) {
-    const float cfg_weight = a.has_cfg_weight ? a.cfg_weight : 0.5f;
-    const float temperature = a.has_temp ? a.temp : 0.8f;
-    const float top_p = a.has_top_p ? a.top_p : 1.0f;
-    const float min_p = a.has_min_p ? a.min_p : 0.05f;
-    const float rep_pen = a.has_rep_penalty ? a.repetition_penalty : 1.2f;
+    // CLI flags win, then the GGUF's reference sampling defaults
+    // (`codec.lm.chatterbox.sampling.*`, < 0 = unset), then the Llama-T3
+    // regime.  Turbo has no CFG lane at all.
+    const bool turbo = ci->is_turbo != 0;
+    auto pick = [](bool has, float cli, float meta, float fallback) {
+        return has ? cli : (meta >= 0.0f ? meta : fallback);
+    };
+    const float cfg_weight = turbo ? 0.0f : pick(a.has_cfg_weight, a.cfg_weight, ci->cfg_weight, 0.5f);
+    const float temperature = pick(a.has_temp, a.temp, ci->temperature, 0.8f);
+    const float top_p = pick(a.has_top_p, a.top_p, ci->top_p, 1.0f);
+    const float min_p = pick(a.has_min_p, a.min_p, ci->min_p, 0.05f);
+    const float rep_pen = pick(a.has_rep_penalty, a.repetition_penalty, ci->repetition_penalty, 1.2f);
+    const int32_t top_k = a.has_top_k ? a.top_k : (ci->top_k >= 0 ? ci->top_k : 0);
 
-    std::vector<int32_t> text_ids(a.text.size() + 64);
-    int32_t n_text = 0;
-    if (codec_lm_chatterbox_tokenize(lm, a.text.c_str(), text_ids.data(),
-                                     (int32_t) text_ids.size(), &n_text) != CODEC_STATUS_SUCCESS) {
-        std::fprintf(stderr, "chatterbox tokenize failed: %s\n", codec_lm_get_last_error(lm));
-        return false;
+    std::vector<int32_t> text_ids;
+    if (ci->backbone_tokenizer) {
+        // Turbo: punc_norm on the codec side, then the backbone's GPT-2 BPE
+        // (paralinguistic tags such as "[laugh]" are added tokens).
+        std::vector<char> normed(a.text.size() * 2 + 64);
+        if (codec_lm_chatterbox_normalize_text(lm, a.text.c_str(), normed.data(),
+                                               (int32_t) normed.size()) != CODEC_STATUS_SUCCESS) {
+            std::fprintf(stderr, "chatterbox normalize failed: %s\n", codec_lm_get_last_error(lm));
+            return false;
+        }
+        const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(lctx));
+        const int32_t n_chars = (int32_t) std::strlen(normed.data());
+        text_ids.resize((size_t) n_chars + 16);
+        int32_t n = llama_tokenize(vocab, normed.data(), n_chars, text_ids.data(),
+                                   (int32_t) text_ids.size(), /*add_special=*/false,
+                                   /*parse_special=*/true);
+        if (n < 0) {
+            text_ids.resize((size_t) -n);
+            n = llama_tokenize(vocab, normed.data(), n_chars, text_ids.data(),
+                               (int32_t) text_ids.size(), false, true);
+        }
+        if (n < 0) { std::fprintf(stderr, "chatterbox backbone tokenize failed\n"); return false; }
+        text_ids.resize((size_t) n);
+    } else {
+        text_ids.resize(a.text.size() + 64);
+        int32_t n_text = 0;
+        if (codec_lm_chatterbox_tokenize(lm, a.text.c_str(), text_ids.data(),
+                                         (int32_t) text_ids.size(), &n_text) != CODEC_STATUS_SUCCESS) {
+            std::fprintf(stderr, "chatterbox tokenize failed: %s\n", codec_lm_get_last_error(lm));
+            return false;
+        }
+        text_ids.resize(n_text);
     }
-    text_ids.resize(n_text);
-    std::printf("chatterbox: %d text tokens, cfg_weight=%.2f temp=%.2f min_p=%.2f top_p=%.2f rep=%.2f\n",
-                n_text, cfg_weight, temperature, min_p, top_p, rep_pen);
+    const int32_t n_text = (int32_t) text_ids.size();
+    std::printf("chatterbox%s: %d text tokens, cfg_weight=%.2f temp=%.2f top_k=%d min_p=%.2f top_p=%.2f rep=%.2f\n",
+                turbo ? " turbo" : "", n_text, cfg_weight, temperature, top_k, min_p, top_p, rep_pen);
 
     std::vector<float> ref_pcm;
     const float * ref_pcm_ptr = nullptr;
@@ -1149,7 +1226,7 @@ bool run_chatterbox(audio_lm_context * ctx, llama_context * lctx,
     }
 
     const int32_t cond_rows = ci->cond_rows;
-    const int32_t seq_len_cap = cond_rows + (n_text + 2) + 2;
+    const int32_t seq_len_cap = cond_rows + (n_text + 2) + 2;  // also bounds Turbo's single-BOS layout
     const int32_t n_seq_cap = (cfg_weight > 0.0f) ? 2 : 1;
     std::vector<float> prompt((size_t) seq_len_cap * n_seq_cap * hidden);
     int32_t seq_len = 0, n_seq = 0;
@@ -1191,9 +1268,15 @@ bool run_chatterbox(audio_lm_context * ctx, llama_context * lctx,
     // T3-faithful chain: penalties(full history) → temp → min_p → top_p →
     // dist(seed).  Seed the penalty ring buffer with start_speech_token, as
     // the old sample_t3 pre-loaded `generated` with it before step 0.
+    // Turbo uses the HF warper order instead and its history is only the
+    // generated tokens (inference_turbo's input_ids exclude the BOS after
+    // step 0).
     SamplerChain smpl;
     if (temperature <= 0.0f) smpl.init_greedy();
-    else {
+    else if (turbo) {
+        smpl.init_sampled_penalty_last(a.seed ? a.seed : 0xC0DEC1ABu, temperature, top_k,
+                                       top_p, rep_pen);
+    } else {
         smpl.init_sampled(a.seed ? a.seed : 0xC0DEC1ABu, temperature, /*top_k=*/0,
                           top_p, min_p, rep_pen, /*rep_last_n=*/-1);
         if (smpl.has_penalties) llama_sampler_accept(smpl.chain, ci->start_speech_token);
@@ -1250,6 +1333,264 @@ bool run_chatterbox(audio_lm_context * ctx, llama_context * lctx,
             std::fprintf(stderr, "chatterbox step decode failed\n"); return false;
         }
         ++n_past;
+    }
+    // Turbo appends S3GEN_SIL × 3 before S3Gen (tts_turbo.py::generate).
+    if (ci->silence_token >= 0) {
+        for (int32_t i = 0; i < ci->n_trailing_silence; ++i) out_codes->push_back(ci->silence_token);
+    }
+    return true;
+}
+
+// ── CosyVoice (v1 300M / BreezyVoice, CosyVoice2, CosyVoice3) ──────────
+//
+// Prompt (cosyvoice/llm/llm.py inference):
+//   v1:    [sos] [spk row] [text_encoder(prompt_text ++ text)] [task_id] [speech_emb(prompt tokens)]
+//   v2/v3: [sos] [backbone embed(prompt_text ++ text)]          [task_id] [speech_emb(prompt tokens)]
+// Modes follow CosyVoiceFrontEnd: zero-shot when the speaker carries prompt
+// tokens and a transcript (--ref-text), cross-lingual when it has prompt
+// tokens but no transcript (the LLM sees neither), instruct when --instruct
+// is given (instruct text replaces the prompt text, no prompt tokens), SFT
+// for x-vector-only speakers.  Sampling is the reference's ras_sampling
+// (nucleus top_p/top_k, then a full-distribution redraw when the pick
+// repeats inside the last win_size tokens) or BreezyVoice's plain top-k with
+// eos redraw; no temperature.
+
+namespace {
+
+struct CosyVoiceSampler {
+    std::mt19937 rng;
+    explicit CosyVoiceSampler(uint32_t seed) : rng(seed) {}
+
+    static void softmax(const std::vector<float> & x, std::vector<double> * p) {
+        double mx = -INFINITY;
+        for (float v : x) mx = std::max(mx, (double) v);
+        p->resize(x.size());
+        double s = 0.0;
+        for (size_t i = 0; i < x.size(); ++i) { (*p)[i] = std::isinf(x[i]) && x[i] < 0 ? 0.0 : std::exp(x[i] - mx); s += (*p)[i]; }
+        for (double & v : *p) v /= s;
+    }
+    int32_t draw(const std::vector<double> & w, const std::vector<int32_t> & ids) {
+        std::discrete_distribution<int32_t> d(w.begin(), w.end());
+        return ids[(size_t) d(rng)];
+    }
+    // nucleus_sampling: sorted probs, keep while cum < top_p and count < top_k.
+    int32_t nucleus(const std::vector<double> & p, float top_p, int32_t top_k) {
+        std::vector<int32_t> order(p.size());
+        for (size_t i = 0; i < p.size(); ++i) order[i] = (int32_t) i;
+        const size_t k = std::min<size_t>((size_t) std::max(top_k, 1), order.size());
+        std::partial_sort(order.begin(), order.begin() + (long) k, order.end(),
+                          [&](int32_t a, int32_t b) { return p[(size_t) a] > p[(size_t) b] || (p[(size_t) a] == p[(size_t) b] && a < b); });
+        std::vector<double> w;
+        std::vector<int32_t> ids;
+        double cum = 0.0;
+        for (size_t i = 0; i < k && cum < top_p; ++i) {
+            cum += p[(size_t) order[i]];
+            w.push_back(p[(size_t) order[i]]);
+            ids.push_back(order[i]);
+        }
+        return draw(w, ids);
+    }
+    int32_t full(const std::vector<double> & p) {
+        std::vector<int32_t> ids(p.size());
+        for (size_t i = 0; i < p.size(); ++i) ids[i] = (int32_t) i;
+        return draw(p, ids);
+    }
+};
+
+}  // namespace
+
+bool run_cosyvoice(audio_lm_context * ctx, llama_context * lctx, codec_lm * lm,
+                   const codec_lm_cosyvoice_info * ci, const tts_runner_params & a,
+                   int32_t hidden, int32_t max_frames, std::vector<int32_t> * out_codes,
+                   int32_t * out_frames, const char ** out_stop) {
+    const codec_speaker * spk = audio_lm_decode_speaker(ctx);
+    if (spk == nullptr) {
+        std::fprintf(stderr, "cosyvoice: no speaker (pass --ref-audio, --voice or --speaker-file)\n");
+        return false;
+    }
+    std::vector<int32_t> prompt_tokens;
+    std::vector<float> xvec;
+    {
+        enum codec_speaker_slot_type ty;
+        int64_t ne[4];
+        const void * d = nullptr;
+        if (codec_speaker_get_slot(spk, "prompt_token", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32) {
+            const auto * v = static_cast<const int32_t *>(d);
+            prompt_tokens.assign(v, v + ne[0]);
+        }
+        if (codec_speaker_get_slot(spk, "embedding", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_F32) {
+            const auto * v = static_cast<const float *>(d);
+            xvec.assign(v, v + ne[0] * ne[1]);
+        }
+    }
+    std::string ref_text = a.ref_text;
+    if (ref_text.empty() && codec_speaker_ref_text(spk) != nullptr) ref_text = codec_speaker_ref_text(spk);
+    const std::string prefix = ci->prompt_prefix != nullptr ? ci->prompt_prefix : "";
+
+    // Mode → (LLM prompt text, LLM prompt speech tokens, target text).
+    std::string prompt_text, tts_text = a.text;
+    std::vector<int32_t> llm_prompt_tokens;
+    bool llm_xvec = true;   // v1: x-vector row in the LLM prompt
+    const char * mode = "sft";
+    if (!a.instruct.empty()) {
+        // v1 frontend_instruct: instruct text as prompt text, no x-vector in
+        // the LLM ("information leakage"); v2/v3 frontend_instruct2: instruct
+        // text as prompt text, no prompt speech tokens.  The instruct text
+        // ends with <|endofprompt|> (v3 also starts with the system prompt).
+        mode = "instruct";
+        prompt_text = a.instruct;
+        llm_xvec = false;
+        if (ci->version != 1 && prompt_text.find("<|endofprompt|>") == std::string::npos) {
+            if (!prefix.empty()) prompt_text = prefix.substr(0, prefix.find("<|endofprompt|>")) + " " + prompt_text;
+            prompt_text += "<|endofprompt|>";
+        }
+    } else if (!prompt_tokens.empty() && !ref_text.empty()) {
+        mode = "zero_shot";
+        prompt_text = prefix + ref_text;
+        llm_prompt_tokens = prompt_tokens;
+    } else if (!prompt_tokens.empty()) {
+        mode = "cross_lingual";
+        tts_text = prefix + tts_text;
+    } else if (!prefix.empty()) {
+        tts_text = prefix + tts_text;
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(lctx));
+    auto tokenize = [&](const std::string & s) {
+        std::vector<llama_token> t(s.size() + 16);
+        int32_t n = llama_tokenize(vocab, s.c_str(), (int32_t) s.size(), t.data(), (int32_t) t.size(), false, true);
+        if (n < 0) { t.resize((size_t) -n); n = llama_tokenize(vocab, s.c_str(), (int32_t) s.size(), t.data(), (int32_t) t.size(), false, true); }
+        t.resize((size_t) std::max(n, 0));
+        return t;
+    };
+    const std::vector<llama_token> ptxt = prompt_text.empty() ? std::vector<llama_token>() : tokenize(prompt_text);
+    const std::vector<llama_token> ttxt = tokenize(tts_text);
+    if (ttxt.empty()) { std::fprintf(stderr, "cosyvoice: empty text\n"); return false; }
+    std::vector<llama_token> all_txt(ptxt);
+    all_txt.insert(all_txt.end(), ttxt.begin(), ttxt.end());
+
+    const int32_t text_len = (int32_t) ttxt.size();
+    const int32_t min_len = (int32_t) (text_len * ci->min_token_text_ratio);
+    int32_t max_len = (int32_t) (text_len * ci->max_token_text_ratio);
+    if (max_frames > 0) max_len = std::min(max_len, max_frames);
+    std::printf("cosyvoice v%d (%s): %zu prompt-text + %d text tokens, %zu prompt speech tokens, min_len=%d max_len=%d, %s\n",
+                ci->version, mode, ptxt.size(), text_len, llm_prompt_tokens.size(), min_len, max_len,
+                ci->ras_sampling ? "ras" : "top_k");
+
+    // ---- prefill ----
+    const int32_t H = hidden;
+    std::vector<float> row((size_t) H);
+    int32_t n_past = 0;
+    if (codec_lm_cosyvoice_special_embd(lm, 0, row.data(), H) != CODEC_STATUS_SUCCESS) return false;
+    std::vector<float> head(row);   // sos [+ v1 spk row + text rows]
+    int32_t n_head = 1;
+    if (ci->text_in_backbone) {
+        if (!decode_embed_block(lctx, head.data(), H, 1, n_past)) return false;
+        n_past += 1;
+        if (!decode_tokens(lctx, all_txt, n_past, false)) return false;
+        n_past += (int32_t) all_txt.size();
+    } else {
+        std::vector<int32_t> ids(all_txt.begin(), all_txt.end());
+        const int32_t cap = (int32_t) ids.size() + 1;
+        std::vector<float> rows((size_t) cap * H);
+        int32_t n_rows = 0;
+        const bool use_xvec = llm_xvec && !xvec.empty();
+        if (codec_lm_cosyvoice_text_rows(lm, ids.data(), (int32_t) ids.size(),
+                                         use_xvec ? xvec.data() : nullptr, use_xvec ? (int32_t) xvec.size() : 0,
+                                         rows.data(), cap, &n_rows) != CODEC_STATUS_SUCCESS) {
+            std::fprintf(stderr, "cosyvoice text rows failed: %s\n", codec_lm_get_last_error(lm));
+            return false;
+        }
+        head.insert(head.end(), rows.begin(), rows.begin() + (long) n_rows * H);
+        n_head += n_rows;
+        if (!decode_embed_block(lctx, head.data(), H, n_head, n_past)) return false;
+        n_past += n_head;
+    }
+    std::vector<float> tail((size_t) (1 + llm_prompt_tokens.size()) * H);
+    if (codec_lm_cosyvoice_special_embd(lm, 1, tail.data(), H) != CODEC_STATUS_SUCCESS ||
+        codec_lm_cosyvoice_speech_embd(lm, llm_prompt_tokens.data(), (int32_t) llm_prompt_tokens.size(),
+                                       tail.data() + H, (int32_t) llm_prompt_tokens.size()) != CODEC_STATUS_SUCCESS) {
+        std::fprintf(stderr, "cosyvoice prompt rows failed: %s\n", codec_lm_get_last_error(lm));
+        return false;
+    }
+    if (!decode_embed_block(lctx, tail.data(), H, 1 + (int32_t) llm_prompt_tokens.size(), n_past)) return false;
+    n_past += 1 + (int32_t) llm_prompt_tokens.size();
+
+    // ---- AR loop ---- (bounded by the backbone context: a 30 s v1 prompt is 1500 rows)
+    max_len = std::min(max_len, (int32_t) llama_n_ctx(lctx) - n_past - 1);
+    const bool greedy = a.has_temp && a.temp <= 0.0f;
+    const int32_t top_k = a.has_top_k ? a.top_k : ci->top_k;
+    const float top_p = a.has_top_p ? a.top_p : ci->top_p;
+    CosyVoiceSampler smp(a.seed);
+    std::vector<int32_t> decoded;
+    std::vector<double> prob;
+    *out_stop = "max_len";
+    for (int32_t step = 0; step < max_len; ++step) {
+        const float * h = llama_get_embeddings_ith(lctx, -1);
+        if (h == nullptr || !audio_lm_step_begin(ctx, h, H)) return false;
+        int32_t cb = 0, nlog = 0;
+        const float * lg = audio_lm_step_logits(ctx, &cb, &nlog);
+        if (lg == nullptr || nlog <= 0) return false;
+        std::vector<float> logits(lg, lg + nlog);
+        audio_lm_step_push_code(ctx, 0);
+        int32_t dummy = 0;
+        audio_lm_step_finish(ctx, &dummy, 1);
+
+        const bool ignore_eos = step < min_len;
+        int32_t id = 0;
+        if (greedy) {
+            if (ignore_eos) logits[(size_t) ci->ignore_eos_id] = -INFINITY;
+            id = (int32_t) (std::max_element(logits.begin(), logits.end()) - logits.begin());
+        } else if (ci->ras_sampling) {
+            if (ignore_eos) logits[(size_t) ci->ignore_eos_id] = -INFINITY;
+            CosyVoiceSampler::softmax(logits, &prob);
+            id = smp.nucleus(prob, top_p, top_k);
+            const int32_t win = ci->win_size;
+            int32_t rep = 0;
+            for (size_t i = decoded.size() > (size_t) win ? decoded.size() - (size_t) win : 0; i < decoded.size(); ++i) {
+                rep += decoded[i] == id;
+            }
+            if ((float) rep >= (float) win * ci->tau_r) {
+                logits[(size_t) id] = -INFINITY;
+                CosyVoiceSampler::softmax(logits, &prob);
+                id = smp.full(prob);
+            }
+        } else {
+            // TransformerLM.sampling_ids: top-k multinomial, redraw while eos is ignored.
+            CosyVoiceSampler::softmax(logits, &prob);
+            std::vector<int32_t> order(prob.size());
+            for (size_t i = 0; i < prob.size(); ++i) order[i] = (int32_t) i;
+            const size_t k = std::min<size_t>((size_t) std::max(top_k, 1), order.size());
+            std::partial_sort(order.begin(), order.begin() + (long) k, order.end(),
+                              [&](int32_t x, int32_t y) { return prob[(size_t) x] > prob[(size_t) y]; });
+            std::vector<int32_t> ids(order.begin(), order.begin() + (long) k);
+            std::vector<double> w;
+            for (int32_t i : ids) w.push_back(prob[(size_t) i]);
+            for (int32_t tries = 0; tries < 100; ++tries) {
+                id = smp.draw(w, ids);
+                if (!ignore_eos || id != ci->ignore_eos_id) break;
+            }
+        }
+        if (id >= ci->stop_begin && id < ci->stop_end) { *out_stop = "eos"; break; }
+        decoded.push_back(id);
+        (*out_frames)++;
+        if (codec_lm_cosyvoice_speech_embd(lm, &id, 1, row.data(), 1) != CODEC_STATUS_SUCCESS ||
+            !decode_embed(lctx, row.data(), H, n_past)) {
+            std::fprintf(stderr, "cosyvoice step %d decode failed\n", step);
+            return false;
+        }
+        ++n_past;
+    }
+
+    // v3 llm_job: after more than max_silent_run consecutive silent/breath
+    // tokens, further ones are dropped from the flow input (they were fed back).
+    int32_t run = 0;
+    for (int32_t id : decoded) {
+        bool silent = false;
+        for (int32_t i = 0; i < ci->n_silent_tokens; ++i) silent = silent || ci->silent_tokens[i] == id;
+        run = silent ? run + 1 : 0;
+        if (silent && ci->max_silent_run > 0 && run > ci->max_silent_run) continue;
+        if (id >= 0 && id < ci->speech_token_size) out_codes->push_back(id);
     }
     return true;
 }
@@ -1913,6 +2254,304 @@ std::vector<llama_token> build_outetts_v3_prompt(const llama_vocab    * vocab,
     return result;
 }
 
+// ── KittenTTS 2 (Flow: Qwen3 speech LM → S3 tokens → MeanFlow S3Gen) ─────
+// Port of kittenml/kittentts2 (model.py, prompt.py, logits.py).  The codec
+// GGUF is a chatterbox_s3g model with the LM contract under codec.lm.kitten.*
+// and the voice in its speakers: lm_cond (position-0 embedding row),
+// ref_tokens + ref_text (in-context reference) and the S3G decoder slots.
+
+bool detect_kitten_tts2(const llama_vocab * vocab) {
+    return vocab_has_piece(vocab, "<|a_0|>")
+        && vocab_has_piece(vocab, "<final_seg>")
+        && vocab_has_piece(vocab, "[START]");
+}
+
+struct kitten_config {
+    int32_t audio_base = 0, n_audio = 0;
+    int32_t speech_start = 0, speech_end = 0, text_start = 0, start = 0, stop = 0, final_seg = 0;
+    int32_t ref_speech_start = 0, ref_speech_end = 0, ref_text_start = 0, ref_text_end = 0;
+    float temp = 0.8f, top_p = 0.8f, min_p = 0.0f;
+    int32_t top_k = 50;
+    float rep_penalty = 1.1f;
+    int32_t rep_window = 50;
+    float run_penalty = 1.3f;
+    int32_t run_grace = 10;
+    int32_t silence = 4299, n_trailing_silence = 3;
+    bool use_reference_prompt = true;
+    std::string emotion_control = "{emo: 1}";
+    int32_t chunk_chars = 380, chunk_min_chars = 130, max_new_tokens = 1000;
+    float chunk_gap_s = 0.16f;
+};
+
+static bool kitten_read_config(const audio_lm_context * ctx, const std::string & preset_req,
+                               kitten_config * c, std::string * err) {
+    auto str = [&](const std::string & k) { return audio_lm_meta_str(ctx, ("codec.lm.kitten." + k).c_str()); };
+    auto i32 = [&](const std::string & k, int32_t * dst) {
+        if (const char * v = str(k)) *dst = std::atoi(v);
+    };
+    auto f32 = [&](const std::string & k, float * dst) {
+        if (const char * v = str(k)) *dst = (float) std::atof(v);
+    };
+    if (!str("token.audio_id_base")) {
+        *err = "codec GGUF lacks codec.lm.kitten.* (convert with --model-type kitten_tts2)";
+        return false;
+    }
+    i32("token.audio_id_base", &c->audio_base);           i32("token.num_audio_tokens", &c->n_audio);
+    i32("token.speech_start_id", &c->speech_start);       i32("token.speech_end_id", &c->speech_end);
+    i32("token.text_start_id", &c->text_start);           i32("token.start_id", &c->start);
+    i32("token.stop_id", &c->stop);                       i32("token.final_seg_id", &c->final_seg);
+    i32("token.reference_speech_start_id", &c->ref_speech_start);
+    i32("token.reference_speech_end_id", &c->ref_speech_end);
+    i32("token.reference_text_start_id", &c->ref_text_start);
+    i32("token.reference_text_end_id", &c->ref_text_end);
+    const char * dp = str("default_preset");
+    const std::string preset = !preset_req.empty() ? preset_req : (dp ? dp : "stable");
+    if (!str("preset." + preset + ".temperature")) {
+        *err = "unknown KittenTTS preset '" + preset + "'";
+        return false;
+    }
+    f32("preset." + preset + ".temperature", &c->temp);
+    f32("preset." + preset + ".top_p", &c->top_p);
+    f32("preset." + preset + ".min_p", &c->min_p);
+    float top_k = (float) c->top_k;
+    f32("preset." + preset + ".top_k", &top_k);
+    c->top_k = (int32_t) top_k;
+    f32("repetition_penalty", &c->rep_penalty);           i32("repetition_window", &c->rep_window);
+    f32("token_run_penalty", &c->run_penalty);            i32("token_run_grace", &c->run_grace);
+    i32("silence_token", &c->silence);                    i32("n_trailing_silence", &c->n_trailing_silence);
+    if (const char * v = str("use_reference_prompt")) c->use_reference_prompt = std::string(v) == "true";
+    if (const char * v = str("emotion_control")) c->emotion_control = v;
+    i32("chunk_chars", &c->chunk_chars);                  i32("chunk_min_chars", &c->chunk_min_chars);
+    f32("chunk_gap_s", &c->chunk_gap_s);                  i32("max_new_tokens", &c->max_new_tokens);
+    return true;
+}
+
+static std::string strip_copy(const std::string & s) {
+    const size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "";
+    return s.substr(b, s.find_last_not_of(" \t\r\n") - b + 1);
+}
+
+static std::vector<llama_token> kitten_tokenize(const llama_vocab * vocab, const std::string & text) {
+    std::vector<llama_token> toks(text.size() + 16);
+    int32_t n = llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), toks.data(),
+                               (int32_t) toks.size(), /*add_special=*/false, /*parse_special=*/false);
+    if (n < 0) {
+        toks.resize((size_t) -n);
+        n = llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), toks.data(),
+                           (int32_t) toks.size(), false, false);
+    }
+    toks.resize((size_t) std::max(0, n));
+    return toks;
+}
+
+// logits.py: TokenRunPenalty then RepetitionPenaltyExempt, both on raw logits.
+static void kitten_apply_penalties(const kitten_config & c, const std::vector<llama_token> & seq,
+                                   size_t prompt_len, float * logits) {
+    const llama_token last = seq.back();
+    if (last >= c.audio_base && last < c.audio_base + c.n_audio) {
+        int32_t run = 0;
+        for (size_t i = seq.size(); i > 0 && seq[i - 1] == last; --i) ++run;
+        if (run >= c.run_grace) logits[last] -= (float) (run - c.run_grace + 1) * c.run_penalty;
+    }
+    if (c.rep_penalty != 1.0f) {
+        const size_t begin = std::max(prompt_len, c.rep_window > 0 && seq.size() > (size_t) c.rep_window
+                                                      ? seq.size() - (size_t) c.rep_window : (size_t) 0);
+        std::vector<llama_token> seen(seq.begin() + (long) begin, seq.end());
+        std::sort(seen.begin(), seen.end());
+        seen.erase(std::unique(seen.begin(), seen.end()), seen.end());
+        const llama_token silence = c.audio_base + c.silence;
+        for (llama_token t : seen) {
+            if (t == c.speech_end || t == c.stop || t == silence) continue;
+            float & l = logits[t];
+            l = l < 0.0f ? l * c.rep_penalty : l / c.rep_penalty;
+        }
+    }
+}
+
+bool run_kitten_tts2(audio_lm_context * ctx, llama_context * lctx, const llama_vocab * vocab,
+                     const tts_runner_params & a, tts_runner_result * out) {
+    kitten_config c;
+    std::string err;
+    if (!kitten_read_config(ctx, a.preset, &c, &err)) { out->error = err; return false; }
+    if (a.has_temp)  c.temp  = a.temp;
+    if (a.has_top_p) c.top_p = a.top_p;
+    if (a.has_top_k) c.top_k = a.top_k;
+    if (a.has_min_p) c.min_p = a.min_p;
+    if (a.has_rep_penalty) c.rep_penalty = a.repetition_penalty;
+
+    const codec_speaker * spk = audio_lm_decode_speaker(ctx);
+    const float * lm_cond = nullptr;
+    int64_t ne[4] = {0};
+    codec_speaker_slot_type ty;
+    const void * data = nullptr;
+    const int32_t n_embd = llama_model_n_embd(llama_get_model(lctx));
+    if (spk == nullptr || !codec_speaker_get_slot(spk, "lm_cond", &ty, ne, &data) ||
+        ty != CODEC_SPEAKER_SLOT_F32 || ne[0] != n_embd) {
+        out->error = "KittenTTS speaker has no lm_cond row matching the backbone width";
+        return false;
+    }
+    lm_cond = static_cast<const float *>(data);
+
+    // In-context reference: [START] <ref_text_start> transcript <ref_text_end>
+    // <ref_speech_start> audio <ref_speech_end>.  Needs the transcript; without
+    // it only the speaker embedding identifies the voice (prompt.py).
+    std::vector<llama_token> prefix = {c.start};
+    const char * ref_text = codec_speaker_ref_text(spk);
+    if (c.use_reference_prompt && ref_text != nullptr &&
+        codec_speaker_get_slot(spk, "ref_tokens", &ty, ne, &data) && ty == CODEC_SPEAKER_SLOT_I32) {
+        const auto * rt = static_cast<const int32_t *>(data);
+        const auto text_ids = kitten_tokenize(vocab, strip_copy(ref_text));
+        prefix.push_back(c.ref_text_start);
+        prefix.insert(prefix.end(), text_ids.begin(), text_ids.end());
+        prefix.push_back(c.ref_text_end);
+        prefix.push_back(c.ref_speech_start);
+        for (int64_t i = 0; i < ne[0]; ++i) prefix.push_back(c.audio_base + rt[i]);
+        prefix.push_back(c.ref_speech_end);
+    } else {
+        std::printf("kitten: no reference transcript/tokens — speaker embedding only\n");
+    }
+
+    const std::string spoken = kitten_prepare_text(a.text);
+    std::vector<llama_token> emotion;
+    if (kitten_has_expression_tag(a.text)) emotion = kitten_tokenize(vocab, c.emotion_control);
+    const auto chunks = kitten_split_for_synthesis(spoken, c.chunk_chars, c.chunk_min_chars);
+    if (chunks.empty()) { out->error = "no text to speak"; return false; }
+    const int32_t max_new = a.max_frames > 0 ? a.max_frames : c.max_new_tokens;
+    const uint32_t n_ctx = llama_n_ctx(lctx);
+
+    std::printf("kitten: voice=%s, %zu chunk(s), temp=%.2f top_k=%d top_p=%.2f min_p=%.2f rep=%.2f/%d run=%.2f/%d%s\n",
+                codec_speaker_name(spk), chunks.size(), c.temp, c.top_k, c.top_p, c.min_p,
+                c.rep_penalty, c.rep_window, c.run_penalty, c.run_grace, emotion.empty() ? "" : " +emo");
+
+    std::vector<std::vector<float>> wavs;
+    int32_t total_frames = 0;
+    const char * stop_reason = "max_frames";
+    int32_t sample_rate = 0;
+    for (size_t ci = 0; ci < chunks.size(); ++ci) {
+        std::vector<llama_token> prompt = prefix;
+        prompt.insert(prompt.end(), emotion.begin(), emotion.end());
+        prompt.push_back(c.text_start);
+        const auto text_ids = kitten_tokenize(vocab, chunks[ci]);
+        prompt.insert(prompt.end(), text_ids.begin(), text_ids.end());
+        if (c.final_seg) prompt.push_back(c.final_seg);
+        prompt.push_back(c.speech_start);
+
+        // Per-chunk budget sized from the chunk's length (model.py::_chunk_budget).
+        int32_t budget = max_new;
+        if (chunks.size() > 1) {
+            const int32_t expected = (int32_t) ((double) chunks[ci].size() / 20.0 * 25.0 * 1.8);
+            budget = std::max(200, std::min(max_new, expected));
+        }
+        if (prompt.size() + (size_t) budget > n_ctx) {
+            budget = (int32_t) n_ctx - (int32_t) prompt.size();
+            if (budget <= 0) { out->error = "KittenTTS prompt exceeds the context"; return false; }
+        }
+
+        // Prefill: position 0 ([START]) carries the speaker row instead of its token embedding.
+        llama_memory_clear(llama_get_memory(lctx), true);
+        if (!decode_embed(lctx, lm_cond, n_embd, 0) ||
+            !decode_tokens(lctx, std::vector<llama_token>(prompt.begin() + 1, prompt.end()), 1, false)) {
+            out->error = "KittenTTS prefill decode failed";
+            return false;
+        }
+
+        SamplerChain chain;
+        if (c.temp <= 0.0f) chain.init_greedy();
+        else chain.init_sampled_hf_order(a.seed + (uint32_t) ci, c.temp, c.top_k, c.top_p, c.min_p);
+
+        const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+        std::vector<llama_token> seq = prompt;
+        std::vector<int32_t> codes;
+        std::vector<float> logits((size_t) n_vocab);
+        const char * chunk_stop = "max_frames";
+        for (int32_t step = 0; step < budget; ++step) {
+            std::memcpy(logits.data(), llama_get_logits_ith(lctx, -1), (size_t) n_vocab * sizeof(float));
+            kitten_apply_penalties(c, seq, prompt.size(), logits.data());
+            const llama_token t = (llama_token) chain.sample(logits.data(), n_vocab);
+            seq.push_back(t);
+            if (t == c.speech_end || t == c.stop) { chunk_stop = "eos"; break; }
+            if (t >= c.audio_base && t < c.audio_base + c.n_audio) codes.push_back(t - c.audio_base);
+            if (!decode_tokens(lctx, {t}, (int32_t) seq.size() - 1, false)) {
+                out->error = "KittenTTS decode step failed";
+                return false;
+            }
+        }
+        std::printf("kitten chunk %zu/%zu: %zu prompt tokens, %zu audio tokens, stop=%s\n",
+                    ci + 1, chunks.size(), prompt.size(), codes.size(), chunk_stop);
+        total_frames += (int32_t) codes.size();
+        stop_reason = chunk_stop;
+        if (codes.empty()) continue;
+
+        // S3Gen drops its last tokens as lookahead: pad with silence (vocoder.py).
+        codes.insert(codes.end(), (size_t) c.n_trailing_silence, c.silence);
+        audio_lm_reset(ctx);
+        audio_lm_audio_output pcm;
+        if (!audio_lm_push_codes(ctx, codes.data(), (int32_t) codes.size(), 1) ||
+            !audio_lm_decode_audio(ctx, &pcm)) {
+            out->error = std::string("KittenTTS decode failed: ") + audio_lm_last_error(ctx);
+            return false;
+        }
+        sample_rate = pcm.sample_rate;
+        wavs.push_back(std::move(pcm.pcm));
+    }
+    if (wavs.empty()) { out->error = "the model produced no audio tokens"; return false; }
+    std::printf("KittenTTS AR done: %d frames, stop=%s\n", total_frames, stop_reason);
+    out->pcm = kitten_join_chunks(wavs, sample_rate, c.chunk_gap_s);
+    out->sample_rate = sample_rate;
+    out->n_channels = 1;
+    out->n_frames = total_frames;
+    out->stop_reason = stop_reason;
+    return true;
+}
+
+// Selects the codec decoder speaker for every flow: --speaker-file, else a
+// speaker derived from --ref-audio when the codec bundles the encoders, else
+// --voice, else the model default.  Optionally saves it (--save-speaker).
+static bool apply_decode_speaker(audio_lm_context * ctx, const tts_runner_params & a, std::string * err) {
+    if (!a.speaker_file.empty()) {
+        // --voice picks a speaker inside the file (default: the file's default).
+        if (!audio_lm_load_decode_speaker(ctx, a.speaker_file.c_str(),
+                                          a.voice.empty() ? nullptr : a.voice.c_str())) {
+            *err = audio_lm_last_error(ctx);
+            return false;
+        }
+        std::printf("speaker: loaded %s%s%s\n", a.speaker_file.c_str(),
+                    a.voice.empty() ? "" : " : ", a.voice.c_str());
+    } else if (!a.ref_audio_path.empty() && audio_lm_codec_can_speaker_from_audio(ctx)) {
+        std::vector<float> pcm;
+        int32_t n = 0, sr = 0;
+        if (!load_ref_audio(a.ref_audio_path, pcm, &n, &sr, err)) return false;
+        if (!audio_lm_decode_speaker_from_audio(ctx, pcm.data(), n, sr,
+                                                a.ref_text.empty() ? nullptr : a.ref_text.c_str())) {
+            *err = audio_lm_last_error(ctx);
+            return false;
+        }
+        std::printf("speaker: derived from %s (%d samples @ %d Hz)\n", a.ref_audio_path.c_str(), n, sr);
+    } else if (!a.voice.empty()) {
+        if (!audio_lm_set_decode_speaker(ctx, a.voice.c_str())) {
+            *err = audio_lm_last_error(ctx);
+            return false;
+        }
+        std::printf("speaker: voice %s\n", a.voice.c_str());
+    }
+    if (a.speaker_file.empty() && !a.ref_audio_path.empty() &&
+        audio_lm_codec_has_speakers(ctx) && !audio_lm_codec_can_speaker_from_audio(ctx)) {
+        // GGUFs converted before codec_speaker bundle no speaker encoders.
+        std::fprintf(stderr, "speaker: codec GGUF has no speaker encoders; decoder keeps the %s voice "
+                             "(re-convert the codec GGUF to clone it from --ref-audio)\n",
+                     a.voice.empty() ? "default" : a.voice.c_str());
+    }
+    if (!a.save_speaker.empty()) {
+        if (!audio_lm_save_decode_speaker(ctx, a.save_speaker.c_str(), "saved")) {
+            *err = audio_lm_last_error(ctx);
+            return false;
+        }
+        std::printf("speaker: saved to %s\n", a.save_speaker.c_str());
+    }
+    return true;
+}
+
 bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out) {
     // Pocket-TTS FlowLM is self-contained (no backbone) — try it first; a
     // non-zero return means it handled the request.
@@ -1932,6 +2571,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
 
     audio_lm_params p;
     p.codec_path = a.codec_path;
+    p.kv_overrides = a.kv_overrides;
     p.use_gpu    = a.use_gpu;
     p.n_threads  = a.n_threads;
     std::string err;
@@ -1945,6 +2585,15 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     // the self-contained Type A flow (which never touches `pi`).  If it is NOT
     // NeuTTS, abort below with the original error.  Gate the deferral on the
     // exact codec-only signal (no codec_lm handle), not on the error string.
+    {
+        std::string spk_err;
+        if (!apply_decode_speaker(ctx, a, &spk_err)) {
+            out->error = spk_err;
+            audio_lm_free(ctx);
+            return false;
+        }
+    }
+
     audio_lm_prompt_info pi;
     const bool pi_ok = audio_lm_get_prompt_info(ctx, &pi);
     std::string deferred_pi_err;
@@ -2011,7 +2660,8 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     const codec_lm_chatterbox_info * cbx =
         lm_handle ? codec_lm_chatterbox_get_info(lm_handle) : nullptr;
     const bool is_chatterbox = (cbx != nullptr);
-    const float cbx_cfg = a.has_cfg_weight ? a.cfg_weight : 0.5f;
+    const float cbx_cfg = !is_chatterbox || cbx->is_turbo ? 0.0f
+        : a.has_cfg_weight ? a.cfg_weight : (cbx->cfg_weight >= 0.0f ? cbx->cfg_weight : 0.5f);
     const int32_t cbx_n_seq = (is_chatterbox && cbx_cfg > 0.0f) ? 2 : 1;
 
     const int32_t max_frames = a.max_frames > 0 ? a.max_frames : 512;
@@ -2022,6 +2672,9 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     cp.n_seq_max    = (uint32_t) cbx_n_seq;
     cp.embeddings   = true;
     cp.pooling_type = LLAMA_POOLING_TYPE_NONE;
+    // CosyVoice v1's relative-position term is a KQ bias, which the
+    // flash-attention path does not take.
+    if (pi_ok && pi.host_arch == "cosyvoice") cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (a.n_threads > 0) { cp.n_threads = a.n_threads; cp.n_threads_batch = a.n_threads; }
     llama_context * lctx = llama_init_from_model(lmodel, cp);
     if (!lctx) {
@@ -2093,6 +2746,36 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         return true;
     }
 
+    // ── CosyVoice ────────────────────────────────────────────────────────
+    if (const codec_lm_cosyvoice_info * cvi = lm_handle ? codec_lm_cosyvoice_get_info(lm_handle) : nullptr) {
+        std::vector<int32_t> speech_codes;
+        int32_t n_frames = 0;
+        const char * stop_reason = "max_len";
+        bool ok = run_cosyvoice(ctx, lctx, lm_handle, cvi, a, hidden, a.max_frames, &speech_codes,
+                                &n_frames, &stop_reason);
+        llama_free(lctx);
+        llama_model_free(lmodel);
+        llama_backend_free();
+        if (!ok || speech_codes.empty()) {
+            out->error = ok ? "no speech codes generated" : std::string("cosyvoice AR failed: ") + audio_lm_last_error(ctx);
+            audio_lm_free(ctx);
+            return false;
+        }
+        std::printf("cosyvoice AR done: %d tokens (%zu to the flow), stop=%s\n",
+                    n_frames, speech_codes.size(), stop_reason);
+        audio_lm_reset(ctx);
+        audio_lm_audio_output pcm;
+        if (!audio_lm_push_codes(ctx, speech_codes.data(), (int32_t) speech_codes.size(), 1) ||
+            !audio_lm_decode_audio(ctx, &pcm)) {
+            out->error = std::string("decode failed: ") + audio_lm_last_error(ctx);
+            audio_lm_free(ctx);
+            return false;
+        }
+        fill_result_from_output(pcm, n_frames, stop_reason, out);
+        audio_lm_free(ctx);
+        return true;
+    }
+
     // ── NeuTTS ICL ref-encode + prompt assembly + self-contained decode ─────
     // When the backbone is a NeuTTS model, the prefill is built from:
     //   1. The verbatim ICL template (ref phonemes + input phonemes)
@@ -2115,6 +2798,14 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     // codec_lm — abort now with the original deferred error rather than fall
     // through to the codec_lm-backed flows (which would dereference an
     // unpopulated `pi`).
+    // KittenTTS 2: codec-only S3G GGUF + Qwen3 speech-LM backbone.
+    if (!pi_ok && detect_kitten_tts2(vocab)) {
+        const bool ok = run_kitten_tts2(ctx, lctx, vocab, a, out);
+        llama_free(lctx); llama_model_free(lmodel); llama_backend_free();
+        audio_lm_free(ctx);
+        return ok;
+    }
+
     if (!pi_ok && !is_neutts && !is_outetts) {
         out->error = deferred_pi_err;
         llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
@@ -2282,7 +2973,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         codec_model_params cmp = codec_model_default_params();
         cmp.use_gpu   = a.use_gpu;
         cmp.n_threads = a.n_threads > 0 ? a.n_threads : 1;
-        codec_model * cmodel = codec_model_load_from_file(a.codec_path.c_str(), cmp);
+        codec_model * cmodel = load_codec_model(a.codec_path, cmp, a.kv_overrides);
         if (!cmodel) {
             out->error = std::string("NeuTTS: failed to load NeuCodec model from ") + a.codec_path;
             llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();

@@ -22,6 +22,8 @@
 // OFF, tts-cli falls back to the self-contained (no-backbone) FlowLM path
 // exposed by `tts_runner_synthesize_selfcontained`.
 
+#include "codec.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -159,11 +161,17 @@ std::vector<llama_token> build_neutts_prompt(
 // ─────────────────────────────────────────────────────────────────────
 struct tts_runner_params {
     std::string codec_path;          // codec / codec_lm GGUF (required)
+    std::vector<codec_model_kv_override> kv_overrides;  // codec GGUF metadata overrides
     std::string backbone_path;       // llama.cpp backbone GGUF; empty for
                                      // self-contained models (Pocket FlowLM)
     std::string text;                // synthesis target (required)
     std::string ref_audio_path;      // optional WAV for voice conditioning
     std::string ref_text;            // optional transcript of ref_audio (NeuTTS phonemization)
+    std::string voice;               // builtin codec speaker name (codec_get_speaker)
+    std::string speaker_file;        // speaker GGUF from codec_speaker_save
+    std::string save_speaker;        // write the decoder speaker in use to this path
+    std::string instruct;            // CosyVoice instruct text (instruct2 mode)
+    std::string preset;              // sampling preset name (KittenTTS: stable / expressive)
 
     int32_t  n_threads = 0;
     bool     use_gpu   = false;

@@ -9,10 +9,12 @@
 #include "../runtime/tensor_utils.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -82,10 +84,17 @@ static ggml_tensor * codec_wt_W_linear(ggml_context * ctx_eval, const codec_mode
         return nullptr;
     }
     if (src->ne[0] == in_dim && src->ne[1] == out_dim) {
-        return codec_graph_cast_f32(ctx_eval, src);
+        return src;
     }
+    // Transposed storage (older converters): transpose at the stored type.  Rows
+    // of a block-quantized tensor can't be transposed.
     if (src->ne[0] == out_dim && src->ne[1] == in_dim) {
-        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, codec_graph_cast_f32(ctx_eval, src)));
+        if (ggml_is_quantized(src->type)) {
+            std::fprintf(stderr, "wavtokenizer: %s is %s in transposed (out, in) layout; quantized weights need "
+                         "ne0 = in (reconvert with the current converter)\n", name.c_str(), ggml_type_name(src->type));
+            return nullptr;
+        }
+        return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, src));
     }
     return nullptr;
 }
@@ -128,9 +137,8 @@ static ggml_tensor * codec_wt_sum_codebook_features(
         // Codebook is stored (codebook_dim, codebook_size). ggml_get_rows treats
         // ne[1] as the row index dim, so this picks rows of length codebook_dim
         // indexed by token id.
-        ggml_tensor * t_codebook_f32 = codec_graph_cast_f32(ctx_eval, t_codebook);
         ggml_tensor * t_idx = ggml_view_1d(ctx_eval, t_tok, t, (size_t) qi * t_tok->nb[1]);
-        ggml_tensor * t_q = ggml_get_rows(ctx_eval, t_codebook_f32, t_idx); // [codebook_dim, t]
+        ggml_tensor * t_q = ggml_get_rows(ctx_eval, t_codebook, t_idx); // [codebook_dim, t], F32
         sum = (sum == nullptr) ? t_q : ggml_add(ctx_eval, sum, t_q);
     }
     return sum;
@@ -211,7 +219,7 @@ static ggml_tensor * codec_wt_pos_attn(
         return nullptr;
     }
 
-    ggml_tensor * scores = ggml_mul_mat(ctx_eval, k_ct, q_ct); // [t, t]
+    ggml_tensor * scores = codec_mul_mat(ctx_eval, k_ct, q_ct); // [t, t]
     if (scores == nullptr) {
         return nullptr;
     }
@@ -223,7 +231,7 @@ static ggml_tensor * codec_wt_pos_attn(
     }
 
     ggml_tensor * v_tc = ggml_cont(ctx_eval, v); // [t, c]
-    ggml_tensor * ctx_ct = ggml_mul_mat(ctx_eval, v_tc, probs); // [c, t]
+    ggml_tensor * ctx_ct = codec_mul_mat(ctx_eval, v_tc, probs); // [c, t]
     if (ctx_ct == nullptr) {
         return nullptr;
     }
@@ -547,7 +555,7 @@ static ggml_tensor * codec_wt_encode_resblock(
     if (ctx_eval == nullptr || model == nullptr || x == nullptr || pad_id == nullptr) {
         return nullptr;
     }
-    ggml_tensor * h = ggml_elu(ctx_eval, x);
+    ggml_tensor * h = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     h = codec_wt_sconv1d(
         ctx_eval,
         model,
@@ -561,7 +569,7 @@ static ggml_tensor * codec_wt_encode_resblock(
     if (h == nullptr) {
         return nullptr;
     }
-    h = ggml_elu(ctx_eval, h);
+    h = codec_op_unary(ctx_eval, h, CODEC_UNARY_ELU);
     h = codec_wt_sconv1d(
         ctx_eval,
         model,
@@ -628,51 +636,46 @@ static ggml_tensor * codec_wt_encode_lstm_layers(
         }
     }
 
-    ggml_tensor * x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_tc)); // [dim, t]
-    ggml_tensor * y_ct = nullptr;
-    std::vector<ggml_tensor *> h_prev((size_t) n_layers, nullptr);
-    std::vector<ggml_tensor *> c_prev((size_t) n_layers, nullptr);
-
-    for (int32_t ti = 0; ti < t; ++ti) {
-        const size_t offset = (size_t) ti * (size_t) x_ct->nb[1];
-        ggml_tensor * layer_in = ggml_view_2d(ctx_eval, x_ct, dim, 1, x_ct->nb[1], offset); // [dim, 1]
-        layer_in = ggml_cont(ctx_eval, layer_in);
-
-        for (int32_t li = 0; li < n_layers; ++li) {
-            if (h_prev[(size_t) li] == nullptr) {
-                h_prev[(size_t) li] = ggml_scale(ctx_eval, layer_in, 0.0f);
-                c_prev[(size_t) li] = ggml_scale(ctx_eval, layer_in, 0.0f);
-            }
-
-            ggml_tensor * gates = ggml_add(
-                ctx_eval,
-                ggml_mul_mat(ctx_eval, w_ih[(size_t) li], layer_in),
-                ggml_mul_mat(ctx_eval, w_hh[(size_t) li], h_prev[(size_t) li]));
-            ggml_tensor * b_ih2 = ggml_reshape_2d(ctx_eval, b_ih[(size_t) li], 4 * dim, 1);
-            ggml_tensor * b_hh2 = ggml_reshape_2d(ctx_eval, b_hh[(size_t) li], 4 * dim, 1);
-            gates = ggml_add(ctx_eval, ggml_add(ctx_eval, gates, b_ih2), b_hh2);
-
-            const size_t gate_stride = (size_t) dim * gates->nb[0];
-            ggml_tensor * gate_i = ggml_view_2d(ctx_eval, gates, dim, 1, gates->nb[1], 0);
-            ggml_tensor * gate_f = ggml_view_2d(ctx_eval, gates, dim, 1, gates->nb[1], gate_stride);
-            ggml_tensor * gate_g = ggml_view_2d(ctx_eval, gates, dim, 1, gates->nb[1], 2 * gate_stride);
-            ggml_tensor * gate_o = ggml_view_2d(ctx_eval, gates, dim, 1, gates->nb[1], 3 * gate_stride);
-
-            ggml_tensor * i = ggml_sigmoid(ctx_eval, gate_i);
-            ggml_tensor * f = ggml_sigmoid(ctx_eval, gate_f);
-            ggml_tensor * g = ggml_tanh(ctx_eval, gate_g);
-            ggml_tensor * o = ggml_sigmoid(ctx_eval, gate_o);
-
-            ggml_tensor * c_t = ggml_add(ctx_eval, ggml_mul(ctx_eval, f, c_prev[(size_t) li]), ggml_mul(ctx_eval, i, g));
-            ggml_tensor * h_t = ggml_mul(ctx_eval, o, ggml_tanh(ctx_eval, c_t));
-
-            h_prev[(size_t) li] = h_t;
-            c_prev[(size_t) li] = c_t;
-            layer_in = h_t;
+    // Layer-major: each layer projects its whole input sequence in one GEMM
+    // (W_ih x + b_ih + b_hh), leaving only W_hh h per step.  On GPU backends the
+    // recurrence (thousands of [dim, 1] ops) runs on the CPU, where tiny ops are
+    // cheap: Metal paid a dispatch per node.
+    std::optional<codec_graph_cpu_scope> cpu_scope;
+    if (codec_graph_backend_is_gpu()) cpu_scope.emplace(ctx_eval);
+    ggml_tensor * seq = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_tc));   // [dim, t]
+    for (int32_t li = 0; li < n_layers; ++li) {
+        ggml_tensor * bias = ggml_add(ctx_eval, codec_graph_cast_f32(ctx_eval, b_ih[(size_t) li]),
+                                      codec_graph_cast_f32(ctx_eval, b_hh[(size_t) li]));
+        ggml_tensor * wx = ggml_add(ctx_eval, codec_mul_mat(ctx_eval, w_ih[(size_t) li], seq),
+                                    ggml_reshape_2d(ctx_eval, bias, 4 * dim, 1));                 // [4dim, t]
+        std::vector<ggml_tensor *> hs((size_t) t, nullptr);
+        ggml_tensor * h = nullptr;
+        ggml_tensor * c = nullptr;
+        for (int32_t ti = 0; ti < t; ++ti) {
+            ggml_tensor * gates = ggml_view_2d(ctx_eval, wx, 4 * dim, 1, wx->nb[1], (size_t) ti * wx->nb[1]);
+            if (h != nullptr) gates = ggml_add(ctx_eval, gates, codec_mul_mat(ctx_eval, w_hh[(size_t) li], h));
+            // PyTorch gate order i, f, g, o: one sigmoid and one tanh over all four.
+            ggml_tensor * sg = ggml_sigmoid(ctx_eval, gates);
+            ggml_tensor * tg = ggml_tanh(ctx_eval, gates);
+            auto gate = [&](ggml_tensor * a, int k) {
+                return ggml_view_2d(ctx_eval, a, dim, 1, a->nb[1], (size_t) k * dim * ggml_element_size(a));
+            };
+            ggml_tensor * ig = ggml_mul(ctx_eval, gate(sg, 0), gate(tg, 2));
+            c = c != nullptr ? ggml_add(ctx_eval, ggml_mul(ctx_eval, gate(sg, 1), c), ig) : ggml_cont(ctx_eval, ig);
+            h = ggml_mul(ctx_eval, gate(sg, 3), ggml_tanh(ctx_eval, c));                          // [dim, 1]
+            hs[(size_t) ti] = h;
         }
-
-        y_ct = (y_ct == nullptr) ? layer_in : ggml_concat(ctx_eval, y_ct, layer_in, 1);
+        // Pairwise concat: O(t log t) copying instead of growing one tensor per step.
+        while (hs.size() > 1) {
+            std::vector<ggml_tensor *> next;
+            for (size_t i = 0; i + 1 < hs.size(); i += 2) next.push_back(ggml_concat(ctx_eval, hs[i], hs[i + 1], 1));
+            if (hs.size() % 2 == 1) next.push_back(hs.back());
+            hs.swap(next);
+        }
+        seq = hs[0];                                                                              // [dim, t]
     }
+    ggml_tensor * y_ct = ggml_cont(ctx_eval, seq);
+    cpu_scope.reset();
 
     ggml_tensor * y_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, y_ct));
     if (skip) {
@@ -704,25 +707,25 @@ static bool codec_wt_build_encode(ggml_context * ctx_eval, void * user_data, ggm
 
     x = codec_wt_encode_resblock(ctx_eval, p->model, x, "enc.model.1", &pad_id);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = sconv(x, 4, 2, 1, "enc.model.3.conv.conv");
     if (x == nullptr) return false;
 
     x = codec_wt_encode_resblock(ctx_eval, p->model, x, "enc.model.4", &pad_id);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = sconv(x, 8, 4, 1, "enc.model.6.conv.conv");
     if (x == nullptr) return false;
 
     x = codec_wt_encode_resblock(ctx_eval, p->model, x, "enc.model.7", &pad_id);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = sconv(x, 10, 5, 1, "enc.model.9.conv.conv");
     if (x == nullptr) return false;
 
     x = codec_wt_encode_resblock(ctx_eval, p->model, x, "enc.model.10", &pad_id);
     if (x == nullptr) return false;
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = sconv(x, 16, 8, 1, "enc.model.12.conv.conv");
     if (x == nullptr) return false;
 
@@ -731,7 +734,7 @@ static bool codec_wt_build_encode(ggml_context * ctx_eval, void * user_data, ggm
         return false;
     }
 
-    x = ggml_elu(ctx_eval, x);
+    x = codec_op_unary(ctx_eval, x, CODEC_UNARY_ELU);
     x = sconv(x, 7, 1, 1, "enc.model.15.conv.conv");
     if (x == nullptr) return false;
 

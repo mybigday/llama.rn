@@ -44,10 +44,9 @@ ggml_tensor * codec_bm_snake_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_ten
     if (ctx == nullptr || x_tc == nullptr || alpha == nullptr) return nullptr;
     alpha = codec_graph_cast_f32(ctx, alpha);
     ggml_tensor * a_2d = ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
-    ggml_tensor * a_rep = ggml_repeat(ctx, a_2d, x_tc);              // [t, c]
-    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);  // alpha + 1e-9
-    ggml_tensor * ax = ggml_mul(ctx, a_rep, x_tc);
-    ggml_tensor * s = ggml_sin(ctx, ax);
+    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_2d, 1.0f, 1e-9f);  // alpha + 1e-9
+    ggml_tensor * ax = ggml_mul(ctx, x_tc, a_2d);
+    ggml_tensor * s = codec_op_sin(ctx, ax);
     ggml_tensor * s2 = ggml_mul(ctx, s, s);
     ggml_tensor * frac = ggml_div(ctx, s2, a_eps);
     return ggml_add(ctx, x_tc, frac);

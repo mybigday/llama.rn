@@ -11,6 +11,7 @@
 // writing the WAV — the caller marshals output.
 
 #include "tts_runner.h"
+#include "codec_common.h"
 
 #include "codec.h"
 #include "codec_lm.h"
@@ -61,7 +62,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
     codec_model_params mparams = codec_model_default_params();
     mparams.use_gpu   = a.use_gpu;
     mparams.n_threads = a.n_threads > 0 ? a.n_threads : 1;
-    codec_model * model = codec_model_load_from_file(a.codec_path.c_str(), mparams);
+    codec_model * model = load_codec_model(a.codec_path, mparams, a.kv_overrides);
     if (!model) { out->error = "flow_lm: model load failed"; return 1; }
 
     codec_lm * lm = codec_lm_create(model);
