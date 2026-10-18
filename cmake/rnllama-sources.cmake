@@ -6,7 +6,7 @@
 #
 # vendor/llama.cpp and vendor/codec.cpp keep their upstream layout,
 # so the paths below match upstream's own CMake targets (see vendor/README.md).
-# Backends that only some builds enable (Metal, BLAS, OpenCL, Hexagon) are
+# Backends that only some builds enable (Metal, BLAS, OpenCL, Hexagon, Vulkan) are
 # exposed as separate variables for the caller to add.
 include_guard(GLOBAL)
 
@@ -80,6 +80,10 @@ set_source_files_properties(${_metal_asm} PROPERTIES LANGUAGE ASM)
 file(GLOB RNLLAMA_GGML_BLAS_SOURCES CONFIGURE_DEPENDS ${_ggml}/ggml-blas/*.cpp)
 set(RNLLAMA_GGML_OPENCL_DIR  "${_ggml}/ggml-opencl")
 set(RNLLAMA_GGML_HEXAGON_DIR "${_ggml}/ggml-hexagon")
+# Experimental Android Vulkan variant (android/src/main/cmake/rnllama-vulkan.cmake)
+set(RNLLAMA_GGML_VULKAN_DIR    "${_ggml}/ggml-vulkan")
+set(RNLLAMA_VULKAN_HEADERS_DIR "${RNLLAMA_ROOT_DIR}/vendor/Vulkan-Headers")
+set(RNLLAMA_SPIRV_HEADERS_DIR  "${RNLLAMA_ROOT_DIR}/vendor/SPIRV-Headers")
 
 # --- llama, common, mtmd ------------------------------------------------------
 # vendor/llama.cpp also carries what upstream's CMake project needs for

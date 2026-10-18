@@ -74,6 +74,19 @@ By default, `llama.rn` will use pre-built libraries for Android. If you want to 
 - Add param `devices: ['HTP0']` (or `HTP*` for all HTP sessions) to use HTP devices.
 - Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `reasonNoGPU`, `devices`, so you can confirm runtime behaviour.
 
+##### Vulkan (GPU acceleration) (Experimental)
+
+An opt-in arm64 variant with the ggml Vulkan backend, aimed at Mali and other non-Adreno GPUs ([#364](https://github.com/mybigday/llama.rn/issues/364)). It is not part of the pre-built libraries.
+
+- Set `rnllamaBuildFromSource=true` and `rnllamaVulkan=true` in `android/gradle.properties`. Building needs `glslc` on the host (Vulkan SDK or your distro's package; the NDK's copy is used as a fallback) and a host C++ compiler.
+- The loader picks `rnllama_v8_2_dotprod_vulkan` only on non-Qualcomm devices that declare Vulkan 1.2 hardware support; Adreno devices keep the OpenCL/Hexagon path. Devices whose driver reports less than Vulkan 1.2 are rejected at runtime and inference stays on the CPU.
+- Configure `n_gpu_layers` (> 0) to offload; the GPU shows up as `Vulkan0`. Use `devices: ['CPU']` (or set the `GGML_DISABLE_VULKAN` environment variable) to turn it off.
+- Known issues, from testing on a Mali-G710 (Google Tensor G2):
+  - ggml-vulkan's small matmul tiles were wrong on 16-wide subgroups (most current Mali). Fixed by `scripts/patches/llama.cpp/ggml-vulkan-android.patch`.
+  - The Mali driver keeps ~500 KB per recorded dispatch until the command pool is reset at the end of a graph. Very large graphs (e.g. long audio decodes) can exhaust memory; a ~1500-node LLM graph may hold several hundred MB. A workaround is not included yet.
+  - Mali's `minStorageBufferOffsetAlignment` is 64 bytes. Tensor views at unaligned offsets (other than `mul_mat` src1) trip an assertion.
+  - `test-backend-ops` still showed intermittent NaNs in a few quantized `MUL_MAT` cases (k = 32/96), and `FLASH_ATTN_EXT` was not fully tested.
+
 #### Expo
 
 For use with the Expo framework and CNG builds, you will need `expo-build-properties` to utilize iOS and OpenCL features. Simply add the following to your app.json/app.config.js file:
