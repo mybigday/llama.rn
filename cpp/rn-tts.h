@@ -377,8 +377,11 @@ struct llama_rn_context_tts {
     // possible; the caller (JS) can override.
     // `kv_overrides` are llama.cpp-style "KEY=TYPE:VALUE" GGUF metadata
     // overrides for the codec GGUF (e.g. "cosyvoice.flow.n_timesteps=int:6").
+    // `n_threads` is the codec's CPU thread count; several codec.cpp decoders
+    // (CosyVoice flow, Chatterbox S3G) read it from the model, not from the
+    // per-call decode params.
     llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false,
-                         const std::vector<std::string> &kv_overrides = {});
+                         const std::vector<std::string> &kv_overrides = {}, int n_threads = 0);
     ~llama_rn_context_tts();
 
     // TTS utility methods

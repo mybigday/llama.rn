@@ -429,7 +429,7 @@ static std::string outetts_v1_codes_from_speaker(json speaker) {
 
 // Constructor and destructor implementations
 llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int /* batch_size */, bool use_gpu,
-                                           const std::vector<std::string> &kv_overrides) {
+                                           const std::vector<std::string> &kv_overrides, int n_threads) {
   std::vector<codec_model_kv_override> overrides;
   for (const std::string & spec : kv_overrides) {
       codec_model_kv_override o{};
@@ -441,6 +441,7 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 
   struct codec_model_params model_params = codec_model_default_params();
   model_params.use_gpu = use_gpu;
+  if (n_threads > 0) model_params.n_threads = n_threads;
   codec_model = codec_common::load_codec_model(vocoder_model_path, model_params, overrides);
   if (codec_model == nullptr) {
       throw std::runtime_error("Failed to load codec model");
@@ -469,6 +470,7 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
       codec_common::audio_lm_params alm_params;
       alm_params.codec_path   = vocoder_model_path;
       alm_params.use_gpu      = use_gpu;
+      alm_params.n_threads    = n_threads;
       alm_params.kv_overrides = overrides;
       std::string alm_err;
       audio_lm_ctx = codec_common::audio_lm_init(alm_params, &alm_err);
@@ -3815,12 +3817,16 @@ std::vector<float> llama_rn_context_tts::decodeCodes(llama_rn_context* main_ctx,
     }
 
     struct codec_pcm_buffer pcm = {};
+    const auto t_start = std::chrono::steady_clock::now();
     const enum codec_status status = codec_decode(codec_ctx, &token_buffer, &pcm, decode_params);
     if (status != CODEC_STATUS_SUCCESS) {
         const char *err = codec_get_last_error(codec_ctx);
         LOG_ERROR("codec_decode() failed: %s", err != nullptr ? err : "unknown error");
         return std::vector<float>();
     }
+    LOG_INFO("decodeCodes: %d frames -> %d samples in %.2fs (%d threads)", n_frames, pcm.n_samples,
+             std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count(),
+             decode_params.n_threads);
 
     std::vector<float> audio(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) std::max(1, pcm.n_channels));
     codec_pcm_buffer_free(&pcm);
