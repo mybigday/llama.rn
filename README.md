@@ -10,7 +10,7 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LL
 
 - **GPU/NPU Acceleration**: Metal (iOS), Hexagon NPU (Android, Experimental) for on-device inference
 - **Multimodal Support**: Support vision/audio understanding models through mmproj projector integration
-- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox, BlueMagpie — with reference-audio voice cloning
+- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox (incl. Turbo), BlueMagpie, CosyVoice / BreezyVoice — with reference-audio voice cloning
 - **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
 - **Tool Calling**: Universal function calling support via Jinja templates
 - **Grammar Sampling**: GBNF and JSON schema support for structured, constrained output generation
@@ -711,14 +711,15 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 | **Qwen3-TTS** | 0.6B | `tokens` |
 | **MOSS-TTSD** | v0.5 | `tokens` |
 | **MOSS-TTS-Realtime** | streaming interleave | `tokens` |
-| **Chatterbox (T3)** | English · 23-language multilingual | `tokens` |
+| **Chatterbox (T3)** | English · 23-language multilingual · Turbo | `tokens` |
 | **BlueMagpie-TTS** | Barbet backbone + AudioVAE | `continuous_embd` |
+| **CosyVoice** | BreezyVoice · CosyVoice-300M · CosyVoice2 · CosyVoice3 | `tokens` |
 
 "Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
 
 There are two synthesis flows:
 
-- **`tokens`** — the standard completion loop drives the model (including the codec-LM AR step machine for CSM / Qwen3-TTS / MOSS / Chatterbox) and appends audio codes to `result.audio_tokens`; decode them with `decodeAudioTokens()`.
+- **`tokens`** — the standard completion loop drives the model (including the codec-LM AR step machine for CSM / Qwen3-TTS / MOSS / Chatterbox / CosyVoice) and appends audio codes to `result.audio_tokens`; decode them with `decodeAudioTokens()`.
 - **`continuous_embd`** — continuous-latent models (BlueMagpie-TTS); the loop collects `result.embeddings` (+ `embedding_dim`), decoded with `decodeAudioEmbeddings()`.
 
 > Codec-LM AR and continuous-latent models must be initialized with `embedding: true`.
@@ -738,12 +739,13 @@ const ctx = await initLlama({
 await ctx.initVocoder({ path: codecGgufPath, n_batch: 4096 }) // + optional use_gpu
 
 const caps = await ctx.getTTSCapabilities()
-// { type, family, promptKind, requiresPhonemes, defaultLanguage }
+// { type, family, promptKind, requiresPhonemes, defaultLanguage,
+//   codecVoices, canSpeakerFromAudio, samplingDefaults }
 
 // Build the model-specific prompt + resolve the flow
 const { prompt, grammar, embedding, flow } = await ctx.getFormattedAudioCompletion({
   prompt: 'Hello world',
-  speaker: 'default', // built-in voice name, a LlamaSpeaker (voice clone), or omit for the family default
+  speaker: 'default', // built-in voice name (incl. caps.codecVoices), a LlamaSpeaker (voice clone), or omit for the family default
   // supply a phonemizer only for models that need it (caps.requiresPhonemes)
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
@@ -774,6 +776,34 @@ const { prompt, embedding, flow } = await ctx.getFormattedAudioCompletion({ prom
 await spk.release()         // free the native speaker when done
 ```
 
+For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that. The builtin voices are listed in `caps.codecVoices`; pass a voice's `name` as `speaker`.
+
+The decoder conditioning can be saved to a speaker file and reloaded without the reference audio (a file speaker conditions the decoder only, not the LM):
+
+```ts
+await spk.save(`${dir}/my-voice.gguf`)                 // optional name inside the file
+const voices = await ctx.listSpeakerFile(`${dir}/my-voice.gguf`)
+const saved = await ctx.loadSpeakerFile(`${dir}/my-voice.gguf`) // a LlamaSpeaker
+```
+
+### Codec options
+
+`initVocoder({ kv_overrides })` overrides codec GGUF metadata at load, as llama.cpp-style `KEY=TYPE:VALUE` strings (`TYPE` is `int`, `float`, `bool` or `str`). The flow-matching decoders (Chatterbox S3G, CosyVoice) run `n_timesteps` × 2 (CFG) U-Net passes, which dominates decode time on a phone; fewer steps trade a little speaker fidelity for speed:
+
+```ts
+await ctx.initVocoder({
+  path: codecGgufPath,
+  kv_overrides: ['cosyvoice.flow.n_timesteps=int:6'], // or chatterbox_s3g.flow.n_timesteps; cfg_rate=float:0 drops CFG
+})
+```
+
+### Model notes
+
+- **Chatterbox Turbo**: sampling follows the reference regime stored in the GGUF; read `caps.samplingDefaults` (temperature, top_k, top_p, penalty_repeat) and pass them to `completion()`.
+- **CosyVoice / BreezyVoice** always needs a decoder speaker: a builtin voice (`caps.codecVoices`, e.g. `zh_female`) or a `LlamaSpeaker`. A `LlamaSpeaker` with `refText` (the clip's transcript) runs zero-shot cloning; without it, cross-lingual. Sampling (top_k / top_p / repetition-aware sampling) comes from the GGUF and is tuned through `kv_overrides` (`codec.lm.cosyvoice.top_k=int:10`); `temperature: 0` selects greedy. Text normalization and sentence splitting are not ported: pass normalized sentences.
+- **BreezyVoice** reads Mandarin with 注音 (bopomofo) annotations that upstream adds with g2pw. `caps.requiresPhonemes` is true for it, and the `phonemizer` hook is where to add them; plain text works but polyphones may be misread.
+- CosyVoice-300M / BreezyVoice use a llama.cpp arch (`cosyvoice`) whose relative positions are a KQ bias, which flash attention does not take. Use an F16 KV cache with them; a quantized V cache forces flash attention.
+
 ### Tested models
 
 Every family in the catalog was run end-to-end (load → synthesize → decode) on an Apple M1 Max (Metal and CPU) and a Galaxy S25 Ultra / Snapdragon 8 Elite (Hexagon HTP and CPU), then the generated audio was transcribed with Whisper large-v3-turbo to check it actually says the requested text.
@@ -793,6 +823,8 @@ Legend: ✅ pass · ⚠️ works but output is unreliable · ❌ fails · — no
 | **Soprano** 1.1 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
 | **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ✅ Correct on latest run |
 | **OuteTTS** v0.1 · v0.2 | — | — | — | — | Not covered by this run |
+
+Chatterbox Turbo, BreezyVoice and CosyVoice2 have so far only been run on a Linux CPU host (`tests/tts_probe`), not on a device. Turbo transcribed exactly with the builtin voice and with a cloned voice. BreezyVoice and CosyVoice2 were compared against codec.cpp's own `tts-cli` on the same seeds and produced the same transcripts (and mostly the same token counts). Cloning raised the speaker similarity to the reference clip in every case.
 
 Caveats:
 
