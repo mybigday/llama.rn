@@ -631,6 +631,9 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         // Default -1 means no speaker override.
         if (ctx->tts_wrapper != nullptr) {
             ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(params, "speakerId", -1);
+            if (ctx->tts_wrapper->pending_speaker_id >= 0) {
+                ctx->tts_wrapper->decode_speaker_id = ctx->tts_wrapper->pending_speaker_id;
+            }
         }
     }
 }

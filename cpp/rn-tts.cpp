@@ -428,10 +428,20 @@ static std::string outetts_v1_codes_from_speaker(json speaker) {
 }
 
 // Constructor and destructor implementations
-llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int /* batch_size */, bool use_gpu) {
+llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int /* batch_size */, bool use_gpu,
+                                           const std::vector<std::string> &kv_overrides) {
+  std::vector<codec_model_kv_override> overrides;
+  for (const std::string & spec : kv_overrides) {
+      codec_model_kv_override o{};
+      if (!codec_common::parse_kv_override(spec.c_str(), &o)) {
+          throw std::runtime_error("Invalid codec kv override '" + spec + "' (expected KEY=TYPE:VALUE, TYPE int|float|bool|str)");
+      }
+      overrides.push_back(o);
+  }
+
   struct codec_model_params model_params = codec_model_default_params();
   model_params.use_gpu = use_gpu;
-  codec_model = codec_model_load_from_file(vocoder_model_path.c_str(), model_params);
+  codec_model = codec_common::load_codec_model(vocoder_model_path, model_params, overrides);
   if (codec_model == nullptr) {
       throw std::runtime_error("Failed to load codec model");
   }
@@ -457,8 +467,9 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
   // direct codec_decode path.
   {
       codec_common::audio_lm_params alm_params;
-      alm_params.codec_path = vocoder_model_path;
-      alm_params.use_gpu    = use_gpu;
+      alm_params.codec_path   = vocoder_model_path;
+      alm_params.use_gpu      = use_gpu;
+      alm_params.kv_overrides = overrides;
       std::string alm_err;
       audio_lm_ctx = codec_common::audio_lm_init(alm_params, &alm_err);
       if (audio_lm_ctx == nullptr) {
@@ -472,6 +483,8 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 }
 
 llama_rn_context_tts::~llama_rn_context_tts() {
+  // Speakers hold codec_speaker handles; free them before the codec model.
+  speakers.clear();
   if (bb_sampler != nullptr) {
       common_sampler_free(bb_sampler);
       bb_sampler = nullptr;
@@ -669,6 +682,9 @@ static const tts_model_profile TTS_PROFILES[] = {
     // path is tracked separately (see rn-tts plans / chatterbox.md in codec.cpp).
     {CHATTERBOX_T3,              tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
     {CHATTERBOX_T3_MULTILINGUAL, tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
+    // Chatterbox Turbo: GPT-2 T3 (backbone vocab tokenizes the text, no CFG)
+    // + MeanFlow S3Gen; same prefill / step hooks as the Llama T3.
+    {CHATTERBOX_TURBO,           tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
     // BlueMagpie-TTS (OpenFormosa): Barbet (Mamba2+attn hybrid) backbone + AudioVAE
     // continuous-latent codec_lm.  Continuous flow doesn't consume codebooks; the
     // completion loop's `tryContinuousAudioStep` hook drives codec_lm_step_generate
@@ -750,6 +766,9 @@ static tts_type type_from_string(const std::string &value) {
     if (contains_case_insensitive(value, "chatterbox-multilingual") || contains_case_insensitive(value, "chatterbox_multilingual") ||
         contains_case_insensitive(value, "mtl23ls")) {
         return CHATTERBOX_T3_MULTILINGUAL;
+    }
+    if (contains_case_insensitive(value, "chatterbox-turbo") || contains_case_insensitive(value, "chatterbox_turbo")) {
+        return CHATTERBOX_TURBO;
     }
     if (contains_case_insensitive(value, "chatterbox")) {
         return CHATTERBOX_T3;
@@ -1119,6 +1138,12 @@ tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speak
         if (info && info->is_continuous) {
             if (host_arch == "barbet") return BLUEMAGPIE_TTS;
         }
+        // Chatterbox T3 adaptors describe their variant themselves.
+        if (const ::codec_lm_chatterbox_info * ci = ::codec_lm_chatterbox_get_info(codec_lm)) {
+            if (ci->is_turbo)        return CHATTERBOX_TURBO;
+            if (ci->is_multilingual) return CHATTERBOX_T3_MULTILINGUAL;
+            return CHATTERBOX_T3;
+        }
         // Disambiguate codec_lm-driven models by host_arch + n_codebook.
         if (host_arch == "llama" && n_cb == 32) return CSM_1B;
         if (host_arch == "qwen3" && n_cb == 16) return QWEN3_TTS_0_6B;
@@ -1236,9 +1261,20 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
             cap.family = "moss_ttsd";
             break;
         case tts_prompt_kind::CHATTERBOX:
-            cap.prompt_kind = (cap.type == CHATTERBOX_T3_MULTILINGUAL)
-                ? "chatterbox_multilingual" : "chatterbox";
+            cap.prompt_kind = cap.type == CHATTERBOX_T3_MULTILINGUAL ? "chatterbox_multilingual"
+                            : cap.type == CHATTERBOX_TURBO           ? "chatterbox_turbo"
+                                                                     : "chatterbox";
             cap.family = "chatterbox";
+            if (::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr) {
+                if (const ::codec_lm_chatterbox_info * ci = ::codec_lm_chatterbox_get_info(lm)) {
+                    // < 0 = not specified by the GGUF.
+                    if (ci->temperature >= 0.0f)        cap.sampling_defaults["temperature"]    = ci->temperature;
+                    if (ci->top_k >= 0)                 cap.sampling_defaults["top_k"]          = ci->top_k;
+                    if (ci->top_p >= 0.0f)              cap.sampling_defaults["top_p"]          = ci->top_p;
+                    if (ci->min_p >= 0.0f)              cap.sampling_defaults["min_p"]          = ci->min_p;
+                    if (ci->repetition_penalty >= 0.0f) cap.sampling_defaults["penalty_repeat"] = ci->repetition_penalty;
+                }
+            }
             break;
         case tts_prompt_kind::BLUEMAGPIE:
             cap.prompt_kind = "bluemagpie";
@@ -1246,6 +1282,16 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
             break;
     }
     cap.requires_phonemes = (profile.prompt_kind == tts_prompt_kind::NEUTTS);
+    if (codec_model != nullptr) {
+        const ::codec_speaker * def = codec_get_speaker(codec_model, nullptr);
+        for (int32_t i = 0; i < codec_model_n_speakers(codec_model); ++i) {
+            const char * name = codec_model_speaker_name(codec_model, i);
+            const ::codec_speaker * spk = codec_get_speaker(codec_model, name);
+            const char * ref_text = spk != nullptr ? codec_speaker_ref_text(spk) : nullptr;
+            cap.codec_voices.push_back({name, ref_text != nullptr ? ref_text : "", spk == def});
+        }
+        cap.can_speaker_from_audio = codec_model_can_speaker_from_audio(codec_model);
+    }
     // BlueMagpie was trained on Taiwanese-Mandarin data — flag zh-tw so the
     // JS-side language picker defaults right; other families keep en-us.
     cap.default_language =
@@ -1399,6 +1445,10 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     // that fires between getFormattedAudioCompletion and nextToken.)
     // Thread the speaker id for Task 5 consumption in rn-completion.cpp.
     pending_speaker_id = speakerId;
+    decode_speaker_id  = speakerId;
+    pending_codec_voice = speaker_in.is_object() && speaker_in.contains("codec_voice") &&
+                          speaker_in["codec_voice"].is_string()
+        ? speaker_in["codec_voice"].get<std::string>() : std::string();
     talker_prefix_embd.clear();
     talker_prefix_rows           = 0;
     talker_prefix_hidden         = 0;
@@ -1586,7 +1636,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         // only accepts the 256-d pre-cond-enc intermediate or raw PCM.
         // The PCM path produces byte-identical cond output to the baked emb.
         if (speakerId >= 0) {
-            const rn_speaker * spk = autoBakeSpeaker(main_ctx, speakerId);
+            const rn_speaker * spk = getSpeaker(speakerId);
             if (spk != nullptr && !spk->pcm.empty() && spk->sample_rate > 0) {
                 pending_chatterbox_ref_pcm         = spk->pcm;
                 pending_chatterbox_ref_n_samples   = (int)spk->pcm.size();
@@ -1737,6 +1787,52 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
 // ─────────────────────────────────────────────────────────────────────
 
 namespace {
+
+// Linear-interpolation resample of mono F32 PCM, as codec.cpp's tts_runner
+// feeds its speaker encoders (Chatterbox VE wants 16 kHz).
+std::vector<float> resample_mono_f32(const std::vector<float> & in, int32_t in_sr, int32_t out_sr) {
+    if (in.empty() || in_sr <= 0 || out_sr <= 0 || in_sr == out_sr) return in;
+    const int64_t n_in  = (int64_t) in.size();
+    const int64_t n_out = n_in * out_sr / in_sr;
+    std::vector<float> out((size_t) std::max<int64_t>(n_out, 1));
+    for (int64_t i = 0; i < (int64_t) out.size(); ++i) {
+        const double src = (double) i * in_sr / out_sr;
+        const int64_t i0 = (int64_t) src;
+        const double f = src - (double) i0;
+        const float a0 = in[(size_t) std::min<int64_t>(i0,     n_in - 1)];
+        const float a1 = in[(size_t) std::min<int64_t>(i0 + 1, n_in - 1)];
+        out[(size_t) i] = (float) ((double) a0 * (1.0 - f) + (double) a1 * f);
+    }
+    return out;
+}
+
+// Chatterbox T3 logit processors ahead of temperature / top-k / top-p:
+// HF repetition penalty over every speech token generated so far, then min_p
+// (drop tokens whose probability after temperature is below min_p x the top
+// one).  penalty <= 1 / min_p <= 0 disable them.
+void apply_chatterbox_logit_processors(std::vector<float> & logits,
+                                       const std::vector<llama_token> & history,
+                                       float penalty, float min_p, float temperature) {
+    const int32_t n = (int32_t) logits.size();
+    if (penalty > 1.0f) {
+        std::vector<bool> seen((size_t) n, false);
+        for (llama_token t : history) {
+            if (t >= 0 && t < n && !seen[(size_t) t]) {
+                seen[(size_t) t] = true;
+                float & v = logits[(size_t) t];
+                v = v > 0.0f ? v / penalty : v * penalty;
+            }
+        }
+    }
+    if (min_p > 0.0f && min_p < 1.0f && temperature > 0.0f) {
+        float max_l = -std::numeric_limits<float>::infinity();
+        for (float v : logits) if (std::isfinite(v) && v > max_l) max_l = v;
+        if (std::isfinite(max_l)) {
+            const float floor_l = max_l + temperature * std::log(min_p);
+            for (float & v : logits) if (v < floor_l) v = -std::numeric_limits<float>::infinity();
+        }
+    }
+}
 
 // Greedy / temperature + top-k + top-p sampler over a raw logits buffer.
 // Mirrors the semantics of tts.py's sample_logits — caller passes RNG
@@ -2518,6 +2614,9 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
     const int n_cb = info->n_codebook;
     const tts_model_profile & profile = profile_for_type(type);
     const bool text_modality_cb0 = (profile.audio_codebook_offset > 0);
+    // Chatterbox T3's sampler (tts.py / tts_turbo.py) adds a repetition
+    // penalty over the generated speech tokens and min_p.
+    const bool chatterbox_sampling = profile.prompt_kind == tts_prompt_kind::CHATTERBOX;
 
     // Text-modality cb0 (old path — MOSS-TTSD / MOSS-TTS-Realtime when
     // audio_lm_ctx is unavailable or doesn't have the flags set).
@@ -2551,6 +2650,18 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
         if (logits == nullptr || vocab <= 0) {
             LOG_ERROR("tryCodecLmAudioStep: step_logits failed at cb=%d", cb);
             return false;
+        }
+        if (chatterbox_sampling) {
+            std::vector<float> lg(logits, logits + vocab);
+            apply_chatterbox_logit_processors(lg, audio_tokens, sp.penalty_repeat, sp.min_p, samp_temp);
+            const int32_t code = sample_codec_logits(lg.data(), vocab,
+                samp_temp, samp_topk, samp_topp, &codec_lm_ar_rng);
+            if (::codec_lm_step_push_code(codec_lm_state, code) != CODEC_STATUS_SUCCESS) {
+                LOG_ERROR("tryCodecLmAudioStep: step_push_code failed at cb=%d code=%d",
+                          cb, code);
+                return false;
+            }
+            continue;
         }
         const int32_t code = sample_codec_logits(logits, vocab,
             samp_temp, samp_topk, samp_topp, &codec_lm_ar_rng);
@@ -2794,17 +2905,54 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
         cfg_weight = 0.0f;
     }
 
-    // Tokenize text with the baked BPE.
-    std::vector<int32_t> text_ids(text.size() + 64);
-    int32_t n_text = 0;
-    if (::codec_lm_chatterbox_tokenize(lm, text.c_str(),
-                                        text_ids.data(), (int32_t)text_ids.size(),
-                                        &n_text) != CODEC_STATUS_SUCCESS) {
-        LOG_ERROR("tryChatterboxPrefill: tokenize failed: %s",
-                  ::codec_lm_get_last_error(lm));
+    // Turbo has no CFG lane.
+    if (ci->is_turbo) cfg_weight = 0.0f;
+
+    std::vector<int32_t> text_ids;
+    if (ci->backbone_tokenizer) {
+        // Turbo: the variant's punc_norm on the codec side, then the GPT-2
+        // backbone vocab (paralinguistic tags like "[laugh]" are added tokens).
+        std::vector<char> normed(text.size() * 2 + 64);
+        if (::codec_lm_chatterbox_normalize_text(lm, text.c_str(), normed.data(),
+                                                 (int32_t) normed.size()) != CODEC_STATUS_SUCCESS) {
+            LOG_ERROR("tryChatterboxPrefill: normalize_text failed: %s",
+                      ::codec_lm_get_last_error(lm));
+            return false;
+        }
+        text_ids = common_tokenize(llama_model_get_vocab(main_ctx->model), normed.data(),
+                                   /*add_special=*/false, /*parse_special=*/true);
+    } else {
+        // Llama T3: the BPE baked into the codec GGUF.
+        text_ids.resize(text.size() + 64);
+        int32_t n = 0;
+        if (::codec_lm_chatterbox_tokenize(lm, text.c_str(),
+                                            text_ids.data(), (int32_t)text_ids.size(),
+                                            &n) != CODEC_STATUS_SUCCESS) {
+            LOG_ERROR("tryChatterboxPrefill: tokenize failed: %s",
+                      ::codec_lm_get_last_error(lm));
+            return false;
+        }
+        text_ids.resize((size_t)n);
+    }
+    const int32_t n_text = (int32_t) text_ids.size();
+    if (n_text == 0) {
+        LOG_ERROR("tryChatterboxPrefill: empty text");
         return false;
     }
-    text_ids.resize((size_t)n_text);
+
+    // The voice encoder runs at its own rate (16 kHz); resample like tts_runner.
+    std::vector<float> ref_resampled;
+    if (ref_pcm != nullptr && ref_n_samples > 0 && ref_sample_rate > 0) {
+        const ::codec_lm_speaker_info * si = ::codec_lm_speaker_get_info(lm);
+        const int32_t enc_sr = si != nullptr && si->ref_sample_rate > 0 ? si->ref_sample_rate : 16000;
+        if (ref_sample_rate != enc_sr) {
+            ref_resampled = resample_mono_f32(std::vector<float>(ref_pcm, ref_pcm + ref_n_samples),
+                                              ref_sample_rate, enc_sr);
+            ref_pcm         = ref_resampled.data();
+            ref_n_samples   = (int) ref_resampled.size();
+            ref_sample_rate = enc_sr;
+        }
+    }
 
     const int32_t n_seq_cap = (cfg_weight > 0.0f) ? 2 : 1;
     const int32_t seq_len_cap = ci->cond_rows + (n_text + 2) + 2;
@@ -3125,33 +3273,31 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         return decodeAudioEmbeddings(main_ctx, main_ctx->completion->embeddings, main_ctx->completion->embedding_dim);
     }
     if (profile.decode_kind == tts_decode_kind::UNSUPPORTED) {
-        // Chatterbox T3 with audio_lm path active decodes via audio_lm_decode_audio.
-        // Codes were accumulated into audio_tokens by the legacy codec_lm_state_*
-        // step path (Chatterbox doesn't hit the audio_lm Phase B fork today), so
-        // push them into the audio_lm accumulator first — decode_audio applies
-        // the codec's expected shape unshift internally.
-        if (audio_lm_ctx != nullptr) {
-            if (!tokens.empty()) {
-                const int32_t n_q = 1;  // Chatterbox S3G is single-codebook
-                const int32_t n_frames = (int32_t) tokens.size() / n_q;
-                std::vector<int32_t> flat(tokens.begin(), tokens.end());
-                if (!codec_common::audio_lm_push_codes(audio_lm_ctx, flat.data(),
-                                                       n_frames, n_q)) {
-                    LOG_ERROR("decodeAudioTokens: audio_lm_push_codes failed: %s",
-                              codec_common::audio_lm_last_error(audio_lm_ctx));
-                    return {};
-                }
-            }
-            codec_common::audio_lm_audio_output pcm_out;
-            if (!codec_common::audio_lm_decode_audio(audio_lm_ctx, &pcm_out)) {
-                LOG_ERROR("decodeAudioTokens: audio_lm_decode_audio failed: %s",
-                          codec_common::audio_lm_last_error(audio_lm_ctx));
-                return {};
-            }
-            return pcm_out.pcm;
+        // Single-codebook S3 token stream (Chatterbox S3G).  Decode directly
+        // so the decoder speaker can be passed; codes outside the codebook
+        // (start/stop speech tokens the T3 head can emit) are dropped, never
+        // clamped into it.
+        if (profile.prompt_kind != tts_prompt_kind::CHATTERBOX) {
+            LOG_ERROR("This TTS model's codec is not supported by codec.cpp yet");
+            return std::vector<float>();
         }
-        LOG_ERROR("This TTS model's codec is not supported by codec.cpp yet");
-        return std::vector<float>();
+        const int32_t codebook_size = codec_model_codebook_size(codec_model);
+        std::vector<int32_t> codes;
+        codes.reserve(tokens.size() + 4);
+        for (llama_token t : tokens) {
+            if (t >= 0 && (codebook_size <= 0 || t < codebook_size)) codes.push_back(t);
+        }
+        // Chatterbox Turbo appends S3GEN_SIL x 3 before S3Gen (tts_turbo.py).
+        ::codec_lm * lm = audio_lm_ctx != nullptr ? codec_common::audio_lm_get_lm(audio_lm_ctx) : nullptr;
+        const ::codec_lm_chatterbox_info * ci = lm != nullptr ? ::codec_lm_chatterbox_get_info(lm) : nullptr;
+        if (!codes.empty() && ci != nullptr && ci->silence_token >= 0) {
+            codes.insert(codes.end(), (size_t) std::max(0, ci->n_trailing_silence), ci->silence_token);
+        }
+        if (codes.empty()) {
+            LOG_ERROR("decodeAudioTokens: no speech codes to decode");
+            return std::vector<float>();
+        }
+        return decodeCodes(main_ctx, codes, (int32_t) codes.size(), 1);
     }
 
     // For codec_lm-AR models that used the audio_lm_ctx path (Qwen3-TTS /
@@ -3281,13 +3427,18 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
     } else {
         codec_tokens.assign(tokens_audio.begin(), tokens_audio.end());
     }
-    struct codec_token_buffer token_buffer = {};
-    token_buffer.data = codec_tokens.data();
-    token_buffer.n_tokens = (int32_t)codec_tokens.size();
     // Delay-unshift trims max_delay tail frames; the buffer carries
     // n_frames_aligned frames (== n_frames when no delay).  Upstream
     // audio_lm_decode_audio uses the trimmed count (n_frames_out) here.
-    token_buffer.n_frames = (int32_t) n_frames_aligned;
+    return decodeCodes(main_ctx, codec_tokens, (int32_t) n_frames_aligned, n_q);
+}
+
+std::vector<float> llama_rn_context_tts::decodeCodes(llama_rn_context* main_ctx, std::vector<int32_t> &codes,
+                                                     int32_t n_frames, int32_t n_q) {
+    struct codec_token_buffer token_buffer = {};
+    token_buffer.data = codes.data();
+    token_buffer.n_tokens = (int32_t) codes.size();
+    token_buffer.n_frames = n_frames;
     token_buffer.n_q = n_q;
     token_buffer.codebook_size = codec_model_codebook_size(codec_model);
     token_buffer.sample_rate = codec_model_sample_rate(codec_model);
@@ -3298,6 +3449,10 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         decode_params.n_threads = main_ctx->params.cpuparams.n_threads;
     }
     decode_params.n_q = n_q;
+    // Codecs without speakers reject a non-NULL speaker.
+    if (codec_model_n_speakers(codec_model) > 0 || codec_model_can_speaker_from_audio(codec_model)) {
+        decode_params.speaker = resolveDecodeSpeaker();
+    }
 
     struct codec_pcm_buffer pcm = {};
     const enum codec_status status = codec_decode(codec_ctx, &token_buffer, &pcm, decode_params);
@@ -3307,7 +3462,7 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         return std::vector<float>();
     }
 
-    std::vector<float> audio(pcm.data, pcm.data + pcm.n_samples);
+    std::vector<float> audio(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) std::max(1, pcm.n_channels));
     codec_pcm_buffer_free(&pcm);
     return audio;
 }
@@ -3518,7 +3673,8 @@ const rn_speaker * llama_rn_context_tts::autoBakeSpeaker(llama_rn_context * main
     if (id < 0) return nullptr;
     const rn_speaker * s = getSpeaker(id);
     if (s == nullptr) return nullptr;
-    if (!s->baked) {
+    if (!s->baked && !s->bake_tried) {
+        speakers[id].bake_tried = true;
         bakeSpeaker(main_ctx, id);
         s = getSpeaker(id);
     }
@@ -3527,6 +3683,115 @@ const rn_speaker * llama_rn_context_tts::autoBakeSpeaker(llama_rn_context * main
 
 void llama_rn_context_tts::releaseSpeaker(int id) {
     speakers.erase(id);
+}
+
+// ── Decoder speakers (codec_speaker) ────────────────────────────────────────
+
+static std::shared_ptr<::codec_speaker> own_codec_speaker(::codec_speaker * spk) {
+    return std::shared_ptr<::codec_speaker>(spk, [](::codec_speaker * s) {
+        if (s != nullptr) codec_speaker_free(s);
+    });
+}
+
+static std::string codec_error(::codec_context * ctx) {
+    const char * err = ctx != nullptr ? codec_get_last_error(ctx) : nullptr;
+    return err != nullptr && *err ? err : "unknown error";
+}
+
+const ::codec_speaker * llama_rn_context_tts::resolveDecodeSpeaker() {
+    if (codec_model == nullptr) return nullptr;
+    auto it = decode_speaker_id >= 0 ? speakers.find(decode_speaker_id) : speakers.end();
+    if (it != speakers.end()) {
+        rn_speaker & spk = it->second;
+        // Derive once per speaker; a failure is logged once and the decoder
+        // keeps the default voice.
+        if (!spk.codec_spk && !spk.codec_spk_tried && !spk.pcm.empty() && spk.sample_rate > 0 &&
+            codec_model_can_speaker_from_audio(codec_model)) {
+            spk.codec_spk_tried = true;
+            struct codec_audio ref = {};
+            ref.data        = spk.pcm.data();
+            ref.n_samples   = (int32_t) spk.pcm.size();
+            ref.sample_rate = spk.sample_rate;
+            ref.n_channels  = 1;
+            ref.pcm_type    = CODEC_PCM_TYPE_F32;
+            ::codec_speaker * out = nullptr;
+            if (codec_speaker_from_audio(codec_ctx, &ref, &out) == CODEC_STATUS_SUCCESS) {
+                if (!spk.ref_text.empty()) codec_speaker_set_ref_text(out, spk.ref_text.c_str());
+                spk.codec_spk = own_codec_speaker(out);
+            } else {
+                LOG_WARNING("resolveDecodeSpeaker: speaker from reference audio failed: %s",
+                            codec_error(codec_ctx).c_str());
+            }
+        }
+        if (spk.codec_spk) return spk.codec_spk.get();
+    }
+    if (!pending_codec_voice.empty()) {
+        const ::codec_speaker * voice = codec_get_speaker(codec_model, pending_codec_voice.c_str());
+        if (voice != nullptr) return voice;
+        LOG_WARNING("resolveDecodeSpeaker: unknown voice '%s'; using the default speaker",
+                    pending_codec_voice.c_str());
+    }
+    return nullptr;
+}
+
+int llama_rn_context_tts::loadSpeakerFile(const std::string & path, const std::string & name) {
+    if (codec_model == nullptr) throw std::runtime_error("loadSpeakerFile: codec model not loaded");
+    ::codec_speaker * out = nullptr;
+    if (codec_speaker_load(codec_model, path.c_str(), name.empty() ? nullptr : name.c_str(), &out)
+            != CODEC_STATUS_SUCCESS) {
+        throw std::runtime_error("loadSpeakerFile: failed to load " +
+                                 (name.empty() ? std::string("the default speaker") : "speaker '" + name + "'") +
+                                 " from " + path + " (" + codec_error(codec_ctx) + ")");
+    }
+    rn_speaker spk;
+    const char * ref_text = codec_speaker_ref_text(out);
+    spk.ref_text        = ref_text != nullptr ? ref_text : "";
+    spk.codec_spk       = own_codec_speaker(out);
+    spk.codec_spk_tried = true;
+    const int id = next_speaker_id++;
+    speakers[id] = std::move(spk);
+    return id;
+}
+
+void llama_rn_context_tts::saveSpeaker(int id, const std::string & path, const std::string & name) {
+    if (codec_model == nullptr) throw std::runtime_error("saveSpeaker: codec model not loaded");
+    if (speakers.find(id) == speakers.end()) throw std::runtime_error("saveSpeaker: speaker id not found");
+    const int prev = decode_speaker_id;
+    const std::string prev_voice = pending_codec_voice;
+    decode_speaker_id = id;
+    pending_codec_voice.clear();
+    resolveDecodeSpeaker();  // derives the codec_speaker from the PCM if needed
+    decode_speaker_id   = prev;
+    pending_codec_voice = prev_voice;
+    const rn_speaker & spk = speakers[id];
+    if (!spk.codec_spk) {
+        throw std::runtime_error(codec_model_can_speaker_from_audio(codec_model)
+            ? "saveSpeaker: could not derive a decoder speaker from the reference audio"
+            : "saveSpeaker: this codec cannot derive a decoder speaker from audio");
+    }
+    if (codec_speaker_save(codec_model, spk.codec_spk.get(), name.empty() ? "default" : name.c_str(),
+                           path.c_str()) != CODEC_STATUS_SUCCESS) {
+        throw std::runtime_error("saveSpeaker: failed to write " + path + " (" + codec_error(codec_ctx) + ")");
+    }
+}
+
+std::vector<llama_rn_codec_voice> llama_rn_context_tts::listSpeakerFile(const std::string & path) {
+    if (codec_model == nullptr) throw std::runtime_error("listSpeakerFile: codec model not loaded");
+    ::codec_speaker_file * file = nullptr;
+    if (codec_speaker_file_open(codec_model, path.c_str(), &file) != CODEC_STATUS_SUCCESS) {
+        throw std::runtime_error("listSpeakerFile: failed to open " + path + " (" + codec_error(codec_ctx) + ")");
+    }
+    std::vector<llama_rn_codec_voice> out;
+    const ::codec_speaker * def = codec_speaker_file_get_speaker(file, nullptr);
+    for (int32_t i = 0; i < codec_speaker_file_n_speakers(file); ++i) {
+        const ::codec_speaker * spk =
+            codec_speaker_file_get_speaker(file, codec_speaker_file_speaker_name(file, i));
+        if (spk == nullptr) continue;
+        const char * ref_text = codec_speaker_ref_text(spk);
+        out.push_back({codec_speaker_name(spk), ref_text != nullptr ? ref_text : "", spk == def});
+    }
+    codec_speaker_file_free(file);
+    return out;
 }
 
 int llama_rn_context_tts::getAudioSampleRate() const {

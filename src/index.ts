@@ -111,7 +111,7 @@ export type {
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
 
-export type { TTSCapabilities } from './tts'
+export type { TTSCapabilities, TTSVoice } from './tts'
 export {
   lookupVoice as getTTSVoice,
   listVoices as listTTSVoices,
@@ -164,6 +164,9 @@ const jsiBindingKeys = [
   'llamaCreateSpeaker',
   'llamaBakeSpeaker',
   'llamaReleaseSpeaker',
+  'llamaLoadSpeakerFile',
+  'llamaSaveSpeaker',
+  'llamaListSpeakerFile',
   'llamaDecodeAudioEmbeddings',
   'llamaGetAudioSampleRate',
   'llamaReleaseVocoder',
@@ -421,6 +424,17 @@ export class LlamaSpeaker {
     const r = await llamaBakeSpeaker(this.ctxId, this.id)
     this.rows = r.rows
     this.baked = r.baked
+  }
+
+  /**
+   * Write this speaker's decoder conditioning (codec_speaker) to a speaker
+   * file, for codecs with `canSpeakerFromAudio` (Chatterbox S3G, CosyVoice).
+   * Reload it with `LlamaContext.loadSpeakerFile`.
+   */
+  async save(path: string, name?: string): Promise<void> {
+    const { llamaSaveSpeaker } = getJsi()
+    if (path.startsWith('file://')) path = path.slice(7)
+    await llamaSaveSpeaker(this.ctxId, this.id, path, name)
   }
 
   async release(): Promise<void> {
@@ -1178,6 +1192,7 @@ export class LlamaContext {
     path,
     n_batch: nBatch,
     use_gpu: useGpu,
+    kv_overrides: kvOverrides,
   }: {
     path: string
     n_batch?: number
@@ -1186,6 +1201,10 @@ export class LlamaContext {
     // Defaults to true when the main context was created with
     // `n_gpu_layers > 0`, false otherwise; pass explicitly to override.
     use_gpu?: boolean
+    // Codec GGUF metadata overrides as llama.cpp-style `KEY=TYPE:VALUE`
+    // (TYPE: int | float | bool | str), e.g. fewer flow-matching steps:
+    // `['cosyvoice.flow.n_timesteps=int:6']`.
+    kv_overrides?: string[]
   }): Promise<boolean> {
     const { llamaInitVocoder } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
@@ -1193,6 +1212,7 @@ export class LlamaContext {
       path,
       n_batch: nBatch,
       use_gpu: useGpu,
+      ...(kvOverrides ? { kv_overrides: kvOverrides } : {}),
     })
   }
 
@@ -1271,6 +1291,12 @@ export class LlamaContext {
     let payload: Record<string, any> | null
     if (options.speaker && typeof options.speaker === 'object') {
       payload = { ...options.speaker }
+    } else if (
+      typeof options.speaker === 'string' &&
+      cap.codecVoices.some((v) => v.name === options.speaker)
+    ) {
+      // A builtin decoder voice of the codec GGUF (codec_speaker).
+      payload = { codec_voice: options.speaker }
     } else {
       const name =
         typeof options.speaker === 'string' ? options.speaker : 'default'
@@ -1379,6 +1405,26 @@ export class LlamaContext {
       ...(config.emotion !== undefined ? { emotion: config.emotion } : {}),
     })
     return new LlamaSpeaker(this.id, h)
+  }
+
+  /**
+   * Load a speaker file (written by `LlamaSpeaker.save` or codec.cpp's
+   * `tts-cli --save-speaker`) as a speaker. `name` picks a speaker inside the
+   * file (default: the file's default speaker). It conditions the decoder
+   * only; there is no reference audio for the LM side.
+   */
+  async loadSpeakerFile(path: string, name?: string): Promise<LlamaSpeaker> {
+    const { llamaLoadSpeakerFile } = getJsi()
+    if (path.startsWith('file://')) path = path.slice(7)
+    const h = await llamaLoadSpeakerFile(this.id, path, name)
+    return new LlamaSpeaker(this.id, h)
+  }
+
+  /** Speakers stored in a speaker file. */
+  async listSpeakerFile(path: string): Promise<import('./tts').TTSVoice[]> {
+    const { llamaListSpeakerFile } = getJsi()
+    if (path.startsWith('file://')) path = path.slice(7)
+    return await llamaListSpeakerFile(this.id, path)
   }
 
   async decodeAudioEmbeddings(

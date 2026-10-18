@@ -1131,12 +1131,20 @@ completion_token_output llama_rn_context_completion::nextToken()
     //   2. Legacy path (pending_speaker_id < 0): pending_speaker_emb_prefix
     //      as before — unchanged for back-compat.
     if (parent_ctx->tts_wrapper != nullptr) {
-        const int speaker_id = parent_ctx->tts_wrapper->pending_speaker_id;
+        // Flows that condition on the speaker themselves (Qwen3-TTS talker
+        // prefix, Chatterbox prefill) must not get this prefix as well.
+        const bool own_speaker_flow =
+            parent_ctx->tts_wrapper->talker_prefix_rows > 0 ||
+            parent_ctx->tts_wrapper->chatterbox_prefill_pending;
+        const int speaker_id = own_speaker_flow ? -1 : parent_ctx->tts_wrapper->pending_speaker_id;
+        if (own_speaker_flow) parent_ctx->tts_wrapper->pending_speaker_id = -1;
         const float * emb_data   = nullptr;
         int           emb_rows   = 0;
         int           emb_hidden = 0;
 
         if (is_codec_lm_ar_tts && speaker_id >= 0) {
+            // One-shot: the prefix goes in ahead of the first step only.
+            parent_ctx->tts_wrapper->pending_speaker_id = -1;
             const rn_speaker * spk =
                 parent_ctx->tts_wrapper->autoBakeSpeaker(parent_ctx, speaker_id);
             const int model_n_embd = llama_model_n_embd(parent_ctx->model);

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <string>
@@ -16,6 +17,7 @@ struct codec_context;
 struct codec_lm;
 struct codec_lm_state;
 struct codec_lm_info;
+struct codec_speaker;
 struct common_sampler;
 namespace codec_common { struct audio_lm_context; struct audio_lm_prompt_info; }
 
@@ -41,6 +43,8 @@ enum tts_type {
     CHATTERBOX_T3 = 11,             // English Chatterbox (t3_cfg)
     CHATTERBOX_T3_MULTILINGUAL = 12, // 23-language Chatterbox (t3_mtl23ls_v3)
     BLUEMAGPIE_TTS = 13,             // OpenFormosa BlueMagpie-TTS (Barbet + AudioVAE)
+    CHATTERBOX_TURBO = 14,           // Chatterbox Turbo (GPT-2 T3 + MeanFlow S3Gen)
+    COSYVOICE = 15,                  // CosyVoice family (BreezyVoice, CosyVoice-300M, v2, v3)
 };
 
 // Audio completion result structure.
@@ -111,9 +115,23 @@ struct rn_speaker {
     int rows             = 0;
     int hidden_dim       = 0;
     bool baked           = false;
+    bool bake_tried      = false;  // autoBakeSpeaker tries once
 
     // Cache key: 64-bit FNV-1a hash of the PCM buffer
     uint64_t audio_hash  = 0;
+
+    // Decoder-side speaker (codec_speaker: e.g. S3G / CosyVoice prompt tokens,
+    // prompt mel and x-vector).  Derived from `pcm` on first decode when the
+    // codec can do that, or loaded from a speaker file (then `pcm` is empty).
+    std::shared_ptr<::codec_speaker> codec_spk;
+    bool codec_spk_tried = false;
+};
+
+// A codec_speaker as listed by the codec GGUF or a speaker file.
+struct llama_rn_codec_voice {
+    std::string name;
+    std::string ref_text;
+    bool is_default = false;
 };
 
 // Single source of truth for everything the JS layer needs to drive a TTS
@@ -129,6 +147,14 @@ struct llama_rn_tts_capabilities {
     std::string family;             // "outetts" | "soprano" | "neutts" | ""
     bool requires_phonemes;
     std::string default_language;   // language hint for phonemizer hook ("en-us" today)
+    // Builtin decoder voices of the codec GGUF (codec_speaker); a voice name
+    // passed as `speaker` selects one of them.
+    std::vector<llama_rn_codec_voice> codec_voices;
+    // True when createSpeaker's reference audio also conditions the decoder.
+    bool can_speaker_from_audio = false;
+    // Reference sampling defaults stored in the codec GGUF (temperature,
+    // top_k, top_p, min_p, penalty_repeat); only keys the model specifies.
+    json sampling_defaults = json::object();
 };
 
 // (T × n_q) audio code range — start token id + count + per-codebook size.
@@ -333,7 +359,10 @@ struct llama_rn_context_tts {
     // to whatever backend codec.cpp's `ggml_backend_init_best` picks.
     // Defaults match the loaded backbone's GPU offload state where
     // possible; the caller (JS) can override.
-    llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false);
+    // `kv_overrides` are llama.cpp-style "KEY=TYPE:VALUE" GGUF metadata
+    // overrides for the codec GGUF (e.g. "cosyvoice.flow.n_timesteps=int:6").
+    llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false,
+                         const std::vector<std::string> &kv_overrides = {});
     ~llama_rn_context_tts();
 
     // TTS utility methods
@@ -488,7 +517,29 @@ struct llama_rn_context_tts {
 
     // Remove a speaker from the registry (no-op if id unknown).
     void releaseSpeaker(int id);
+
+    // ── Decoder speakers (codec_speaker) ─────────────────────────────────
+    // Captured by getFormattedAudioCompletion (and a completion's speakerId)
+    // so decodeAudioTokens still knows the speaker after later completion
+    // params reset pending_speaker_id.  A registry speaker wins over a
+    // builtin voice name; neither = the codec's default speaker.
+    int decode_speaker_id = -1;
+    std::string pending_codec_voice;
+    // Load a speaker file (name empty = the file's default) into the registry.
+    // Returns the new speaker id; throws on failure.
+    int loadSpeakerFile(const std::string & path, const std::string & name);
+    // Write a registry speaker's decoder conditioning to a speaker file.
+    // Throws on failure.
+    void saveSpeaker(int id, const std::string & path, const std::string & name);
+    // Speakers stored in a speaker file.  Throws on failure.
+    std::vector<llama_rn_codec_voice> listSpeakerFile(const std::string & path);
+    // The decoder speaker for the current generation (nullptr = the codec's
+    // default, or a codec without speakers).
+    const ::codec_speaker * resolveDecodeSpeaker();
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
+    // codec_decode of a (n_frames x n_q) code buffer with the decoder speaker.
+    std::vector<float> decodeCodes(llama_rn_context* main_ctx, std::vector<int32_t> &codes,
+                                   int32_t n_frames, int32_t n_q);
     std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings, int embedding_dim);
     int getAudioSampleRate() const;
     bool isAudioToken(llama_rn_context* main_ctx, llama_token token, const std::string &token_text = "");

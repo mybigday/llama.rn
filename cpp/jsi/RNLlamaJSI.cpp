@@ -386,6 +386,14 @@ namespace rnllama_jsi {
         return result;
     }
 
+    static json codecVoicesToJson(const std::vector<rnllama::llama_rn_codec_voice>& voices) {
+        json arr = json::array();
+        for (const auto& v : voices) {
+            arr.push_back(json::object({{"name", v.name}, {"refText", v.ref_text}, {"isDefault", v.is_default}}));
+        }
+        return arr;
+    }
+
     static json rerankResultJson(const std::vector<float>& scores) {
         json result = json::array();
         for (size_t i = 0; i < scores.size(); i++) {
@@ -2000,7 +2008,7 @@ namespace rnllama_jsi {
                 return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     ContextClaim claim(ctx);
-                    bool result = ctx->initVocoder(opts.path, opts.n_batch, opts.use_gpu);
+                    bool result = ctx->initVocoder(opts.path, opts.n_batch, opts.use_gpu, opts.kv_overrides);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
             }
@@ -2073,6 +2081,9 @@ namespace rnllama_jsi {
                         {"family", cap.family},
                         {"requiresPhonemes", cap.requires_phonemes},
                         {"defaultLanguage", cap.default_language},
+                        {"codecVoices", codecVoicesToJson(cap.codec_voices)},
+                        {"canSpeakerFromAudio", cap.can_speaker_from_audio},
+                        {"samplingDefaults", cap.sampling_defaults},
                     });
                     return [res](jsi::Runtime& rt) {
                         return fromJson(rt, res);
@@ -2268,6 +2279,79 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseSpeaker", releaseSpeaker);
+
+        // llamaLoadSpeakerFile(ctxId, path, name?)
+        // Resolves: { id, family, rows, baked } like llamaCreateSpeaker.
+        auto loadSpeakerFile = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaLoadSpeakerFile"),
+            3,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                std::string path = arguments[1].asString(runtime).utf8(runtime);
+                std::string name = count > 2 && arguments[2].isString() ? arguments[2].asString(runtime).utf8(runtime) : "";
+
+                return createPromiseTask(runtime, callInvoker, [contextId, path, name]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    const int speakerId = ctx->tts_wrapper->loadSpeakerFile(path, name);
+                    json res = json::object({
+                        {"id", speakerId},
+                        {"family", ctx->tts_wrapper->getTTSCapabilities(ctx).family},
+                        {"rows", 0},
+                        {"baked", false},
+                    });
+                    return [res](jsi::Runtime& rt) {
+                        return fromJson(rt, res);
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaLoadSpeakerFile", loadSpeakerFile);
+
+        // llamaSaveSpeaker(ctxId, speakerId, path, name?)
+        // Resolves: void
+        auto saveSpeaker = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaSaveSpeaker"),
+            4,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                int speakerId = (int)arguments[1].asNumber();
+                std::string path = arguments[2].asString(runtime).utf8(runtime);
+                std::string name = count > 3 && arguments[3].isString() ? arguments[3].asString(runtime).utf8(runtime) : "";
+
+                return createPromiseTask(runtime, callInvoker, [contextId, speakerId, path, name]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    ctx->tts_wrapper->saveSpeaker(speakerId, path, name);
+                    return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaSaveSpeaker", saveSpeaker);
+
+        // llamaListSpeakerFile(ctxId, path)
+        // Resolves: [{ name, refText, isDefault }]
+        auto listSpeakerFile = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaListSpeakerFile"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                std::string path = arguments[1].asString(runtime).utf8(runtime);
+
+                return createPromiseTask(runtime, callInvoker, [contextId, path]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    json res = codecVoicesToJson(ctx->tts_wrapper->listSpeakerFile(path));
+                    return [res](jsi::Runtime& rt) {
+                        return fromJson(rt, res);
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaListSpeakerFile", listSpeakerFile);
 
         auto decodeAudioEmbeddings = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioEmbeddings"),

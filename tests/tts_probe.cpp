@@ -27,6 +27,16 @@
 //   tts_probe --backbone LM.gguf --codec CODEC.gguf --text "..." \
 //             [--speaker-json PATH] [--n-predict N] [--threads N] \
 //             [--out-wav PATH]
+//
+// Decoder speakers (codec_speaker; Chatterbox S3G, CosyVoice):
+//   --voice NAME           builtin codec voice
+//   --clone-audio WAV      registry speaker from reference audio (createSpeaker
+//                          + speakerId, as LlamaSpeaker does); --ref-text sets
+//                          its transcript
+//   --speaker-file PATH    registry speaker loaded from a speaker file
+//                          (--voice then names the speaker inside it)
+//   --save-speaker PATH    write the registry speaker to a speaker file
+//   --kv-override K=T:V    codec GGUF metadata override (repeatable)
 
 #include <chrono>
 #include <cmath>
@@ -106,6 +116,12 @@ int main(int argc, char ** argv) {
     int  n_gpu_layers = 0;   // backbone GPU offload (Metal on macOS)
     float repeat_penalty = 0.0f;  // > 0 overrides the default (1.0 = off)
     bool codec_gpu = false;  // run the codec on GPU (mirrors the app's use_gpu default when ngl > 0)
+    std::string voice;
+    std::string clone_audio_path;
+    std::string ref_text;
+    std::string speaker_file;
+    std::string save_speaker;
+    std::vector<std::string> kv_overrides;
 
     for (int i = 1; i < argc; ++i) {
         auto is = [&](const char * k) { return std::strcmp(argv[i], k) == 0; };
@@ -127,6 +143,12 @@ int main(int argc, char ** argv) {
         else if (is("--ngl")          && i + 1 < argc) n_gpu_layers      = std::atoi(argv[++i]);
         else if (is("--repeat-penalty") && i + 1 < argc) repeat_penalty  = (float) std::atof(argv[++i]);
         else if (is("--codec-gpu"))                    codec_gpu         = true;
+        else if (is("--voice")        && i + 1 < argc) voice             = argv[++i];
+        else if (is("--clone-audio")  && i + 1 < argc) clone_audio_path  = argv[++i];
+        else if (is("--ref-text")     && i + 1 < argc) ref_text          = argv[++i];
+        else if (is("--speaker-file") && i + 1 < argc) speaker_file      = argv[++i];
+        else if (is("--save-speaker") && i + 1 < argc) save_speaker      = argv[++i];
+        else if (is("--kv-override")  && i + 1 < argc) kv_overrides.push_back(argv[++i]);
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); return 2; }
     }
 
@@ -188,7 +210,7 @@ int main(int argc, char ** argv) {
 
     std::printf("[probe] loading codec %s\n", codec_path.c_str());
     if (codec_gpu) std::printf("[probe] codec on GPU\n");
-    if (!ctx.initVocoder(codec_path, /*batch_size=*/-1, /*use_gpu=*/codec_gpu)) {
+    if (!ctx.initVocoder(codec_path, /*batch_size=*/-1, /*use_gpu=*/codec_gpu, kv_overrides)) {
         std::fprintf(stderr, "initVocoder failed\n");
         return 5;
     }
@@ -206,33 +228,79 @@ int main(int argc, char ** argv) {
     // Note: raw codec_lm_speaker_encode output is NOT what build_talker_prefix
     // wants — encodeSpeaker's output goes through an additional projection
     // inside build_prompt before becoming the talker x-vector.
-    if (!ref_audio_path.empty()) {
+    // Mono float PCM from a 16-bit WAV.
+    auto load_wav_mono = [](const std::string & path, std::vector<float> * pcm, int * sample_rate) {
         codec_example_wav_data wav;
         std::string werr;
-        if (!codec_example_load_wav_pcm16(ref_audio_path.c_str(), &wav, &werr)) {
-            std::fprintf(stderr, "[probe] failed to load ref-audio %s: %s\n",
-                         ref_audio_path.c_str(), werr.c_str());
-            return 3;
+        if (!codec_example_load_wav_pcm16(path.c_str(), &wav, &werr)) {
+            std::fprintf(stderr, "[probe] failed to load %s: %s\n", path.c_str(), werr.c_str());
+            return false;
         }
         const int32_t nch = wav.n_channels > 0 ? wav.n_channels : 1;
         const int32_t nframes = (int32_t) (wav.pcm_i16.size() / (size_t) nch);
-        std::vector<float> pcm((size_t) nframes, 0.0f);
+        pcm->assign((size_t) nframes, 0.0f);
         for (int32_t i = 0; i < nframes; ++i) {
             float acc = 0.0f;
             for (int32_t c = 0; c < nch; ++c) {
                 acc += wav.pcm_i16[(size_t) i * (size_t) nch + (size_t) c] / 32768.0f;
             }
-            pcm[(size_t) i] = acc / (float) nch;
+            (*pcm)[(size_t) i] = acc / (float) nch;
         }
-        std::printf("[probe] ref-audio %s: %d frames @ %d Hz\n",
-                    ref_audio_path.c_str(), nframes, wav.sample_rate);
+        *sample_rate = wav.sample_rate;
+        std::printf("[probe] %s: %d frames @ %d Hz\n", path.c_str(), nframes, wav.sample_rate);
+        return true;
+    };
+
+    {
+        const auto cap = ctx.tts_wrapper->getTTSCapabilities(&ctx);
+        std::printf("[probe] tts type=%d prompt_kind=%s family=%s requires_phonemes=%d "
+                    "can_speaker_from_audio=%d sampling_defaults=%s\n",
+                    cap.type, cap.prompt_kind.c_str(), cap.family.c_str(), (int) cap.requires_phonemes,
+                    (int) cap.can_speaker_from_audio, cap.sampling_defaults.dump().c_str());
+        for (const auto & v : cap.codec_voices) {
+            std::printf("[probe]   voice %s%s%s%s\n", v.name.c_str(), v.is_default ? " (default)" : "",
+                        v.ref_text.empty() ? "" : " ref_text=", v.ref_text.c_str());
+        }
+    }
+
+    // Registry speaker (the LlamaSpeaker path): from reference audio or a
+    // speaker file.  Its id rides along like the JS layer passes it.
+    int speaker_id = -1;
+    try {
+        if (!speaker_file.empty()) {
+            for (const auto & v : ctx.tts_wrapper->listSpeakerFile(speaker_file)) {
+                std::printf("[probe]   file speaker %s%s\n", v.name.c_str(), v.is_default ? " (default)" : "");
+            }
+            speaker_id = ctx.tts_wrapper->loadSpeakerFile(speaker_file, voice);
+            voice.clear();
+        } else if (!clone_audio_path.empty()) {
+            std::vector<float> pcm;
+            int sr = 0;
+            if (!load_wav_mono(clone_audio_path, &pcm, &sr)) return 3;
+            speaker_id = ctx.tts_wrapper->createSpeaker(&ctx, pcm, sr, ref_text, 0.5f, false, /*bake=*/false);
+        }
+        if (speaker_id >= 0) std::printf("[probe] registry speaker id=%d\n", speaker_id);
+    } catch (const std::exception & e) {
+        std::fprintf(stderr, "[probe] speaker setup failed: %s\n", e.what());
+        return 3;
+    }
+    if (!voice.empty()) {
+        json spk_json = speaker_json.empty() ? json::object() : json::parse(speaker_json);
+        spk_json["codec_voice"] = voice;
+        speaker_json = spk_json.dump();
+    }
+
+    if (!ref_audio_path.empty()) {
+        std::vector<float> pcm;
+        int sample_rate = 0;
+        if (!load_wav_mono(ref_audio_path, &pcm, &sample_rate)) return 3;
 
         // Use the codec_common canonical path via ctx.audio_lm_ctx.
         codec_common::audio_lm_input in;
         in.text            = text;
         in.ref_pcm         = pcm.data();
         in.ref_n_samples   = (int32_t) pcm.size();
-        in.ref_sample_rate = wav.sample_rate;
+        in.ref_sample_rate = sample_rate;
         codec_common::audio_lm_prompt sp;
         if (ctx.tts_wrapper->audio_lm_ctx == nullptr) {
             std::fprintf(stderr, "[probe] audio_lm_ctx not initialised (codec has no speaker section?)\n");
@@ -262,7 +330,7 @@ int main(int argc, char ** argv) {
 
     // Build prompt via the exact same entry point the JS layer uses.
     const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(
-        &ctx, speaker_json.empty() ? json(nullptr) : json::parse(speaker_json), text);
+        &ctx, speaker_json.empty() ? json(nullptr) : json::parse(speaker_json), text, speaker_id);
     std::printf("[probe] flow=%s embedding=%d prompt.len=%zu\n",
                 formatted.flow.c_str(),
                 (int) formatted.embedding,
@@ -393,6 +461,15 @@ int main(int argc, char ** argv) {
     if (pcm.empty()) {
         std::fprintf(stderr, "[probe] decode returned empty (see prior LOG_ERROR)\n");
         return 8;
+    }
+
+    if (!save_speaker.empty() && speaker_id >= 0) {
+        try {
+            ctx.tts_wrapper->saveSpeaker(speaker_id, save_speaker, "saved");
+            std::printf("[probe] speaker saved to %s\n", save_speaker.c_str());
+        } catch (const std::exception & e) {
+            std::fprintf(stderr, "[probe] saveSpeaker failed: %s\n", e.what());
+        }
     }
 
     const int sr = ctx.tts_wrapper->getAudioSampleRate();

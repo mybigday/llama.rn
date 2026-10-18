@@ -17,6 +17,7 @@ import type {
   JinjaFormattedChatResult,
   ParallelStatus,
 } from './types'
+import type { TTSCapabilities, TTSVoice } from './tts'
 
 declare global {
   var llamaInitContext: (
@@ -118,7 +119,12 @@ declare global {
   var llamaReleaseMultimodal: (contextId: number) => Promise<void>
   var llamaInitVocoder: (
     contextId: number,
-    params: { path: string; n_batch?: number; use_gpu?: boolean },
+    params: {
+      path: string
+      n_batch?: number
+      use_gpu?: boolean
+      kv_overrides?: string[]
+    },
   ) => Promise<boolean>
   var llamaIsVocoderEnabled: (contextId: number) => Promise<boolean>
   var llamaGetFormattedAudioCompletion: (
@@ -143,36 +149,7 @@ declare global {
     //                      result and pass them to `decodeAudioEmbeddings`.
     flow: 'tokens' | 'continuous_embd' | ''
   }>
-  var llamaGetTTSCapabilities: (contextId: number) => Promise<{
-    type: number
-    promptKind:
-      | 'outetts_legacy'
-      | 'outetts_v0_3'
-      | 'outetts_v1_0'
-      | 'soprano'
-      | 'neutts'
-      | 'csm'
-      | 'qwen3_tts'
-      | 'moss_tts_realtime'
-      | 'moss_ttsd'
-      | 'chatterbox'
-      | 'chatterbox_multilingual'
-      | 'bluemagpie'
-      | ''
-    family:
-      | 'outetts'
-      | 'soprano'
-      | 'neutts'
-      | 'csm'
-      | 'qwen3_tts'
-      | 'moss_tts'
-      | 'moss_ttsd'
-      | 'chatterbox'
-      | 'bluemagpie'
-      | ''
-    requiresPhonemes: boolean
-    defaultLanguage: string
-  }>
+  var llamaGetTTSCapabilities: (contextId: number) => Promise<TTSCapabilities>
   var llamaDecodeAudioTokens: (
     contextId: number,
     tokens: Int32Array | number[],
@@ -210,6 +187,21 @@ declare global {
     speakerId: number,
   ) => Promise<{ rows: number; baked: boolean }>
   var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
+  var llamaLoadSpeakerFile: (
+    contextId: number,
+    path: string,
+    name?: string,
+  ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
+  var llamaSaveSpeaker: (
+    contextId: number,
+    speakerId: number,
+    path: string,
+    name?: string,
+  ) => Promise<void>
+  var llamaListSpeakerFile: (
+    contextId: number,
+    path: string,
+  ) => Promise<TTSVoice[]>
   var llamaDecodeAudioEmbeddings: (
     contextId: number,
     embeddings: Float32Array | number[],

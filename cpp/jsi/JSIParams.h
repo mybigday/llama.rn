@@ -52,8 +52,10 @@ namespace rnllama_jsi {
         // When the key is absent the binding follows the main context's GPU
         // offload instead of this value.
         bool use_gpu = false;
+        // Codec GGUF metadata overrides, "KEY=TYPE:VALUE".
+        std::vector<std::string> kv_overrides;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(VocoderInitOptions, path, n_batch, use_gpu)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(VocoderInitOptions, path, n_batch, use_gpu, kv_overrides)
 
     struct ParallelModeOptions {
         bool enabled = true;
