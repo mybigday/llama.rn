@@ -78,9 +78,9 @@ cosyvoice_lm_state * get_state(codec_lm * lm) {
     i.has_text_encoder = 0;
 
     if (ggml_tensor * le = ggml_get_tensor(lm->codec->weights, "lm.cosyvoice.llm_embd")) {
-        if (le->type == GGML_TYPE_F32 && le->ne[0] == i.hidden_dim && le->ne[1] >= 2) {
-            s->llm_embd.resize((size_t) ggml_nelements(le));
-            ggml_backend_tensor_get(le, s->llm_embd.data(), 0, ggml_nbytes(le));
+        // sos / task_id rows, handed to the backbone as input embeddings (a row lookup, any stored type)
+        if (le->ne[0] == i.hidden_dim && le->ne[1] >= 2 && !codec_tensor_as_vec_f32(le, &s->llm_embd)) {
+            s->llm_embd.clear();
         }
     }
     if (ggml_get_tensor(lm->codec->weights, "lm.cosyvoice.text_embd") != nullptr) {

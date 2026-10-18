@@ -29,7 +29,7 @@ struct ecapa_builder {
         ggml_tensor * w = weight(name + ".weight");
         ggml_tensor * b = weight(name + ".bias");
         if (missing || x == nullptr) return nullptr;
-        const int32_t pad = (int32_t) ((w->ne[0] - 1) * dilation) / 2;
+        const int32_t pad = (int32_t) ((codec_conv1d_kernel_size(w, x->ne[1]) - 1) * dilation) / 2;
         if (pad > 0) x = codec_op_pad_reflect_tc(ctx, x, pad, pad);
         return codec_conv1d(ctx, x, codec_graph_cast_f32(ctx, w), b, 1, dilation, 0);
     }

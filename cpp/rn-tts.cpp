@@ -2941,17 +2941,17 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
     const int hidden = llama_model_n_embd(main_ctx->model);
     if (hidden <= 0) return false;
 
+    // Turbo has no CFG lane.
+    if (ci->is_turbo) cfg_weight = 0.0f;
+
     // CFG needs seq_id 0 (cond) + seq_id 1 (uncond).  If the backbone context
-    // was initialised with n_seq_max=1, we cannot use CFG — silently degrade.
+    // was initialised with n_seq_max=1, we cannot use CFG — degrade with a warning.
     const uint32_t n_seq_max = llama_n_seq_max(main_ctx->ctx);
     if (n_seq_max < 2 && cfg_weight > 0.0f) {
         LOG_WARNING("tryChatterboxPrefill: cfg_weight=%.2f but n_seq_max=%u — disabling CFG",
                  cfg_weight, n_seq_max);
         cfg_weight = 0.0f;
     }
-
-    // Turbo has no CFG lane.
-    if (ci->is_turbo) cfg_weight = 0.0f;
 
     std::vector<int32_t> text_ids;
     if (ci->backbone_tokenizer) {

@@ -91,11 +91,11 @@ ggml_tensor * codec_block_pre_lookahead(
     ggml_tensor * c1w = W("cv1.w");
     ggml_tensor * c2w = W("cv2.w");
     if (x_tc == nullptr || c1w == nullptr || c2w == nullptr) return nullptr;
-    ggml_tensor * h = codec_op_pad_1d(ctx, x_tc, 0, (int32_t) c1w->ne[0] - 1);
+    ggml_tensor * h = codec_op_pad_1d(ctx, x_tc, 0, (int32_t) codec_conv1d_kernel_size(c1w, x_tc->ne[1]) - 1);
     h = codec_conv1d(ctx, h, c1w, W("cv1.b"), 1, 1, 0);
     if (h == nullptr) return nullptr;
     h = codec_op_leaky_relu(ctx, h, 0.01f);
-    h = codec_op_pad_1d(ctx, h, (int32_t) c2w->ne[0] - 1, 0);
+    h = codec_op_pad_1d(ctx, h, (int32_t) codec_conv1d_kernel_size(c2w, h->ne[1]) - 1, 0);
     h = codec_conv1d(ctx, h, c2w, W("cv2.b"), 1, 1, 0);
     if (h == nullptr) return nullptr;
     return ggml_add(ctx, h, x_tc);

@@ -228,7 +228,7 @@ ggml_tensor * codec_block_hift(
     // Main path.
     ggml_tensor * cpre = W("conv_pre.w");
     if (cpre == nullptr) return nullptr;
-    const int32_t k_pre = (int32_t) cpre->ne[0];
+    const int32_t k_pre = (int32_t) codec_conv1d_kernel_size(cpre, mel_tc->ne[1]);
     ggml_tensor * x = p.causal ? conv_padded(ctx, mel_tc, cpre, W("conv_pre.b"), 0, k_pre - 1)   // looks right
                                : codec_conv1d(ctx, mel_tc, cpre, W("conv_pre.b"), 1, 1, (k_pre - 1) / 2);
     if (x == nullptr) return nullptr;
@@ -288,7 +288,7 @@ ggml_tensor * codec_block_hift(
     x = codec_op_leaky_relu(ctx, x, kLreluSlopeDefault);
     ggml_tensor * cpw = W("conv_post.w");
     if (cpw == nullptr) return nullptr;
-    const int32_t k_post = (int32_t) cpw->ne[0];
+    const int32_t k_post = (int32_t) codec_conv1d_kernel_size(cpw, x->ne[1]);
     ggml_tensor * head = p.causal ? conv_padded(ctx, x, cpw, W("conv_post.b"), k_post - 1, 0)
                                   : codec_conv1d(ctx, x, cpw, W("conv_post.b"), 1, 1, (k_post - 1) / 2);
     if (head == nullptr) return nullptr;   // [T_head, n_fft + 2]
