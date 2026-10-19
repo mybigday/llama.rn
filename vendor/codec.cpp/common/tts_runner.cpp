@@ -35,6 +35,7 @@ static_assert(std::is_same<llama_token, int32_t>::value,
 #include "gguf.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -382,6 +383,17 @@ std::vector<float> resample_mono_f32(const std::vector<float> & in,
 
 // Load ref audio (mono F32) from `path` into `ref_pcm`; fills the geometry
 // out-params.  Returns true (and leaves ref_pcm empty) when path is empty.
+static double ms_since(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+}
+
+static bool timed_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * pcm, tts_runner_result * out) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const bool ok = audio_lm_decode_audio(ctx, pcm);
+    out->decode_ms += ms_since(t0);
+    return ok;
+}
+
 bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm,
                     int32_t * out_n, int32_t * out_sr, std::string * err) {
     if (path.empty()) return true;
@@ -2488,7 +2500,7 @@ bool run_kitten_tts2(audio_lm_context * ctx, llama_context * lctx, const llama_v
         audio_lm_reset(ctx);
         audio_lm_audio_output pcm;
         if (!audio_lm_push_codes(ctx, codes.data(), (int32_t) codes.size(), 1) ||
-            !audio_lm_decode_audio(ctx, &pcm)) {
+            !timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("KittenTTS decode failed: ") + audio_lm_last_error(ctx);
             return false;
         }
@@ -2552,7 +2564,18 @@ static bool apply_decode_speaker(audio_lm_context * ctx, const tts_runner_params
     return true;
 }
 
+static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_result * out,
+                                       std::chrono::steady_clock::time_point t0);
+
 bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const bool ok = tts_runner_synthesize_impl(a, out, t0);
+    out->total_ms = ms_since(t0);
+    return ok;
+}
+
+static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_result * out,
+                                       std::chrono::steady_clock::time_point t0) {
     // Pocket-TTS FlowLM is self-contained (no backbone) — try it first; a
     // non-zero return means it handled the request.
     {
@@ -2560,6 +2583,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         int handled = tts_runner_synthesize_selfcontained(a, &fr);
         if (handled) {
             if (!fr.error.empty()) { out->error = fr.error; return false; }
+            fr.load_ms = 0.0;  // not split for the self-contained path
             *out = std::move(fr);
             return true;
         }
@@ -2587,7 +2611,10 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     // exact codec-only signal (no codec_lm handle), not on the error string.
     {
         std::string spk_err;
-        if (!apply_decode_speaker(ctx, a, &spk_err)) {
+        const auto t_spk = std::chrono::steady_clock::now();
+        const bool spk_ok = apply_decode_speaker(ctx, a, &spk_err);
+        out->speaker_ms = ms_since(t_spk);
+        if (!spk_ok) {
             out->error = spk_err;
             audio_lm_free(ctx);
             return false;
@@ -2637,7 +2664,11 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     // ── Backbone init ──────────────────────────────────────────────
     llama_backend_init();
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers = 0;
+    // Without --gpu the backbone stays on the CPU: an empty device list, else llama.cpp
+    // would still offload batched ops to any GPU it finds.
+    static ggml_backend_dev_t no_devices[] = { nullptr };
+    mp.n_gpu_layers = a.use_gpu ? 999 : 0;
+    if (!a.use_gpu) mp.devices = no_devices;
     llama_model * lmodel = llama_model_load_from_file(a.backbone_path.c_str(), mp);
     if (!lmodel) {
         out->error = "llama_model_load_from_file failed: " + a.backbone_path;
@@ -2676,7 +2707,9 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     // flash-attention path does not take.
     if (pi_ok && pi.host_arch == "cosyvoice") cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (a.n_threads > 0) { cp.n_threads = a.n_threads; cp.n_threads_batch = a.n_threads; }
+    cp.op_offload = a.use_gpu;
     llama_context * lctx = llama_init_from_model(lmodel, cp);
+    out->load_ms = ms_since(t0);
     if (!lctx) {
         out->error = "llama_init_from_model failed";
         llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
@@ -2736,7 +2769,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
             return false;
         }
         audio_lm_audio_output pcm;
-        if (!audio_lm_decode_audio(ctx, &pcm)) {
+        if (!timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("decode_audio failed: ") + audio_lm_last_error(ctx);
             audio_lm_free(ctx);
             return false;
@@ -2766,7 +2799,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         audio_lm_reset(ctx);
         audio_lm_audio_output pcm;
         if (!audio_lm_push_codes(ctx, speech_codes.data(), (int32_t) speech_codes.size(), 1) ||
-            !audio_lm_decode_audio(ctx, &pcm)) {
+            !timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("decode failed: ") + audio_lm_last_error(ctx);
             audio_lm_free(ctx);
             return false;
@@ -2933,7 +2966,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         // observe_token accumulated the c1/c2 codes into ctx->codes already —
         // decode directly (DAC n_q=2, codes [1,2,n_frames]).
         audio_lm_audio_output pcm;
-        if (!audio_lm_decode_audio(ctx, &pcm)) {
+        if (!timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("OuteTTS: decode_audio failed: ") + audio_lm_last_error(ctx);
             audio_lm_free(ctx);
             return false;
@@ -3098,7 +3131,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
         // observe_token accumulated the codes into ctx->codes already — decode
         // directly (no reset/push; reset would clear the accumulator).
         audio_lm_audio_output pcm;
-        if (!audio_lm_decode_audio(ctx, &pcm)) {
+        if (!timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("NeuTTS: decode_audio failed: ") + audio_lm_last_error(ctx);
             audio_lm_free(ctx);
             return false;
@@ -3251,7 +3284,7 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
     }
 
     audio_lm_audio_output pcm;
-    if (!audio_lm_decode_audio(ctx, &pcm)) {
+    if (!timed_decode_audio(ctx, &pcm, out)) {
         out->error = std::string("decode_audio failed: ") + audio_lm_last_error(ctx);
         audio_lm_free(ctx);
         return false;

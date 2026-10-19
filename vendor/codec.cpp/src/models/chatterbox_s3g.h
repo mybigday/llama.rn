@@ -11,6 +11,7 @@ struct codec_chatterbox_s3g {
     bool meanflow = false;
     int32_t n_timesteps = 10;  // chatterbox_s3g.flow.n_timesteps (MeanFlow default 2)
     float cfg_rate = 0.7f;     // chatterbox_s3g.flow.cfg_rate (ignored by MeanFlow)
+    float max_prompt_s = 0.0f; // chatterbox_s3g.flow.max_prompt_s: flow prompt kept (trailing seconds); 0 = all
     bool has_speaker_encoder = false;
     // LM-side speaker encoder bundled with the decoder (KittenTTS 2):
     // "xvector_sincnet" adds slots lm_cond [lm_cond_dim] and ref_tokens.

@@ -77,12 +77,6 @@ ggml_tensor * codec_block_dit(
     pos = codec_op_unary(ctx, grouped_causal_conv(ctx, pos, cw2, W("in.cp2.b"), p.conv_groups), CODEC_UNARY_MISH);
     h = ggml_add(ctx, h, ggml_cont(ctx, ggml_transpose(ctx, pos)));                         // [D, T]
 
-    codec_lm_attn_params ap = {};
-    ap.scale = 1.0f / std::sqrt((float) hd);
-    ap.causal = false;
-    auto heads = [&](ggml_tensor * t_ct) {   // [D, T] → [hd, T, H]
-        return ggml_cont(ctx, ggml_permute(ctx, ggml_reshape_3d(ctx, t_ct, hd, p.n_heads, T), 0, 2, 1, 3));
-    };
     // x-transformers apply_rotary_pos_emb on (b, n, D) before the head split:
     // GPT-J pairs over the first rope_dim channels, the rest pass through.
     auto rope = [&](ggml_tensor * t_ct) {
@@ -108,9 +102,8 @@ ggml_tensor * codec_block_dit(
         ggml_tensor * k = rope(codec_op_linear(ctx, nx, W(b + "attn.k.w"), W(b + "attn.k.b")));
         ggml_tensor * v = codec_op_linear(ctx, nx, W(b + "attn.v.w"), W(b + "attn.v.b"));
         if (q == nullptr || k == nullptr || v == nullptr) return nullptr;
-        ggml_tensor * a = codec_op_lm_attn_ctx_dth(ctx, heads(q), heads(k), heads(v), &ap);   // [hd, T, H]
+        ggml_tensor * a = codec_op_attn_ct(ctx, q, k, v, hd, p.n_heads, 1.0f / std::sqrt((float) hd));   // [D, T]
         if (a == nullptr) return nullptr;
-        a = ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)), D, T);
         a = codec_op_linear(ctx, a, W(b + "attn.o.w"), W(b + "attn.o.b"));
         if (a == nullptr) return nullptr;
         h = ggml_add(ctx, h, ggml_mul(ctx, a, gate_msa));

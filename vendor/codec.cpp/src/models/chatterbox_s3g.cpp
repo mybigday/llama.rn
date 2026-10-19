@@ -422,6 +422,7 @@ enum codec_status codec_chatterbox_s3g_init(struct codec_model * model) {
     s3g.n_timesteps = codec_read_i32_kv(model->gguf, "chatterbox_s3g.flow.n_timesteps",
         s3g.meanflow ? kFlowMeanflowNTimesteps : kFlowDefaultNTimesteps);
     s3g.cfg_rate = codec_read_f32_kv(model->gguf, "chatterbox_s3g.flow.cfg_rate", kFlowCfgRate);
+    s3g.max_prompt_s = codec_read_f32_kv(model->gguf, "chatterbox_s3g.flow.max_prompt_s", 0.0f);
     s3g.has_encoder = codec_read_bool_kv(model->gguf, "codec.has_encoder", s3g.has_encoder);
     s3g.has_speaker_encoder = codec_read_bool_kv(model->gguf, "chatterbox_s3g.spk.has_encoder", false);
     model->can_speaker_from_audio = s3g.has_speaker_encoder;
@@ -503,9 +504,23 @@ enum codec_status codec_chatterbox_s3g_decode(
     const codec_speaker_slot * spk_emb = spk->slot("embedding");
 
     // Build the full token list: prompt_token (speaker) + speech_token (filtered).
+    // The flow prompt (25 Hz tokens + 50 Hz mel) is acoustic context only; max_prompt_s
+    // keeps its trailing seconds, next to the target.
+    int32_t n_prompt = (int32_t) spk_tok->ne[0];
+    int32_t mel_len1 = (int32_t) spk_feat->ne[1];
+    int32_t tok_skip = 0, feat_skip = 0;
+    if (s3g->max_prompt_s > 0.0f) {
+        const int32_t keep = std::max(1, (int32_t) (s3g->max_prompt_s * 25.0f));
+        if (keep < n_prompt) {
+            const int32_t feat_keep = std::min(mel_len1, 2 * keep);
+            tok_skip = n_prompt - keep;
+            feat_skip = mel_len1 - feat_keep;
+            n_prompt = keep;
+            mel_len1 = feat_keep;
+        }
+    }
     std::vector<int32_t> tok_seq;
-    const int32_t n_prompt = (int32_t) spk_tok->ne[0];
-    const auto * prompt = reinterpret_cast<const int32_t *>(spk_tok->data.data());
+    const auto * prompt = reinterpret_cast<const int32_t *>(spk_tok->data.data()) + tok_skip;
     tok_seq.reserve((size_t) n_prompt + (size_t) tokens->n_tokens);
     tok_seq.insert(tok_seq.end(), prompt, prompt + n_prompt);
     for (int32_t i = 0; i < tokens->n_tokens; ++i) {
@@ -517,7 +532,6 @@ enum codec_status codec_chatterbox_s3g_decode(
         codec_context_set_error(ctx, "empty token sequence");
         return CODEC_STATUS_INVALID_ARG;
     }
-    const int32_t mel_len1 = (int32_t) spk_feat->ne[1];
     const int32_t T_total = T_tok * 2;
     if (mel_len1 > T_total) {
         codec_context_set_error(ctx, "prompt_feat_frames exceeds encoder output length");
@@ -580,7 +594,9 @@ enum codec_status codec_chatterbox_s3g_decode(
 
     if (!codec_runtime_write_tensor(t_tok, tok_seq.data(), tok_seq.size() * sizeof(int32_t), &err) ||
         !codec_runtime_write_tensor(t_spk_emb, spk_emb->data.data(), spk_emb->data.size(), &err) ||
-        !codec_runtime_write_tensor(t_prompt_feat, spk_feat->data.data(), spk_feat->data.size(), &err) ||
+        !codec_runtime_write_tensor(t_prompt_feat, reinterpret_cast<const float *>(spk_feat->data.data()) +
+                                        (size_t) spk_feat->ne[0] * feat_skip,
+                                    (size_t) spk_feat->ne[0] * mel_len1 * sizeof(float), &err) ||
         !codec_runtime_write_tensor(t_z, noise_z.data(), noise_z.size() * sizeof(float), &err) ||
         !codec_runtime_write_tensor(t_phase, nsf_phase.data(), nsf_phase.size() * sizeof(float), &err) ||
         !codec_runtime_write_tensor(t_nsf_noise, nsf_noise.data(), nsf_noise.size() * sizeof(float), &err)) {

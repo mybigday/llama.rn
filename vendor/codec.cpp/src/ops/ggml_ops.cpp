@@ -558,20 +558,9 @@ ggml_tensor * codec_op_basic_transformer_block_ct(
     ggml_tensor * v_ct = codec_op_linear(ctx, h_ct, vw, /*b=*/nullptr);
     if (q_ct == nullptr || k_ct == nullptr || v_ct == nullptr) return nullptr;
 
-    auto to_dth = [&](ggml_tensor * x_ct_in) {
-        ggml_tensor * r = ggml_reshape_3d(ctx, x_ct_in, head_dim, num_heads, T);
-        return ggml_cont(ctx, ggml_permute(ctx, r, 0, 2, 1, 3));
-    };
-    codec_lm_attn_params attn_p = {};
-    attn_p.scale = 1.0f / std::sqrt((float) head_dim);
-    attn_p.causal = false;
-    ggml_tensor * attn_dth = codec_op_lm_attn_ctx_dth(ctx, to_dth(q_ct), to_dth(k_ct), to_dth(v_ct), &attn_p);
-    if (attn_dth == nullptr) return nullptr;
-
-    ggml_tensor * attn_ct = ggml_reshape_2d(
-        ctx,
-        ggml_cont(ctx, ggml_permute(ctx, attn_dth, 0, 2, 1, 3)),
-        inner, T);
+    ggml_tensor * attn_ct = codec_op_attn_ct(ctx, q_ct, k_ct, v_ct, head_dim, num_heads,
+                                             1.0f / std::sqrt((float) head_dim));
+    if (attn_ct == nullptr) return nullptr;
     ggml_tensor * proj_ct = codec_op_linear(ctx, attn_ct, ow, ob);
     if (proj_ct == nullptr) return nullptr;
     x_ct = ggml_add(ctx, x_ct, proj_ct);
@@ -580,7 +569,9 @@ ggml_tensor * codec_op_basic_transformer_block_ct(
     if (f_ct == nullptr) return nullptr;
     ggml_tensor * ff = codec_op_linear(ctx, f_ct, ff1_w, ff1_b);
     if (ff == nullptr) return nullptr;
-    ff = codec_op_unary(ctx, ff, CODEC_UNARY_GELU_ERF);
+    // tanh GELU for the reference's erf GELU (within ~5e-4): ggml-cpu's erf GELU is a
+    // scalar erff loop, the tanh one a table lookup.
+    ff = ggml_gelu(ctx, ff);
     ff = codec_op_linear(ctx, ff, ff2_w, ff2_b);
     if (ff == nullptr) return nullptr;
     return ggml_add(ctx, x_ct, ff);

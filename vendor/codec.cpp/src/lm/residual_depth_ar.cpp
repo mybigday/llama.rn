@@ -1554,31 +1554,23 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
         const int32_t out_dim = impl->compose_audio_embed_dim;
         const int32_t stride  = impl->compose_codebook_stride;
         ggml_tensor * tbl     = impl->compose_audio_embd_fused;
-        // Dequant the whole table to a thread-local F32 buffer once
-        // per call.  For F32 / host buffers this is a fast pass-through
-        // via codec_tensor_data_f32; for F16 / quantised it dequants
-        // fully (one-shot per call — the table is 16392 × 2048 = 128 MB
-        // F32 max, but for our F16-quantised LFM2 GGUF it's the same
-        // amount we'd materialise per-row anyway).
-        const float * data = codec_tensor_data_f32(tbl);
-        std::vector<float> dequant;
-        if (data == nullptr) {
-            if (!codec_tensor_as_vec_f32(tbl, &dequant)) {
-                lm->last_error = "compose_audio_embd: fused-table dequant failed";
-                return CODEC_STATUS_INTERNAL_ERROR;
-            }
-            data = dequant.data();
-        }
         std::fill(out_embd, out_embd + out_dim, 0.0f);
+        std::vector<float> rowbuf((size_t) out_dim);
         for (int32_t i = 0; i < impl->n_codebook; ++i) {
             const int64_t row = (int64_t) codes[i] + (int64_t) i * stride;
             if (row < 0 || row >= tbl->ne[1]) {
                 lm->last_error = "compose_audio_embd: cb code + offset out of range";
                 return CODEC_STATUS_INVALID_ARG;
             }
-            const float * src = data + row * out_dim;
+            // One row per codebook: the table is 16392 x 2048, dequantizing all of it per
+            // frame cost ~65 ms.
+            std::string err;
+            if (!rda_copy_embd_row(tbl, (int32_t) row, out_dim, rowbuf.data(), "compose.audio_embd", &err)) {
+                lm->last_error = "compose_audio_embd: " + err;
+                return CODEC_STATUS_INTERNAL_ERROR;
+            }
             for (int32_t j = 0; j < out_dim; ++j) {
-                out_embd[j] += src[j];
+                out_embd[j] += rowbuf[(size_t) j];
             }
         }
         return CODEC_STATUS_SUCCESS;

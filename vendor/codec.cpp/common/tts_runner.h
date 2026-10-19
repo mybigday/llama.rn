@@ -214,6 +214,11 @@ struct tts_runner_result {
     int32_t     n_frames = 0;        // audio frames generated
     std::string stop_reason;         // "eos_code_c0" / "stop_head" / …
 
+    double load_ms    = 0.0;         // codec + backbone load, up to the first AR step (incl. speaker_ms)
+    double speaker_ms = 0.0;         // decoder speaker from --ref-audio / --speaker-file / --voice
+    double decode_ms = 0.0;          // codes -> PCM (audio_lm_decode_audio)
+    double total_ms  = 0.0;
+
     std::string error;               // set + returns false on failure
 };
 

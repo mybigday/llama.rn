@@ -460,10 +460,26 @@ enum codec_status decode(codec_context * ctx, const codec_token_buffer * tokens,
     const codec_speaker_slot * s_feat = spk->slot("prompt_feat");
     const codec_speaker_slot * s_emb = spk->slot("embedding");
 
+    // The flow prompt (tokens + mel) is acoustic context only; max_prompt_s keeps its
+    // trailing seconds, next to the target, aligned in tokens and mel frames.
+    int32_t n_prompt = s_tok != nullptr ? (int32_t) s_tok->ne[0] : 0;
+    int32_t n_feat = s_feat != nullptr ? (int32_t) s_feat->ne[1] : 0;
+    int32_t tok_skip = 0, feat_skip = 0;
+    if (cv.max_prompt_s > 0.0f && n_prompt > 0) {
+        const int32_t keep = std::max(1, (int32_t) (cv.max_prompt_s * (float) cv.token_rate));
+        if (keep < n_prompt) {
+            const int32_t feat_keep = cv.version != 1
+                ? std::min(n_feat, keep * cv.token_mel_ratio)
+                : (int32_t) std::lround((double) n_feat * keep / n_prompt);
+            tok_skip = n_prompt - keep;
+            feat_skip = n_feat - feat_keep;
+            n_prompt = keep;
+            n_feat = feat_keep;
+        }
+    }
     std::vector<int32_t> seq;
-    const int32_t n_prompt = s_tok != nullptr ? (int32_t) s_tok->ne[0] : 0;
     if (n_prompt > 0) {
-        const auto * pt = reinterpret_cast<const int32_t *>(s_tok->data.data());
+        const auto * pt = reinterpret_cast<const int32_t *>(s_tok->data.data()) + tok_skip;
         seq.assign(pt, pt + n_prompt);
     }
     for (int32_t i = 0; i < tokens->n_tokens; ++i) {
@@ -476,7 +492,7 @@ enum codec_status decode(codec_context * ctx, const codec_token_buffer * tokens,
         return CODEC_STATUS_INVALID_ARG;
     }
     cv_decode_build build;
-    build.len = cv_lengths_for(cv, n_prompt, n_target, s_feat != nullptr ? (int32_t) s_feat->ne[1] : 0);
+    build.len = cv_lengths_for(cv, n_prompt, n_target, n_feat);
     build.model = ctx->model;
     const cv_lengths & l = build.len;
     if (l.mel_len1 >= l.mel_total || speed_mel_len(cv, l.mel_total - l.mel_len1) < 1) {
@@ -519,7 +535,8 @@ enum codec_status decode(codec_context * ctx, const codec_token_buffer * tokens,
     }
     if (!codec_runtime_write_tensor(t_tok, seq.data(), seq.size() * sizeof(int32_t), &err) ||
         !codec_runtime_write_tensor(t_spk, s_emb->data.data(), s_emb->data.size(), &err) ||
-        (t_pf != nullptr && !codec_runtime_write_tensor(t_pf, s_feat->data.data(), (size_t) kMel * l.mel_len1 * sizeof(float), &err)) ||
+        (t_pf != nullptr && !codec_runtime_write_tensor(t_pf, reinterpret_cast<const float *>(s_feat->data.data()) + (size_t) kMel * feat_skip,
+                                                        (size_t) kMel * l.mel_len1 * sizeof(float), &err)) ||
         !codec_runtime_write_tensor(t_z, noise_z.data(), noise_z.size() * sizeof(float), &err) ||
         (t_phase != nullptr && !codec_runtime_write_tensor(t_phase, nsf_phase.data(), nsf_phase.size() * sizeof(float), &err)) ||
         !codec_runtime_write_tensor(t_noise, nsf_noise.data(), nsf_noise.size() * sizeof(float), &err) ||
@@ -559,6 +576,7 @@ enum codec_status init(codec_model * model) {
     cv.n_timesteps = codec_read_i32_kv(g, "cosyvoice.flow.n_timesteps", 10);
     cv.cfg_rate = codec_read_f32_kv(g, "cosyvoice.flow.cfg_rate", 0.7f);
     cv.speed = codec_read_f32_kv(g, "cosyvoice.flow.speed", 1.0f);
+    cv.max_prompt_s = codec_read_f32_kv(g, "cosyvoice.flow.max_prompt_s", 0.0f);
     cv.token_mel_ratio = codec_read_i32_kv(g, "cosyvoice.flow.token_mel_ratio", 2);
     cv.length_regulator = codec_read_str_kv(g, "cosyvoice.flow.length_regulator", "split_linear");
     cv.lr_blocks = codec_read_i32_kv(g, "cosyvoice.flow.lr_blocks", 4);

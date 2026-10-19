@@ -27,6 +27,19 @@ ggml_tensor * codec_op_lm_attn_ctx_dth(
     ggml_tensor * v_dth,
     const codec_lm_attn_params * params);
 
+// Unmasked multi-head attention over projected [n_heads * head_dim, t] q/k/v;
+// returns [n_heads * head_dim, t].  Flash attention straight off strided views
+// of the inputs (no [t, t] score matrix, no permute copies) where the backend
+// runs it, the softmax + matmul composite elsewhere.
+ggml_tensor * codec_op_attn_ct(
+    ggml_context * ctx,
+    ggml_tensor * q_ct,
+    ggml_tensor * k_ct,
+    ggml_tensor * v_ct,
+    int32_t head_dim,
+    int32_t n_heads,
+    float scale);
+
 // Espnet rel-shift trick. Input has ne[0]=2t-1, ne[1]=t, ne[2]=heads — the
 // matrix-BD shape from a Conformer self-attention with relative positional
 // encoding (matrix_ac shape (t, t, h) ≠ matrix_bd shape (2t-1, t, h)).

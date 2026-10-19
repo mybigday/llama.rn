@@ -27,6 +27,34 @@ static ggml_tensor * codec_lm_attn_mask_const(ggml_context * ctx, int64_t t, boo
     return codec_graph_const(ctx, name.c_str(), GGML_TYPE_F32, 2, ne, m.data());
 }
 
+ggml_tensor * codec_op_attn_ct(
+    ggml_context * ctx,
+    ggml_tensor * q_ct,
+    ggml_tensor * k_ct,
+    ggml_tensor * v_ct,
+    int32_t head_dim,
+    int32_t n_heads,
+    float scale) {
+    if (ctx == nullptr || q_ct == nullptr || k_ct == nullptr || v_ct == nullptr || head_dim <= 0 || n_heads <= 0) {
+        return nullptr;
+    }
+    const int64_t inner = (int64_t) head_dim * n_heads;
+    const int64_t t = q_ct->ne[1];
+    auto heads = [&](ggml_tensor * x) {   // [inner, t] -> [head_dim, t, n_heads] view
+        return ggml_permute(ctx, ggml_reshape_3d(ctx, x, head_dim, n_heads, t), 0, 2, 1, 3);
+    };
+    ggml_tensor * fa = ggml_flash_attn_ext(ctx, heads(q_ct), heads(k_ct), heads(v_ct), nullptr, scale, 0.0f, 0.0f);
+    ggml_flash_attn_ext_set_prec(fa, GGML_PREC_F32);
+    if (codec_graph_backend_supports(fa)) {
+        return ggml_reshape_2d(ctx, fa, inner, t);   // fa: [head_dim, n_heads, t]
+    }
+    codec_lm_attn_params p = {};
+    p.scale = scale;
+    ggml_tensor * a = codec_op_lm_attn_ctx_dth(ctx, ggml_cont(ctx, heads(q_ct)), ggml_cont(ctx, heads(k_ct)),
+                                               ggml_cont(ctx, heads(v_ct)), &p);
+    return a == nullptr ? nullptr : ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)), inner, t);
+}
+
 ggml_tensor * codec_op_lm_attn_ctx_dth(
     ggml_context * ctx,
     ggml_tensor * q_dth,

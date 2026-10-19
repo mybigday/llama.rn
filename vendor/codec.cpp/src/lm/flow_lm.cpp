@@ -541,9 +541,13 @@ enum codec_status codec_lm_flow_denorm_latent(struct codec_lm * lm, const float 
     ggml_tensor * std_t  = ggml_get_tensor(lm->codec->weights, "lm.emb_std");
     ggml_tensor * mean_t = ggml_get_tensor(lm->codec->weights, "lm.emb_mean");
     if (!std_t || !mean_t) { lm->last_error = "missing emb_std/emb_mean"; return CODEC_STATUS_INTERNAL_ERROR; }
-    const float * es = (const float *) std_t->data;
-    const float * em = (const float *) mean_t->data;
-    for (int32_t d = 0; d < I->ldim; ++d) out[d] = latent[d] * es[d] + em[d];
+    // Read through the backend: on a GPU backend ->data is not a host pointer.
+    std::vector<float> es, em;
+    if (!codec_tensor_as_vec_f32(std_t, &es) || !codec_tensor_as_vec_f32(mean_t, &em) ||
+        (int32_t) es.size() < I->ldim || (int32_t) em.size() < I->ldim) {
+        lm->last_error = "emb_std/emb_mean read failed"; return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    for (int32_t d = 0; d < I->ldim; ++d) out[d] = latent[d] * es[(size_t) d] + em[(size_t) d];
     return CODEC_STATUS_SUCCESS;
 }
 
