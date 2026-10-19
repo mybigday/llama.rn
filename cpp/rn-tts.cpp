@@ -23,8 +23,52 @@
 #include <limits>
 #include <locale>
 #include <memory>
+#if defined(__linux__)
+#include <sched.h>
+#endif
 
 namespace rnllama {
+
+// A strict-CPU ggml threadpool (Android's default, see set_best_cores) pins
+// the thread that calls into it to a single core and leaves it pinned.
+// codec.cpp computes without a threadpool, so the workers it spawns inherit
+// that one-core mask and every codec thread ends up sharing one core (a ~10x
+// slower decode on a Pixel 7 Pro). Widen the calling thread to the context's
+// CPU set while codec work runs and restore the old mask afterwards. Scopes
+// must not span llama_decode, or the backbone's caller thread floats onto
+// cores its pinned workers occupy.
+class codec_affinity_scope {
+public:
+    explicit codec_affinity_scope(const llama_rn_context * main_ctx) {
+#if defined(__linux__)
+        if (main_ctx == nullptr || !main_ctx->params.cpuparams.mask_valid) return;
+        cpu_set_t wide;
+        CPU_ZERO(&wide);
+        for (int i = 0; i < GGML_MAX_N_THREADS && i < CPU_SETSIZE; ++i) {
+            if (main_ctx->params.cpuparams.cpumask[i]) CPU_SET(i, &wide);
+        }
+        if (CPU_COUNT(&wide) == 0) return;
+        if (sched_getaffinity(0, sizeof(saved), &saved) != 0) return;
+        if (CPU_EQUAL(&saved, &wide)) return;
+        active = sched_setaffinity(0, sizeof(wide), &wide) == 0;
+#else
+        (void) main_ctx;
+#endif
+    }
+    ~codec_affinity_scope() {
+#if defined(__linux__)
+        if (active) sched_setaffinity(0, sizeof(saved), &saved);
+#endif
+    }
+    codec_affinity_scope(const codec_affinity_scope &) = delete;
+    codec_affinity_scope & operator=(const codec_affinity_scope &) = delete;
+
+private:
+#if defined(__linux__)
+    cpu_set_t saved;
+    bool active = false;
+#endif
+};
 
 // ── Backbone text-embedding table reader (MOSS-TTS-Realtime) ───────────
 // Mirrors codec.cpp's tts_runner.cpp::TextEmbdTable.  Realtime composes each
@@ -2429,6 +2473,7 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
     llama_token        backbone_sampled_tok,
     const float *      hidden,
     int                hidden_dim) {
+    codec_affinity_scope affinity(main_ctx);
 
     if (hidden == nullptr || hidden_dim <= 0) {
         LOG_ERROR("tryCodecLmAudioStep: null / empty hidden state");
@@ -3006,7 +3051,11 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
     std::vector<float> prompt((size_t)seq_len_cap * n_seq_cap * hidden);
     int32_t seq_len = 0, n_seq = 0;
 
-    if (::codec_lm_chatterbox_build_prompt(
+    enum codec_status bp_status;
+    {
+        // Encodes the reference voice when one is given: codec compute.
+        codec_affinity_scope affinity(main_ctx);
+        bp_status = ::codec_lm_chatterbox_build_prompt(
             lm,
             text_ids.data(), n_text,
             cfg_weight,
@@ -3015,7 +3064,9 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
             /*emotion=*/nullptr,
             ref_pcm, ref_n_samples, ref_sample_rate,
             prompt.data(), seq_len_cap * n_seq_cap,
-            &seq_len, &n_seq) != CODEC_STATUS_SUCCESS) {
+            &seq_len, &n_seq);
+    }
+    if (bp_status != CODEC_STATUS_SUCCESS) {
         LOG_ERROR("tryChatterboxPrefill: build_prompt failed: %s",
                   ::codec_lm_get_last_error(lm));
         return false;
@@ -3366,7 +3417,7 @@ bool llama_rn_context_tts::tryContinuousAudioStep(
     llama_rn_context * main_ctx,
     const float *      hidden,
     int                hidden_dim) {
-    (void) main_ctx;
+    codec_affinity_scope affinity(main_ctx);
 
     if (codec_lm == nullptr) {
         LOG_ERROR("tryContinuousAudioStep: codec_lm not created");
@@ -3474,7 +3525,7 @@ bool llama_rn_context_tts::tryContinuousPrefill(
     const float *      hiddens,
     int                n_pos,
     int                dim) {
-    (void) main_ctx;
+    codec_affinity_scope affinity(main_ctx);
 
     if (codec_lm == nullptr) {
         LOG_ERROR("tryContinuousPrefill: codec_lm not created");
@@ -3609,6 +3660,7 @@ static int32_t codec_meta_i32(::codec_model *codec_model, const char *key, int32
 }
 
 std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens) {
+    codec_affinity_scope affinity(main_ctx);
     if (codec_ctx == nullptr || codec_model == nullptr) {
         LOG_ERROR("Codec context is not initialized");
         return std::vector<float>();
@@ -3797,6 +3849,7 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
 
 std::vector<float> llama_rn_context_tts::decodeCodes(llama_rn_context* main_ctx, std::vector<int32_t> &codes,
                                                      int32_t n_frames, int32_t n_q) {
+    codec_affinity_scope affinity(main_ctx);
     struct codec_token_buffer token_buffer = {};
     token_buffer.data = codes.data();
     token_buffer.n_tokens = (int32_t) codes.size();
@@ -3834,6 +3887,7 @@ std::vector<float> llama_rn_context_tts::decodeCodes(llama_rn_context* main_ctx,
 }
 
 std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings, int embedding_dim) {
+    codec_affinity_scope affinity(main_ctx);
     if (codec_ctx == nullptr || codec_model == nullptr) {
         LOG_ERROR("Codec context is not initialized");
         return std::vector<float>();
@@ -3888,6 +3942,7 @@ bool llama_rn_context_tts::encodeInto(
     llama_rn_context * main_ctx,
     rn_speaker & spk,
     const std::vector<int32_t> & ref_codes) {
+    codec_affinity_scope affinity(main_ctx);
 
     if (codec_lm == nullptr && !codec_lm_probed && codec_model != nullptr) {
         codec_lm_probed = true;
@@ -3993,6 +4048,7 @@ int llama_rn_context_tts::createSpeaker(
 }
 
 bool llama_rn_context_tts::bakeSpeaker(llama_rn_context * main_ctx, int id) {
+    codec_affinity_scope affinity(main_ctx);
     auto it = speakers.find(id);
     if (it == speakers.end()) {
         LOG_WARNING("bakeSpeaker: speaker id=%d not found", id);
