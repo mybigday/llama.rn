@@ -129,7 +129,7 @@ struct rn_speaker {
 };
 
 // A codec_speaker as listed by the codec GGUF or a speaker file.
-struct llama_rn_codec_voice {
+struct llama_rn_speaker_info {
     std::string name;
     std::string ref_text;
     bool is_default = false;
@@ -150,7 +150,7 @@ struct llama_rn_tts_capabilities {
     std::string default_language;   // language hint for phonemizer hook ("en-us" today)
     // Builtin decoder voices of the codec GGUF (codec_speaker); a voice name
     // passed as `speaker` selects one of them.
-    std::vector<llama_rn_codec_voice> codec_voices;
+    std::vector<llama_rn_speaker_info> builtin_voices;
     // True when createSpeaker's reference audio also conditions the decoder.
     bool can_speaker_from_audio = false;
     // Reference sampling defaults stored in the codec GGUF (temperature,
@@ -553,12 +553,12 @@ struct llama_rn_context_tts {
     std::string pending_codec_voice;
     // Load a speaker file (name empty = the file's default) into the registry.
     // Returns the new speaker id; throws on failure.
-    int loadSpeakerFile(const std::string & path, const std::string & name);
+    int loadSpeaker(const std::string & path, const std::string & name);
     // Write a registry speaker's decoder conditioning to a speaker file.
     // Throws on failure.
     void saveSpeaker(int id, const std::string & path, const std::string & name);
     // Speakers stored in a speaker file.  Throws on failure.
-    std::vector<llama_rn_codec_voice> listSpeakerFile(const std::string & path);
+    std::vector<llama_rn_speaker_info> listSpeakers(const std::string & path);
     // The decoder speaker for the current generation (nullptr = the codec's
     // default, or a codec without speakers).
     const ::codec_speaker * resolveDecodeSpeaker();

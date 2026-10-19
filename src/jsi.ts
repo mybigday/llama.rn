@@ -17,7 +17,7 @@ import type {
   JinjaFormattedChatResult,
   ParallelStatus,
 } from './types'
-import type { TTSCapabilities, TTSVoice } from './tts'
+import type { TTSCapabilities, TTSSpeakerInfo } from './tts'
 
 declare global {
   var llamaInitContext: (
@@ -187,7 +187,7 @@ declare global {
     speakerId: number,
   ) => Promise<{ rows: number; baked: boolean }>
   var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
-  var llamaLoadSpeakerFile: (
+  var llamaLoadSpeaker: (
     contextId: number,
     path: string,
     name?: string,
@@ -198,10 +198,10 @@ declare global {
     path: string,
     name?: string,
   ) => Promise<void>
-  var llamaListSpeakerFile: (
+  var llamaListSpeakers: (
     contextId: number,
     path: string,
-  ) => Promise<TTSVoice[]>
+  ) => Promise<TTSSpeakerInfo[]>
   var llamaDecodeAudioEmbeddings: (
     contextId: number,
     embeddings: Float32Array | number[],

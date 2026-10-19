@@ -20,7 +20,6 @@
 
 - [bake](LlamaSpeaker.md#bake)
 - [release](LlamaSpeaker.md#release)
-- [save](LlamaSpeaker.md#save)
 
 ## Constructors
 
@@ -41,7 +40,7 @@
 
 #### Defined in
 
-[index.ts:414](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L414)
+[index.ts:414](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L414)
 
 ## Properties
 
@@ -51,7 +50,7 @@
 
 #### Defined in
 
-[index.ts:410](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L410)
+[index.ts:410](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L410)
 
 ___
 
@@ -61,7 +60,7 @@ ___
 
 #### Defined in
 
-[index.ts:412](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L412)
+[index.ts:412](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L412)
 
 ___
 
@@ -71,7 +70,7 @@ ___
 
 #### Defined in
 
-[index.ts:406](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L406)
+[index.ts:406](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L406)
 
 ___
 
@@ -81,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:404](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L404)
+[index.ts:404](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L404)
 
 ___
 
@@ -91,7 +90,7 @@ ___
 
 #### Defined in
 
-[index.ts:408](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L408)
+[index.ts:408](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L408)
 
 ## Methods
 
@@ -105,7 +104,7 @@ ___
 
 #### Defined in
 
-[index.ts:422](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L422)
+[index.ts:422](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L422)
 
 ___
 
@@ -119,29 +118,4 @@ ___
 
 #### Defined in
 
-[index.ts:440](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L440)
-
-___
-
-### save
-
-▸ **save**(`path`, `name?`): `Promise`<`void`\>
-
-Write this speaker's decoder conditioning (codec_speaker) to a speaker
-file, for codecs with `canSpeakerFromAudio` (Chatterbox S3G, CosyVoice).
-Reload it with `LlamaContext.loadSpeakerFile`.
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `path` | `string` |
-| `name?` | `string` |
-
-#### Returns
-
-`Promise`<`void`\>
-
-#### Defined in
-
-[index.ts:434](https://github.com/mybigday/llama.rn/blob/b65aefa5/src/index.ts#L434)
+[index.ts:429](https://github.com/mybigday/llama.rn/blob/e04c11c1/src/index.ts#L429)

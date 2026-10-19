@@ -257,7 +257,7 @@ int main(int argc, char ** argv) {
                     "can_speaker_from_audio=%d sampling_defaults=%s\n",
                     cap.type, cap.prompt_kind.c_str(), cap.family.c_str(), (int) cap.requires_phonemes,
                     (int) cap.can_speaker_from_audio, cap.sampling_defaults.dump().c_str());
-        for (const auto & v : cap.codec_voices) {
+        for (const auto & v : cap.builtin_voices) {
             std::printf("[probe]   voice %s%s%s%s\n", v.name.c_str(), v.is_default ? " (default)" : "",
                         v.ref_text.empty() ? "" : " ref_text=", v.ref_text.c_str());
         }
@@ -268,10 +268,10 @@ int main(int argc, char ** argv) {
     int speaker_id = -1;
     try {
         if (!speaker_file.empty()) {
-            for (const auto & v : ctx.tts_wrapper->listSpeakerFile(speaker_file)) {
+            for (const auto & v : ctx.tts_wrapper->listSpeakers(speaker_file)) {
                 std::printf("[probe]   file speaker %s%s\n", v.name.c_str(), v.is_default ? " (default)" : "");
             }
-            speaker_id = ctx.tts_wrapper->loadSpeakerFile(speaker_file, voice);
+            speaker_id = ctx.tts_wrapper->loadSpeaker(speaker_file, voice);
             voice.clear();
         } else if (!clone_audio_path.empty()) {
             std::vector<float> pcm;

@@ -2,8 +2,8 @@
 // source of truth — this module only declares the shape and exposes the
 // JSI bridge.
 
-/** A decoder voice in a codec GGUF or a speaker file. */
-export interface TTSVoice {
+/** A named decoder speaker: a builtin voice of a codec GGUF or an entry in a speaker file. */
+export interface TTSSpeakerInfo {
   name: string
   /** Transcript of the reference audio, when known. */
   refText: string
@@ -50,10 +50,10 @@ export interface TTSCapabilities {
    * Builtin decoder voices of the codec GGUF (Chatterbox S3G, CosyVoice).
    * Pass a voice's `name` as `speaker` to `getFormattedAudioCompletion`.
    */
-  codecVoices: TTSVoice[]
+  builtinVoices: TTSSpeakerInfo[]
   /**
    * True when a `LlamaSpeaker`'s reference audio also conditions the decoder
-   * (voice cloning), which also lets `LlamaSpeaker.save` write it to a file.
+   * (voice cloning), which also lets `saveSpeaker` write it to a file.
    */
   canSpeakerFromAudio: boolean
   /**

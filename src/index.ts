@@ -111,7 +111,7 @@ export type {
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
 
-export type { TTSCapabilities, TTSVoice } from './tts'
+export type { TTSCapabilities, TTSSpeakerInfo } from './tts'
 export {
   lookupVoice as getTTSVoice,
   listVoices as listTTSVoices,
@@ -164,9 +164,9 @@ const jsiBindingKeys = [
   'llamaCreateSpeaker',
   'llamaBakeSpeaker',
   'llamaReleaseSpeaker',
-  'llamaLoadSpeakerFile',
+  'llamaLoadSpeaker',
   'llamaSaveSpeaker',
-  'llamaListSpeakerFile',
+  'llamaListSpeakers',
   'llamaDecodeAudioEmbeddings',
   'llamaGetAudioSampleRate',
   'llamaReleaseVocoder',
@@ -424,17 +424,6 @@ export class LlamaSpeaker {
     const r = await llamaBakeSpeaker(this.ctxId, this.id)
     this.rows = r.rows
     this.baked = r.baked
-  }
-
-  /**
-   * Write this speaker's decoder conditioning (codec_speaker) to a speaker
-   * file, for codecs with `canSpeakerFromAudio` (Chatterbox S3G, CosyVoice).
-   * Reload it with `LlamaContext.loadSpeakerFile`.
-   */
-  async save(path: string, name?: string): Promise<void> {
-    const { llamaSaveSpeaker } = getJsi()
-    if (path.startsWith('file://')) path = path.slice(7)
-    await llamaSaveSpeaker(this.ctxId, this.id, path, name)
   }
 
   async release(): Promise<void> {
@@ -1292,9 +1281,9 @@ export class LlamaContext {
     // also names the codec's default voice (e.g. BreezyVoice's zh_female).
     const codecVoice =
       typeof options.speaker === 'string'
-        ? cap.codecVoices.find((v) => v.name === options.speaker) ??
+        ? cap.builtinVoices.find((v) => v.name === options.speaker) ??
           (options.speaker === 'default'
-            ? cap.codecVoices.find((v) => v.isDefault)
+            ? cap.builtinVoices.find((v) => v.isDefault)
             : undefined)
         : undefined
     let payload: Record<string, any> | null
@@ -1413,23 +1402,41 @@ export class LlamaContext {
   }
 
   /**
-   * Load a speaker file (written by `LlamaSpeaker.save` or codec.cpp's
-   * `tts-cli --save-speaker`) as a speaker. `name` picks a speaker inside the
-   * file (default: the file's default speaker). It conditions the decoder
-   * only; there is no reference audio for the LM side.
+   * Write a speaker's decoder conditioning (codec_speaker) to a speaker file,
+   * for codecs with `canSpeakerFromAudio` (Chatterbox S3G, CosyVoice).
+   * `options.name` names it inside the file. Reload it with `loadSpeaker`.
    */
-  async loadSpeakerFile(path: string, name?: string): Promise<LlamaSpeaker> {
-    const { llamaLoadSpeakerFile } = getJsi()
+  async saveSpeaker(
+    speaker: LlamaSpeaker,
+    path: string,
+    options?: { name?: string },
+  ): Promise<void> {
+    const { llamaSaveSpeaker } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
-    const h = await llamaLoadSpeakerFile(this.id, path, name)
+    await llamaSaveSpeaker(this.id, speaker.id, path, options?.name)
+  }
+
+  /**
+   * Load a speaker from a speaker file (written by `saveSpeaker` or codec.cpp's
+   * `tts-cli --save-speaker`). `options.name` picks a speaker inside the file
+   * (default: the file's default speaker). It conditions the decoder only;
+   * there is no reference audio for the LM side.
+   */
+  async loadSpeaker(
+    path: string,
+    options?: { name?: string },
+  ): Promise<LlamaSpeaker> {
+    const { llamaLoadSpeaker } = getJsi()
+    if (path.startsWith('file://')) path = path.slice(7)
+    const h = await llamaLoadSpeaker(this.id, path, options?.name)
     return new LlamaSpeaker(this.id, h)
   }
 
   /** Speakers stored in a speaker file. */
-  async listSpeakerFile(path: string): Promise<import('./tts').TTSVoice[]> {
-    const { llamaListSpeakerFile } = getJsi()
+  async listSpeakers(path: string): Promise<import('./tts').TTSSpeakerInfo[]> {
+    const { llamaListSpeakers } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
-    return await llamaListSpeakerFile(this.id, path)
+    return await llamaListSpeakers(this.id, path)
   }
 
   async decodeAudioEmbeddings(

@@ -1347,7 +1347,7 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
             const char * name = codec_model_speaker_name(codec_model, i);
             const ::codec_speaker * spk = codec_get_speaker(codec_model, name);
             const char * ref_text = spk != nullptr ? codec_speaker_ref_text(spk) : nullptr;
-            cap.codec_voices.push_back({name, ref_text != nullptr ? ref_text : "", spk == def});
+            cap.builtin_voices.push_back({name, ref_text != nullptr ? ref_text : "", spk == def});
         }
         cap.can_speaker_from_audio = codec_model_can_speaker_from_audio(codec_model);
     }
@@ -4156,12 +4156,12 @@ const ::codec_speaker * llama_rn_context_tts::resolveDecodeSpeaker() {
     return nullptr;
 }
 
-int llama_rn_context_tts::loadSpeakerFile(const std::string & path, const std::string & name) {
-    if (codec_model == nullptr) throw std::runtime_error("loadSpeakerFile: codec model not loaded");
+int llama_rn_context_tts::loadSpeaker(const std::string & path, const std::string & name) {
+    if (codec_model == nullptr) throw std::runtime_error("loadSpeaker: codec model not loaded");
     ::codec_speaker * out = nullptr;
     if (codec_speaker_load(codec_model, path.c_str(), name.empty() ? nullptr : name.c_str(), &out)
             != CODEC_STATUS_SUCCESS) {
-        throw std::runtime_error("loadSpeakerFile: failed to load " +
+        throw std::runtime_error("loadSpeaker: failed to load " +
                                  (name.empty() ? std::string("the default speaker") : "speaker '" + name + "'") +
                                  " from " + path + " (" + codec_error(codec_ctx) + ")");
     }
@@ -4197,13 +4197,13 @@ void llama_rn_context_tts::saveSpeaker(int id, const std::string & path, const s
     }
 }
 
-std::vector<llama_rn_codec_voice> llama_rn_context_tts::listSpeakerFile(const std::string & path) {
-    if (codec_model == nullptr) throw std::runtime_error("listSpeakerFile: codec model not loaded");
+std::vector<llama_rn_speaker_info> llama_rn_context_tts::listSpeakers(const std::string & path) {
+    if (codec_model == nullptr) throw std::runtime_error("listSpeakers: codec model not loaded");
     ::codec_speaker_file * file = nullptr;
     if (codec_speaker_file_open(codec_model, path.c_str(), &file) != CODEC_STATUS_SUCCESS) {
-        throw std::runtime_error("listSpeakerFile: failed to open " + path + " (" + codec_error(codec_ctx) + ")");
+        throw std::runtime_error("listSpeakers: failed to open " + path + " (" + codec_error(codec_ctx) + ")");
     }
-    std::vector<llama_rn_codec_voice> out;
+    std::vector<llama_rn_speaker_info> out;
     const ::codec_speaker * def = codec_speaker_file_get_speaker(file, nullptr);
     for (int32_t i = 0; i < codec_speaker_file_n_speakers(file); ++i) {
         const ::codec_speaker * spk =

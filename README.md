@@ -740,12 +740,12 @@ await ctx.initVocoder({ path: codecGgufPath, n_batch: 4096 }) // + optional use_
 
 const caps = await ctx.getTTSCapabilities()
 // { type, family, promptKind, requiresPhonemes, defaultLanguage,
-//   codecVoices, canSpeakerFromAudio, samplingDefaults }
+//   builtinVoices, canSpeakerFromAudio, samplingDefaults }
 
 // Build the model-specific prompt + resolve the flow
 const { prompt, grammar, embedding, flow } = await ctx.getFormattedAudioCompletion({
   prompt: 'Hello world',
-  speaker: 'default', // built-in voice name (incl. caps.codecVoices), a LlamaSpeaker (voice clone), or omit for the family default
+  speaker: 'default', // built-in voice name (incl. caps.builtinVoices), a LlamaSpeaker (voice clone), or omit for the family default
   // supply a phonemizer only for models that need it (caps.requiresPhonemes)
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
@@ -776,14 +776,14 @@ const { prompt, embedding, flow } = await ctx.getFormattedAudioCompletion({ prom
 await spk.release()         // free the native speaker when done
 ```
 
-For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that. The builtin voices are listed in `caps.codecVoices`; pass a voice's `name` as `speaker`.
+For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that. The builtin voices are listed in `caps.builtinVoices`; pass a voice's `name` as `speaker`.
 
 The decoder conditioning can be saved to a speaker file and reloaded without the reference audio (a file speaker conditions the decoder only, not the LM):
 
 ```ts
-await spk.save(`${dir}/my-voice.gguf`)                 // optional name inside the file
-const voices = await ctx.listSpeakerFile(`${dir}/my-voice.gguf`)
-const saved = await ctx.loadSpeakerFile(`${dir}/my-voice.gguf`) // a LlamaSpeaker
+await ctx.saveSpeaker(spk, `${dir}/my-voice.gguf`, { name: 'my-voice' }) // name is optional
+const speakers = await ctx.listSpeakers(`${dir}/my-voice.gguf`) // TTSSpeakerInfo[]
+const saved = await ctx.loadSpeaker(`${dir}/my-voice.gguf`, { name: 'my-voice' }) // a LlamaSpeaker
 ```
 
 ### Codec options
@@ -800,7 +800,7 @@ await ctx.initVocoder({
 ### Model notes
 
 - **Chatterbox Turbo**: sampling follows the reference regime stored in the GGUF; read `caps.samplingDefaults` (temperature, top_k, top_p, penalty_repeat) and pass them to `completion()`.
-- **CosyVoice / BreezyVoice** always needs a decoder speaker: a builtin voice (`caps.codecVoices`, e.g. `zh_female`) or a `LlamaSpeaker`. A `LlamaSpeaker` with `refText` (the clip's transcript) runs zero-shot cloning; without it, cross-lingual. Zero-shot puts the reference's speech tokens in the backbone context ahead of the text (BreezyVoice: 50 per second, so a 10 s clip is about 500 positions and a 30 s clip about 1500), so `n_ctx` has to cover the reference plus the output. Sampling (top_k / top_p / repetition-aware sampling) comes from the GGUF and is tuned through `kv_overrides` (`codec.lm.cosyvoice.top_k=int:10`); `temperature: 0` selects greedy. Text normalization and sentence splitting are not ported: pass normalized sentences.
+- **CosyVoice / BreezyVoice** always needs a decoder speaker: a builtin voice (`caps.builtinVoices`, e.g. `zh_female`) or a `LlamaSpeaker`. A `LlamaSpeaker` with `refText` (the clip's transcript) runs zero-shot cloning; without it, cross-lingual. Zero-shot puts the reference's speech tokens in the backbone context ahead of the text (BreezyVoice: 50 per second, so a 10 s clip is about 500 positions and a 30 s clip about 1500), so `n_ctx` has to cover the reference plus the output. Sampling (top_k / top_p / repetition-aware sampling) comes from the GGUF and is tuned through `kv_overrides` (`codec.lm.cosyvoice.top_k=int:10`); `temperature: 0` selects greedy. Text normalization and sentence splitting are not ported: pass normalized sentences.
 - **BreezyVoice** reads Mandarin with 注音 (bopomofo) annotations that upstream adds with g2pw. `caps.requiresPhonemes` is true for it, and the `phonemizer` hook is where to add them; plain text works but polyphones may be misread.
 - CosyVoice-300M / BreezyVoice use a llama.cpp arch (`cosyvoice`) whose relative positions are a KQ bias, which flash attention does not take. Use an F16 KV cache with them; a quantized V cache forces flash attention.
 

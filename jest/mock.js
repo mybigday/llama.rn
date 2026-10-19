@@ -357,7 +357,7 @@ if (!NativeModules.RNLlama) {
         family: 'outetts',
         requiresPhonemes: false,
         defaultLanguage: 'en-us',
-        codecVoices: [],
+        builtinVoices: [],
         canSpeakerFromAudio: false,
         samplingDefaults: {},
       })),
@@ -389,7 +389,7 @@ if (!NativeModules.RNLlama) {
       jest.fn(async () => {}),
     )
     setGlobal(
-      'llamaLoadSpeakerFile',
+      'llamaLoadSpeaker',
       jest.fn(async () => ({ id: 2, family: 'chatterbox', rows: 0, baked: false })),
     )
     setGlobal(
@@ -397,7 +397,7 @@ if (!NativeModules.RNLlama) {
       jest.fn(async () => {}),
     )
     setGlobal(
-      'llamaListSpeakerFile',
+      'llamaListSpeakers',
       jest.fn(async () => [{ name: 'saved', refText: '', isDefault: true }]),
     )
     setGlobal(

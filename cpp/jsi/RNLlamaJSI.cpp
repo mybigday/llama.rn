@@ -386,7 +386,7 @@ namespace rnllama_jsi {
         return result;
     }
 
-    static json codecVoicesToJson(const std::vector<rnllama::llama_rn_codec_voice>& voices) {
+    static json speakerInfosToJson(const std::vector<rnllama::llama_rn_speaker_info>& voices) {
         json arr = json::array();
         for (const auto& v : voices) {
             arr.push_back(json::object({{"name", v.name}, {"refText", v.ref_text}, {"isDefault", v.is_default}}));
@@ -2081,7 +2081,7 @@ namespace rnllama_jsi {
                         {"family", cap.family},
                         {"requiresPhonemes", cap.requires_phonemes},
                         {"defaultLanguage", cap.default_language},
-                        {"codecVoices", codecVoicesToJson(cap.codec_voices)},
+                        {"builtinVoices", speakerInfosToJson(cap.builtin_voices)},
                         {"canSpeakerFromAudio", cap.can_speaker_from_audio},
                         {"samplingDefaults", cap.sampling_defaults},
                     });
@@ -2280,10 +2280,10 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaReleaseSpeaker", releaseSpeaker);
 
-        // llamaLoadSpeakerFile(ctxId, path, name?)
+        // llamaLoadSpeaker(ctxId, path, name?)
         // Resolves: { id, family, rows, baked } like llamaCreateSpeaker.
-        auto loadSpeakerFile = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaLoadSpeakerFile"),
+        auto loadSpeaker = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaLoadSpeaker"),
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
@@ -2294,7 +2294,7 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
-                    const int speakerId = ctx->tts_wrapper->loadSpeakerFile(path, name);
+                    const int speakerId = ctx->tts_wrapper->loadSpeaker(path, name);
                     json res = json::object({
                         {"id", speakerId},
                         {"family", ctx->tts_wrapper->getTTSCapabilities(ctx).family},
@@ -2307,7 +2307,7 @@ namespace rnllama_jsi {
                 }, contextId);
             }
         );
-        runtime.global().setProperty(runtime, "llamaLoadSpeakerFile", loadSpeakerFile);
+        runtime.global().setProperty(runtime, "llamaLoadSpeaker", loadSpeaker);
 
         // llamaSaveSpeaker(ctxId, speakerId, path, name?)
         // Resolves: void
@@ -2331,10 +2331,10 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaSaveSpeaker", saveSpeaker);
 
-        // llamaListSpeakerFile(ctxId, path)
+        // llamaListSpeakers(ctxId, path)
         // Resolves: [{ name, refText, isDefault }]
-        auto listSpeakerFile = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaListSpeakerFile"),
+        auto listSpeakers = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaListSpeakers"),
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
@@ -2344,14 +2344,14 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
-                    json res = codecVoicesToJson(ctx->tts_wrapper->listSpeakerFile(path));
+                    json res = speakerInfosToJson(ctx->tts_wrapper->listSpeakers(path));
                     return [res](jsi::Runtime& rt) {
                         return fromJson(rt, res);
                     };
                 }, contextId);
             }
         );
-        runtime.global().setProperty(runtime, "llamaListSpeakerFile", listSpeakerFile);
+        runtime.global().setProperty(runtime, "llamaListSpeakers", listSpeakers);
 
         auto decodeAudioEmbeddings = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioEmbeddings"),
