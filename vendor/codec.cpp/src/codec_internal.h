@@ -47,6 +47,11 @@ struct codec_model {
     ggml_backend_t backend = nullptr;
     ggml_backend_buffer_type_t buffer_type = nullptr;
     ggml_backend_buffer_t weights_buffer = nullptr;
+    // Persistent CPU worker pool shared by the model's contexts (sized to the
+    // largest thread count asked for). Without one, ggml-cpu builds without
+    // OpenMP create and join a fresh pool on every graph compute.
+    struct ggml_threadpool * cpu_threadpool = nullptr;
+    int32_t cpu_threadpool_n = 0;
 
     struct codec_gguf_metadata metadata;
 

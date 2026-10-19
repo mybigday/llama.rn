@@ -179,6 +179,12 @@ struct rda_state {
     int32_t                      max_kv_T = 0;
     int32_t                      kv_pos   = 0;
     bool                         kv_ok    = false;
+
+    // One codec_context per step graph (slot 0: c0 head, 1 + k: depth step k).
+    // A context keeps one built + allocated graph, so with a shared one every
+    // step rebuilt and re-planned the graph the previous step had replaced;
+    // per-slot contexts keep each graph resident across frames.
+    std::vector<codec_context *> graph_ctx;
 };
 
 // ---------------------------------------------------------------------
@@ -1121,6 +1127,13 @@ bool state_init(codec_lm_state * st) {
 void state_free(codec_lm_state * st) {
     if (!st || !st->impl) return;
     rda_state * sst = static_cast<rda_state *>(st->impl);
+    for (codec_context * c : sst->graph_ctx) {
+        if (c != nullptr) {
+            codec_runtime_free(c);
+            delete c;
+        }
+    }
+    sst->graph_ctx.clear();
     if (sst->buf_kv != nullptr) {
         ggml_backend_buffer_free(sst->buf_kv);
         sst->buf_kv = nullptr;
@@ -1144,36 +1157,54 @@ void state_reset(codec_lm_state * st) {
 // step machine
 // ---------------------------------------------------------------------
 
+// The resident context for step graph `slot` (created on first use).
+static codec_context * rda_graph_ctx(codec_lm_state * st, size_t slot, std::string * err) {
+    rda_state * sst = static_cast<rda_state *>(st->impl);
+    if (slot >= sst->graph_ctx.size()) sst->graph_ctx.resize(slot + 1, nullptr);
+    if (sst->graph_ctx[slot] == nullptr) {
+        codec_context * c = new (std::nothrow) codec_context();
+        if (c == nullptr) { *err = "out of memory"; return nullptr; }
+        c->model   = st->lm->codec;
+        c->backend = st->lm->codec->backend;
+        c->params  = codec_context_default_params();
+        if (!codec_runtime_init(c, err)) { delete c; return nullptr; }
+        sst->graph_ctx[slot] = c;
+    }
+    return sst->graph_ctx[slot];
+}
+
 // Run the c0 head over `h_in` and copy logits into the state's scratch.
 enum codec_status run_c0_head(codec_lm_state * st, const float * h_in) {
     rda_impl * impl = static_cast<rda_impl *>(st->lm->impl);
     rda_state * sst = static_cast<rda_state *>(st->impl);
 
     rda_c0_build build = { impl };
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 0, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind = (int32_t) CODEC_GRAPH_LM_RDA_C0_HEAD;
     key.n_in = impl->hidden_dim;
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_c0, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_c0, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.c0.h_in");
-    ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, "lm.c0.logits");
+    ggml_tensor * t_h = codec_graph_get_tensor(gctx, entry, "lm.c0.h_in");
+    ggml_tensor * t_lg = codec_graph_get_tensor(gctx, entry, "lm.c0.logits");
     if (!t_h || !t_lg) {
         st->last_error = "c0 graph missing tensors"; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_h, h_in, (size_t) impl->hidden_dim * sizeof(float), &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t n_threads = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, n_threads, &err)) {
+    if (!codec_graph_compute(gctx, entry, n_threads, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t v0 = st->lm->info.codebook_sizes[0];
@@ -1279,8 +1310,10 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     const int32_t head_idx = impl->depth_emits_c0 ? current_k : (current_k - 1);
 
     rda_depth_build build = { impl, T, head_idx };
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 1 + (size_t) current_k, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind     = (int32_t) CODEC_GRAPH_LM_RDA_DEPTH_STEP;
@@ -1288,22 +1321,22 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     key.n_q      = head_idx;
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_depth_step, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_depth_step, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_x    = codec_graph_get_tensor(st->ctx, entry, "lm.depth.x");
+    ggml_tensor * t_x    = codec_graph_get_tensor(gctx, entry, "lm.depth.x");
     ggml_tensor * t_h_in = impl->in_proj_per_pos
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.h_in") : nullptr;
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.h_in") : nullptr;
     ggml_tensor * t_pos  = impl->use_rope
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.pos") : nullptr;
-    ggml_tensor * t_lg   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.ck_logits");
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.pos") : nullptr;
+    ggml_tensor * t_lg   = codec_graph_get_tensor(gctx, entry, "lm.depth.ck_logits");
     if (!t_x || !t_lg ||
         (impl->in_proj_per_pos && !t_h_in) ||
         (impl->use_rope && !t_pos)) {
         st->last_error = "depth graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_x, prefix.data(),
@@ -1326,7 +1359,7 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     }
 
     const int32_t nt = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nt, &err)) {
+    if (!codec_graph_compute(gctx, entry, nt, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t vk = st->lm->info.codebook_sizes[current_k];
@@ -1407,8 +1440,10 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
         sst->k_cache.data(), sst->v_cache.data(),
     };
 
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 1 + (size_t) current_k, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind     = (int32_t) CODEC_GRAPH_LM_RDA_DEPTH_STEP_KV;
@@ -1417,18 +1452,18 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
     key.n_in     = kv_pos_start;   // overload n_in for the cache offset
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_depth_step_kv, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_depth_step_kv, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_x   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.x");
+    ggml_tensor * t_x   = codec_graph_get_tensor(gctx, entry, "lm.depth.kv.x");
     ggml_tensor * t_pos = impl->use_rope
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.pos") : nullptr;
-    ggml_tensor * t_lg  = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.ck_logits");
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.kv.pos") : nullptr;
+    ggml_tensor * t_lg  = codec_graph_get_tensor(gctx, entry, "lm.depth.kv.ck_logits");
     if (!t_x || !t_lg || (impl->use_rope && !t_pos)) {
         st->last_error = "depth kv graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_x, prefix.data(),
@@ -1444,7 +1479,7 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
         }
     }
     const int32_t nt = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nt, &err)) {
+    if (!codec_graph_compute(gctx, entry, nt, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t vk = st->lm->info.codebook_sizes[current_k];

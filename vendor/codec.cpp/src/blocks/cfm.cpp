@@ -79,7 +79,7 @@ ggml_tensor * level_conv(ggml_context * ctx, ggml_tensor * x, ggml_tensor * w, g
 
 ggml_tensor * crop_t(ggml_context * ctx, ggml_tensor * x, int64_t t) {
     if (x->ne[0] == t) return x;
-    return ggml_cont(ctx, ggml_view_2d(ctx, x, t, x->ne[1], x->nb[1], 0));
+    return ggml_cont(ctx, ggml_view_3d(ctx, x, t, x->ne[1], x->ne[2], x->nb[1], x->nb[2], 0));
 }
 
 }  // namespace
@@ -114,7 +114,8 @@ ggml_tensor * codec_block_cfm_unet(
     const std::string pre(prefix);
     auto W = [&](const std::string & n) { return codec_graph_weight(ctx, model, pre + "." + n); };
 
-    ggml_tensor * spks_rep = ggml_repeat(ctx, ggml_reshape_2d(ctx, spks, 1, p.out_channels), x);
+    // spks is [c] or, for a batch, [c, n].
+    ggml_tensor * spks_rep = ggml_repeat(ctx, ggml_reshape_3d(ctx, spks, 1, p.out_channels, spks->ne[1]), x);
     ggml_tensor * h = ggml_concat(ctx, ggml_concat(ctx, ggml_concat(ctx, x, mu, 1), spks_rep, 1), cond, 1);
 
     std::vector<ggml_tensor *> skips;
@@ -172,13 +173,27 @@ ggml_tensor * codec_block_cfm_solve(
         const float t = p.meanflow ? lt : 1.0f - std::cos(lt * kHalfPi);
         const float r = p.meanflow ? lr : 1.0f - std::cos(lr * kHalfPi);
         const float dt = r - t;
-        ggml_tensor * v = estimator(x, mu, spks, cond, t, r);
-        if (v == nullptr) return nullptr;
-        if (p.meanflow || p.cfg_rate == 0.0f) {
+        const bool cfg = !(p.meanflow || p.cfg_rate == 0.0f);
+        ggml_tensor * v = cfg && p.batch_cfg ? nullptr : estimator(x, mu, spks, cond, t, r);
+        if (v == nullptr && !(cfg && p.batch_cfg)) return nullptr;
+        if (!cfg) {
             x = ggml_add(ctx, x, ggml_scale(ctx, v, dt));
             continue;
         }
-        ggml_tensor * vu = estimator(x, mu0, spks0, cond0, t, r);
+        ggml_tensor * vu = nullptr;
+        if (p.batch_cfg) {
+            // cond + uncond as one batch of two through the estimator.
+            const int64_t T = x->ne[0], C = x->ne[1];
+            ggml_tensor * vb = estimator(ggml_concat(ctx, x, x, 2), ggml_concat(ctx, mu, mu0, 2),
+                                         ggml_concat(ctx, ggml_reshape_2d(ctx, spks, spks->ne[0], 1),
+                                                     ggml_reshape_2d(ctx, spks0, spks0->ne[0], 1), 1),
+                                         ggml_concat(ctx, cond, cond0, 2), t, r);
+            if (vb == nullptr) return nullptr;
+            v  = ggml_view_2d(ctx, vb, T, C, vb->nb[1], 0);
+            vu = ggml_view_2d(ctx, vb, T, C, vb->nb[1], vb->nb[2]);
+        } else {
+            vu = estimator(x, mu0, spks0, cond0, t, r);
+        }
         if (vu == nullptr) return nullptr;
         ggml_tensor * g = ggml_sub(ctx, ggml_scale(ctx, v, 1.0f + p.cfg_rate), ggml_scale(ctx, vu, p.cfg_rate));
         x = ggml_add(ctx, x, ggml_scale(ctx, g, dt));

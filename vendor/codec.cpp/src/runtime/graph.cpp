@@ -433,6 +433,11 @@ bool codec_graph_cache_get_or_build(
     // realloc-down would just churn since the next entry might want the
     // larger size again.
     const size_t used_mem = ggml_used_mem(ctx->eval_ctx);
+    {
+        char det[96];
+        std::snprintf(det, sizeof(det), "kind=%d meta_bytes=%zu nodes=%d", key.kind, used_mem, (int) counts.n_nodes);
+        codec_perf_event("graph_meta", det);
+    }
     if (used_mem > cached->required_mem_size) {
         cached->required_mem_size = used_mem;
     }

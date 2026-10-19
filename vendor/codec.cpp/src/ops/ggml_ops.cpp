@@ -116,9 +116,12 @@ ggml_tensor * codec_op_group_norm(ggml_context * ctx, ggml_tensor * x, int32_t n
     gamma = codec_graph_cast_f32(ctx, gamma);
     beta = codec_graph_cast_f32(ctx, beta);
 
+    // x is [t, c] or [t, c, n]: n_groups per item, as n * n_groups groups of a 3-D
+    // [t, c/n_groups, n_groups * n] view (Metal's GROUP_NORM ignores a 4th dim).
     const int64_t cpg = x->ne[1] / n_groups;
-    ggml_tensor * x3 = ggml_reshape_3d(ctx, x, x->ne[0], cpg, n_groups);
-    ggml_tensor * y = ggml_reshape_2d(ctx, ggml_group_norm(ctx, x3, n_groups, eps), x->ne[0], x->ne[1]);
+    const int64_t nb = x->ne[2];
+    ggml_tensor * x3 = ggml_reshape_3d(ctx, x, x->ne[0], cpg, n_groups * nb);
+    ggml_tensor * y = ggml_reshape_3d(ctx, ggml_group_norm(ctx, x3, (int) (n_groups * nb), eps), x->ne[0], x->ne[1], nb);
 
     if (gamma != nullptr) {
         ggml_tensor * g2 = ggml_reshape_2d(ctx, gamma, 1, x->ne[1]);

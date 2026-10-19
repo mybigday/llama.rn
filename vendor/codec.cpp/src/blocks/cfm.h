@@ -45,6 +45,7 @@ struct codec_cfm_solver_params {
     int32_t n_steps = 10;
     float cfg_rate = 0.7f;   // 0 drops the unconditional pass
     bool meanflow = false;   // linear t, no CFG, estimator sees (t, r)
+    bool batch_cfg = false;  // the estimator takes [T, C, 2] batches: one call for cond + uncond
 };
 
 // Velocity estimate for (x, mu, spks, cond) at time t (MeanFlow: target r).

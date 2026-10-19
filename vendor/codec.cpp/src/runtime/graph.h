@@ -107,6 +107,9 @@ ggml_tensor * codec_graph_pin_cpu(ggml_tensor * node);
 // graph to the CPU (ggml-opencl has no SIN / COS, ggml-vulkan no ELU, ...).
 // CODEC_FORCE_COMPOSITE_OPS=1 answers false, to test those fallbacks on CPU.
 bool codec_graph_backend_supports(const ggml_tensor * node);
+
+// Frees the model's persistent CPU threadpool (codec_model_free, after its contexts are gone).
+void codec_model_free_cpu_threadpool(codec_model * model);
 // Whether the graph being built targets a non-CPU backend (false outside a
 // build).  For layout / algorithm choices that are measurably faster on GPUs
 // and slower on CPUs.

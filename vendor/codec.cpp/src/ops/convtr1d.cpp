@@ -89,6 +89,17 @@ ggml_tensor * codec_convtr1d(
     if (ctx == nullptr || x == nullptr || w == nullptr || stride <= 0 || dilation <= 0 || padding < 0) {
         return nullptr;
     }
+    if (x->ne[2] > 1 && x->ne[3] <= 1) {
+        // The GEMM path runs one sequence: convolve each [t, c] item, stack them.
+        ggml_tensor * y = nullptr;
+        for (int64_t i = 0; i < x->ne[2]; ++i) {
+            ggml_tensor * xi = ggml_cont(ctx, ggml_view_3d(ctx, x, x->ne[0], x->ne[1], 1, x->nb[1], x->nb[2], (size_t) i * x->nb[2]));
+            ggml_tensor * yi = codec_convtr1d(ctx, xi, w, b, stride, padding, dilation);
+            if (yi == nullptr) return nullptr;
+            y = y == nullptr ? yi : ggml_concat(ctx, y, yi, 2);
+        }
+        return y;
+    }
 
     w = codec_graph_stored_weight(ctx, w);
     b = codec_graph_cast_f32(ctx, b);

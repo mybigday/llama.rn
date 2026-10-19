@@ -14,11 +14,21 @@
 
 namespace {
 
-// Grouped Conv1d (k, groups) on x [T, C] with left zero padding k - 1:
+// Grouped Conv1d (k, groups) on x [T, C] (or [T, C, n]) with left zero padding k - 1:
 // im2col over a [T, C/groups, groups] view gives each group's columns, then
 // one batched matmul against the weight viewed as [k * C/groups, C/groups, groups].
 ggml_tensor * grouped_causal_conv(ggml_context * ctx, ggml_tensor * x_tc, ggml_tensor * w, ggml_tensor * b,
                                   int32_t groups) {
+    if (x_tc->ne[2] > 1) {
+        // One item at a time: the batched form (weight broadcast over a 4-D
+        // [*, *, groups, n] im2col) decoded CosyVoice3 differently on ggml-vulkan.
+        ggml_tensor * y = nullptr;
+        for (int64_t i = 0; i < x_tc->ne[2]; ++i) {
+            ggml_tensor * r = grouped_causal_conv(ctx, ggml_cont(ctx, ggml_view_2d(ctx, x_tc, x_tc->ne[0], x_tc->ne[1], x_tc->nb[1], (size_t) i * x_tc->nb[2])), w, b, groups);
+            y = y == nullptr ? r : ggml_concat(ctx, y, r, 2);
+        }
+        return y;
+    }
     const int64_t T = x_tc->ne[0];
     const int64_t C = x_tc->ne[1];
     const int64_t cg = C / groups;
@@ -65,7 +75,7 @@ ggml_tensor * codec_block_dit(
     ggml_tensor * te_act = ggml_reshape_2d(ctx, codec_op_unary(ctx, te, CODEC_UNARY_SILU), D, 1);
 
     // InputEmbedding: proj([x, cond, mu, spks]) + CausalConvPositionEmbedding.
-    ggml_tensor * spks_rep = ggml_repeat(ctx, ggml_reshape_2d(ctx, spks, 1, spks->ne[0]), x);
+    ggml_tensor * spks_rep = ggml_repeat(ctx, ggml_reshape_3d(ctx, spks, 1, spks->ne[0], spks->ne[1]), x);   // spks [80] or [80, n]
     ggml_tensor * in = ggml_concat(ctx, ggml_concat(ctx, ggml_concat(ctx, x, cond, 1), mu, 1), spks_rep, 1);
     ggml_tensor * h = codec_op_linear(ctx, ggml_cont(ctx, ggml_transpose(ctx, in)), W("in.proj.w"), W("in.proj.b"));
     if (h == nullptr) return nullptr;                                                        // [D, T]
@@ -79,10 +89,12 @@ ggml_tensor * codec_block_dit(
 
     // x-transformers apply_rotary_pos_emb on (b, n, D) before the head split:
     // GPT-J pairs over the first rope_dim channels, the rest pass through.
+    // A batch rides through codec_op_rope as its head dim (same positions per item).
+    const int64_t NB = x->ne[2];
     auto rope = [&](ggml_tensor * t_ct) {
-        ggml_tensor * r = codec_op_rope(ctx, ggml_reshape_3d(ctx, t_ct, D, T, 1), p.rope_dim, 10000.0f, 1.0f,
+        ggml_tensor * r = codec_op_rope(ctx, ggml_reshape_3d(ctx, t_ct, D, T, NB), p.rope_dim, 10000.0f, 1.0f,
                                         CODEC_ROPE_MODE_NORMAL);
-        return r == nullptr ? nullptr : ggml_reshape_2d(ctx, ggml_cont(ctx, r), D, T);
+        return r == nullptr ? nullptr : ggml_reshape_3d(ctx, ggml_cont(ctx, r), D, T, NB);
     };
 
     for (int32_t i = 0; i < p.depth; ++i) {

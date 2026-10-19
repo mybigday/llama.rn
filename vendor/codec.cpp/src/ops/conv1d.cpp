@@ -111,12 +111,19 @@ static ggml_tensor * codec_conv1d_impl(
     const int64_t K = w->ne[0], C_in = w->ne[1], C_out = w->ne[2];
     const bool tap_type_ok = w->type == GGML_TYPE_F32 || (w->type == GGML_TYPE_F16 && (C_in * C_out) % 32 == 0);
     const bool gemm_taps = tap_type_ok && (!metal || std::min(w->ne[1], w->ne[2]) >= 64);
-    if (codec_graph_backend_is_gpu() && gemm_taps && stride == 1 && x->ne[2] <= 1 && x->ne[3] <= 1 &&
-        x->ne[1] == w->ne[1]) {
+    if (codec_graph_backend_is_gpu() && gemm_taps && stride == 1 && x->ne[3] <= 1 && x->ne[1] == w->ne[1]) {
         ggml_tensor * xp = padding > 0 ? codec_op_pad_1d(ctx, x, padding, padding) : x;
-        const int64_t t_out = xp->ne[0] - (int64_t) dilation * (K - 1);
+        const int64_t tp = xp->ne[0];
+        const int64_t nb = xp->ne[2];
+        const int64_t t_out = tp - (int64_t) dilation * (K - 1);
         if (t_out <= 0) return nullptr;
-        ggml_tensor * x_ct = ggml_cont(ctx, ggml_transpose(ctx, xp));                              // [C_in, T]
+        // A batch is laid end to end in time ([C_in, tp * nb], each item padded on
+        // its own): the taps run over one contiguous sequence, and the outputs that
+        // straddle two items fall in the (K - 1) * dilation tail of each item's
+        // tp-frame slot, which is dropped below.
+        ggml_tensor * x_ct = ggml_cont(ctx, ggml_permute(ctx, xp, 1, 0, 2, 3));                     // [C_in, tp, nb]
+        x_ct = ggml_reshape_2d(ctx, x_ct, x_ct->ne[0], tp * nb);
+        const int64_t t_all = tp * nb - (int64_t) dilation * (K - 1);
         // Vulkan binds each operand at its view offset, which must meet the device's
         // minStorageBufferOffsetAlignment (64 B on Mali) unless the shader handles a
         // misaligned start; ggml-vulkan allows that only for mul_mat's src1. The
@@ -136,14 +143,19 @@ static ggml_tensor * codec_conv1d_impl(
         }
         ggml_tensor * y = nullptr;
         for (int64_t k = 0; k < K; ++k) {
-            ggml_tensor * xk = ggml_view_2d(ctx, x_ct, C_in, t_out, x_ct->nb[1], (size_t) (k * dilation) * x_ct->nb[1]);
+            ggml_tensor * xk = ggml_view_2d(ctx, x_ct, C_in, t_all, x_ct->nb[1], (size_t) (k * dilation) * x_ct->nb[1]);
             ggml_tensor * wk = ggml_view_2d(ctx, wk_all, C_in, C_out, ggml_row_size(w->type, C_in), (size_t) k * wk_all->nb[1]);
-            ggml_tensor * yk = x_src0 ? ggml_mul_mat(ctx, xk, wk)                                  // [T_out, C_out]
-                                      : ggml_mul_mat(ctx, wk, xk);                                 // [C_out, T_out]
+            ggml_tensor * yk = x_src0 ? ggml_mul_mat(ctx, xk, wk)                                  // [T_all, C_out]
+                                      : ggml_mul_mat(ctx, wk, xk);                                 // [C_out, T_all]
             y = y == nullptr ? yk : ggml_add(ctx, y, yk);
         }
-        if (!x_src0) y = ggml_cont(ctx, ggml_transpose(ctx, y));
-        return ggml_reshape_3d(ctx, y, t_out, C_out, 1);
+        if (!x_src0) y = ggml_cont(ctx, ggml_transpose(ctx, y));                                   // [T_all, C_out]
+        if (nb == 1) return ggml_reshape_3d(ctx, y, t_out, C_out, 1);
+        // Back to [t_out, C_out, nb]: pad the tail to nb full slots, keep each slot's head.
+        y = ggml_cont(ctx, ggml_permute(ctx, codec_op_pad_1d(ctx, y, 0, tp * nb - t_all), 1, 0, 2, 3));  // [C_out, tp*nb]
+        y = ggml_reshape_3d(ctx, y, C_out, tp, nb);
+        y = ggml_view_3d(ctx, y, C_out, t_out, nb, y->nb[1], y->nb[2], 0);
+        return ggml_cont(ctx, ggml_permute(ctx, y, 1, 0, 2, 3));                                   // [t_out, C_out, nb]
     }
 
     if (!codec_conv1d_w_is_src1(w)) {
@@ -157,12 +169,15 @@ static ggml_tensor * codec_conv1d_impl(
 
     ggml_tensor * cols = ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1]);
     ggml_tensor * w2d = ggml_reshape_2d(ctx, w, w->ne[0] * w->ne[1], w->ne[2]);
-    ggml_tensor * y = ggml_mul_mat(ctx, cols, w2d);
+    ggml_tensor * y = ggml_mul_mat(ctx, cols, w2d);                                   // [T_out * N, C_out]
     if (y == nullptr) {
         return nullptr;
     }
-
-    return ggml_reshape_3d(ctx, y, im2col->ne[1], w->ne[2], im2col->ne[2]);
+    if (im2col->ne[2] > 1) {   // rows are (t, n) pairs: [T_out, N, C_out] -> [T_out, C_out, N]
+        y = ggml_reshape_3d(ctx, y, im2col->ne[1], im2col->ne[2], w->ne[2]);
+        return ggml_cont(ctx, ggml_permute(ctx, y, 0, 2, 1, 3));
+    }
+    return ggml_reshape_3d(ctx, y, im2col->ne[1], w->ne[2], 1);
 }
 
 static ggml_tensor * codec_conv1d_depthwise_impl(

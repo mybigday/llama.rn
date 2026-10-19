@@ -239,6 +239,7 @@ bool build_decode(ggml_context * ctx, void * user_data, ggml_tensor ** out) {
     codec_cfm_solver_params sp;
     sp.n_steps = cv.n_timesteps;
     sp.cfg_rate = cv.cfg_rate;
+    sp.batch_cfg = true;
     codec_cfm_estimator_fn estimator;
     if (cv.version == 3) {
         codec_dit_params dp;

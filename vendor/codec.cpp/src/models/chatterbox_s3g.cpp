@@ -124,6 +124,7 @@ static bool codec_s3g_build_flow(ggml_context * ctx_eval, void * user_data, ggml
     sp.n_steps = s3g.n_timesteps;
     sp.cfg_rate = s3g.cfg_rate;
     sp.meanflow = s3g.meanflow;
+    sp.batch_cfg = true;
     auto estimator = [&](ggml_tensor * x, ggml_tensor * mu, ggml_tensor * sk, ggml_tensor * cd,
                          float t, float r) -> ggml_tensor * {
         ggml_tensor * t_emb = codec_block_cfm_time_mlp(ctx_eval, model, "s3g.cfm", t, kCfmInChannels, kCfmTimeEmbedScale);

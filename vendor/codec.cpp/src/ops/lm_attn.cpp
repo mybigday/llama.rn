@@ -40,19 +40,25 @@ ggml_tensor * codec_op_attn_ct(
     }
     const int64_t inner = (int64_t) head_dim * n_heads;
     const int64_t t = q_ct->ne[1];
-    auto heads = [&](ggml_tensor * x) {   // [inner, t] -> [head_dim, t, n_heads] view
-        return ggml_permute(ctx, ggml_reshape_3d(ctx, x, head_dim, n_heads, t), 0, 2, 1, 3);
+    const int64_t nb = q_ct->ne[2];   // independent sequences
+    auto heads = [&](ggml_tensor * x) {   // [inner, t, n] -> [head_dim, t, n_heads, n] view
+        return ggml_permute(ctx, ggml_reshape_4d(ctx, x, head_dim, n_heads, t, nb), 0, 2, 1, 3);
     };
     ggml_tensor * fa = ggml_flash_attn_ext(ctx, heads(q_ct), heads(k_ct), heads(v_ct), nullptr, scale, 0.0f, 0.0f);
     ggml_flash_attn_ext_set_prec(fa, GGML_PREC_F32);
     if (codec_graph_backend_supports(fa)) {
-        return ggml_reshape_2d(ctx, fa, inner, t);   // fa: [head_dim, n_heads, t]
+        return ggml_reshape_3d(ctx, fa, inner, t, nb);   // fa: [head_dim, n_heads, t, n]
     }
+    // Composite: the sequences ride along as extra heads.
+    auto folded = [&](ggml_tensor * x) {
+        return ggml_reshape_3d(ctx, ggml_cont(ctx, heads(x)), head_dim, t, n_heads * nb);
+    };
     codec_lm_attn_params p = {};
     p.scale = scale;
-    ggml_tensor * a = codec_op_lm_attn_ctx_dth(ctx, ggml_cont(ctx, heads(q_ct)), ggml_cont(ctx, heads(k_ct)),
-                                               ggml_cont(ctx, heads(v_ct)), &p);
-    return a == nullptr ? nullptr : ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)), inner, t);
+    ggml_tensor * a = codec_op_lm_attn_ctx_dth(ctx, folded(q_ct), folded(k_ct), folded(v_ct), &p);
+    if (a == nullptr) return nullptr;
+    a = ggml_reshape_4d(ctx, a, head_dim, t, n_heads, nb);
+    return ggml_reshape_3d(ctx, ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)), inner, t, nb);
 }
 
 ggml_tensor * codec_op_lm_attn_ctx_dth(

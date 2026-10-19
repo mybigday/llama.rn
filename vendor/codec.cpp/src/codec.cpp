@@ -543,6 +543,7 @@ void codec_model_free(struct codec_model * model) {
         ggml_backend_free(model->backend);
         model->backend = nullptr;
     }
+    codec_model_free_cpu_threadpool(model);
 
     if (model->gguf != nullptr) {
         gguf_free(model->gguf);
