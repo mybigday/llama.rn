@@ -605,6 +605,7 @@ llama_rn_context_tts::step_result llama_rn_context_tts::step(llama_rn_context* m
             common_sampler_accept(guard->smpl, tok, true);
         }
     }
+    r.sampled = tok;
     codec_audio_lm_verdict v{};
     std::vector<float> rows;
     {

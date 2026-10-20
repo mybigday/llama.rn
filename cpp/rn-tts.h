@@ -165,6 +165,7 @@ struct llama_rn_context_tts {
         bool fed = false;           // one position was decoded at n_past
         bool audio = false;         // this step produced an audio frame
         llama_token tok = -1;       // audio: the sampled token, else the frame index
+        llama_token sampled = -1;   // the backbone token sampled this step (-1: none)
     };
     // One step: sample with `smpl` when the model asks, observe, decode what
     // it feeds at `n_past`.

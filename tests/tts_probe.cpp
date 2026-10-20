@@ -245,6 +245,7 @@ int main(int argc, char ** argv) {
     std::printf("\n[probe] === GENERATION ===\n");
     std::printf("  frames                : %zu\n", ctx.tts_wrapper->audio_tokens.size());
     std::printf("  STOP REASON           : %s\n", ctx.tts_wrapper->stop_reason.c_str());
+    std::printf("  text head             : %s\n", ctx.completion->generated_text.substr(0, 120).c_str());
     std::printf("  total generation time : %.2fs\n", std::chrono::duration<double>(t4 - t3).count());
 
     if (!save_speaker.empty() && speaker_id >= 0) {

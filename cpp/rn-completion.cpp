@@ -699,20 +699,19 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
 }
 
 void llama_rn_context_completion::endCompletion() {
-    if (isAudioGeneration()) {
-        // The audio so far is decoded; the KV cache no longer matches embd.
-        embd.clear();
-        n_past = 0;
-        is_predicting = false;
-        parent_ctx->tts_wrapper->endGeneration(parent_ctx);
-        return;
-    }
     generated_text += utf8_gate.finish();
     incomplete = false;
     // Trim the undecoded final token. On a stop-word / token-budget stop the last
     // sampled token is already pushed to embd but never decoded.
     if (n_past > 0 && n_past < (llama_pos) embd.size()) {
         embd.resize(n_past);
+    }
+    if (isAudioGeneration()) {
+        // Decodes the audio so far and clears the KV cache, which embd no
+        // longer describes.
+        parent_ctx->tts_wrapper->endGeneration(parent_ctx);
+        embd.clear();
+        n_past = 0;
     }
     is_predicting = false;
 }
@@ -1052,8 +1051,11 @@ completion_token_output llama_rn_context_completion::nextAudioStep()
         embd.push_back(r.tok >= 0 ? r.tok : 0);
         ++n_past;
     }
-    if (r.audio) {
-        result.tok = r.tok;
+    // A sampled backbone token is the step's token, as in the text loop (its
+    // piece goes to the text); codec-head models sample none.  The token that
+    // ends the generation is not returned, like EOS.
+    if (!r.stop && r.sampled >= 0) result.tok = r.sampled;
+    if (r.sampled >= 0 || r.audio) {
         num_tokens_predicted++;
         updateGenerationTiming();
         --n_remain;
@@ -1299,11 +1301,6 @@ size_t llama_rn_context_completion::findStoppingStrings(const std::string &text,
 completion_token_output llama_rn_context_completion::doCompletion()
 {
     completion_token_output token_with_probs = nextToken();
-
-    // Audio frames carry no text.
-    if (isAudioGeneration()) {
-        return token_with_probs;
-    }
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(parent_ctx->ctx, token_with_probs.tok);
     generated_text += utf8_gate.feed(token_text);
