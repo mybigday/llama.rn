@@ -7,6 +7,7 @@ jest.mock('..', () => require('../../jest/mock'))
 // moves them into jsiBindings and deletes them from global.
 let mockReleaseSpeaker: jest.Mock
 let mockGetFormattedAudioCompletion: jest.Mock
+let mockGetTTSCapabilities: jest.Mock
 let ctx: LlamaContext
 
 beforeAll(async () => {
@@ -16,9 +17,11 @@ beforeAll(async () => {
   const g = global as typeof globalThis & {
     llamaReleaseSpeaker: jest.Mock
     llamaGetFormattedAudioCompletion: jest.Mock
+    llamaGetTTSCapabilities: jest.Mock
   }
   mockReleaseSpeaker = g.llamaReleaseSpeaker
   mockGetFormattedAudioCompletion = g.llamaGetFormattedAudioCompletion
+  mockGetTTSCapabilities = g.llamaGetTTSCapabilities
   // initLlama calls installJsi → bindJsiFromGlobal → deletes keys from global
   ctx = await initLlama({ model: 'x.gguf' })
 })
@@ -81,6 +84,35 @@ it('getFormattedAudioCompletion forwards a structured speaker payload as-is (not
     ctx.id,
     payload,
     'hello',
+  )
+})
+
+it('getFormattedAudioCompletion resolves a NeuTTS default to the language default codec voice', async () => {
+  const voice = (name: string, isDefault = false) => ({
+    name,
+    refText: '',
+    isDefault,
+  })
+  mockGetTTSCapabilities.mockResolvedValueOnce({
+    type: 5,
+    promptKind: 'neutts',
+    family: 'neutts',
+    requiresPhonemes: true,
+    defaultLanguage: 'en-us',
+    builtinVoices: [voice('jo', true), voice('dave'), voice('greta')],
+    canSpeakerFromAudio: true,
+    samplingDefaults: {},
+  })
+  mockGetFormattedAudioCompletion.mockClear()
+
+  await ctx.getFormattedAudioCompletion({ prompt: 'hallo', language: 'de' })
+
+  // A builtin codec voice beats the JS preset of the same name, and 'de'
+  // picks greta rather than the codec's own default (jo).
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    { codec_voice: 'greta' },
+    'hallo',
   )
 })
 

@@ -137,3 +137,17 @@ export function listVoices(
 export function listLanguages(family: string): string[] {
   return Object.keys(VOICE_TABLES[family as Family] ?? {})
 }
+
+// The voice name that 'default' aliases for `language` (e.g. 'greta' for
+// NeuTTS 'de'), so a codec GGUF's builtin voice of that name can stand in.
+export function defaultVoiceName(
+  family: string,
+  language: string = DEFAULT_LANGUAGE,
+): string | null {
+  const table = VOICE_TABLES[family as Family]?.[language]
+  const def = table?.default
+  if (!table || !def) return null
+  return (
+    Object.keys(table).find((k) => k !== 'default' && table[k] === def) ?? null
+  )
+}

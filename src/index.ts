@@ -1245,7 +1245,7 @@ export class LlamaContext {
     embedding: boolean
     flow: 'tokens' | 'continuous_embd' | ''
   }> {
-    const { lookupVoice } = require('./tts-voices')
+    const { lookupVoice, defaultVoiceName } = require('./tts-voices')
     const cap = await this.getTTSCapabilities()
     const language = options.language ?? (cap.defaultLanguage || 'en-us')
 
@@ -1277,15 +1277,25 @@ export class LlamaContext {
     //    which means 'default' — resolves against the built-in voice table,
     //    whose entries are themselves pre-baked payloads. Native never sees a
     //    voice-name key; voice resolution is JS-only.
-    // A builtin decoder voice of the codec GGUF (codec_speaker); 'default'
-    // also names the codec's default voice (e.g. BreezyVoice's zh_female).
-    const codecVoice =
-      typeof options.speaker === 'string'
-        ? cap.builtinVoices.find((v) => v.name === options.speaker) ??
-          (options.speaker === 'default'
-            ? cap.builtinVoices.find((v) => v.isDefault)
-            : undefined)
-        : undefined
+    // A builtin voice of the codec GGUF (codec_speaker) wins over a preset of
+    // the same name. No speaker, or 'default', picks the language's default
+    // preset voice when the codec has a builtin voice of that name (NeuTTS
+    // greta for 'de'), else the codec's own default (BreezyVoice zh_female).
+    const defaultBuiltinVoice = () => {
+      const name = defaultVoiceName(cap.family, language)
+      return (
+        cap.builtinVoices.find((v) => v.name === name) ??
+        cap.builtinVoices.find((v) => v.isDefault)
+      )
+    }
+    let codecVoice: import('./tts').TTSSpeakerInfo | undefined
+    if (options.speaker === undefined || options.speaker === 'default') {
+      codecVoice =
+        cap.builtinVoices.find((v) => v.name === 'default') ??
+        defaultBuiltinVoice()
+    } else if (typeof options.speaker === 'string') {
+      codecVoice = cap.builtinVoices.find((v) => v.name === options.speaker)
+    }
     let payload: Record<string, any> | null
     if (options.speaker && typeof options.speaker === 'object') {
       payload = { ...options.speaker }

@@ -1404,6 +1404,83 @@ static std::string build_outetts_v1_prompt(const json &speaker, bool has_speaker
     return "<|im_start|>\n<|text_start|>" + text + "<|text_end|>\n<|audio_start|>\n" + audio_prefix;
 }
 
+// Codec speakers (a builtin voice of the codec GGUF, a speaker file, or one
+// derived from reference audio) carry the reference prompt themselves: NeuTTS
+// as `ref_codes` + a phoneme ref_text, OuteTTS as `audio_prompt` (backbone
+// token ids of the audio section) + its text section. The layouts mirror
+// codec.cpp common/tts_runner.cpp.
+static bool codec_speaker_i32_slot(const ::codec_speaker *spk, const char *name, std::vector<int32_t> &out) {
+    codec_speaker_slot_type ty;
+    int64_t ne[4];
+    const void *data = nullptr;
+    if (spk == nullptr || !codec_speaker_get_slot(spk, name, &ty, ne, &data) || ty != CODEC_SPEAKER_SLOT_I32) {
+        return false;
+    }
+    const int32_t *ids = static_cast<const int32_t *>(data);
+    out.assign(ids, ids + ne[0]);
+    return true;
+}
+
+static std::string build_neutts_codec_speaker_prompt(const ::codec_speaker *spk, const std::string &text_to_speak) {
+    json speaker = json::object();
+    std::vector<int32_t> codes;
+    if (codec_speaker_i32_slot(spk, "ref_codes", codes)) {
+        speaker["ref_codes"] = codes;
+    }
+    const char *ref_text = codec_speaker_ref_text(spk);
+    if (ref_text == nullptr || *ref_text == '\0') {
+        LOG_ERROR("NeuTTS: the speaker has no ref_text (the reference transcript as phonemes)");
+        return "";
+    }
+    speaker["ref_phones"] = ref_text;
+    return build_neutts_prompt(speaker, text_to_speak);
+}
+
+static std::string build_outetts_codec_speaker_prompt(const llama_vocab *vocab, const tts_model_profile &profile,
+                                                      const ::codec_speaker *spk, const std::string &text_to_speak) {
+    std::vector<int32_t> ids;
+    const char *ref_text_c = codec_speaker_ref_text(spk);
+    if (ref_text_c == nullptr || !codec_speaker_i32_slot(spk, "audio_prompt", ids)) {
+        LOG_ERROR("OuteTTS: the speaker needs ref_text + audio_prompt (a codec GGUF with builtin voices)");
+        return "";
+    }
+    // The ids belong to the backbone the codec GGUF was baked for; the prompt
+    // goes back through the tokenizer as text, so render them as pieces.
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    std::string audio;
+    for (int32_t id : ids) {
+        if (id < 0 || id >= n_vocab) {
+            LOG_ERROR("OuteTTS: speaker audio_prompt token %d is out of the backbone vocab "
+                      "(codec GGUF baked for another model?)", id);
+            return "";
+        }
+        audio += common_token_to_piece(vocab, id, true);
+    }
+
+    std::string ref_text = ref_text_c;
+    ref_text = std::regex_replace(ref_text, std::regex(R"(^\s+|\s+$)"), "");
+    std::string text;
+    if (profile.type == OUTETTS_V1_0) {
+        std::string separator = ". ";
+        if (!ref_text.empty()) {
+            const char last = ref_text.back();
+            if (last == '.' || last == '?' || last == '!') separator = " ";
+        }
+        text = ref_text.empty() ? process_text(text_to_speak, OUTETTS_V1_0)
+                                : process_text(ref_text + separator + text_to_speak, OUTETTS_V1_0);
+        audio += "<|word_start|>";
+    } else {
+        // ref_text is already space-separated words (with the version's
+        // punctuation tokens), so only the separators change.
+        const std::string separator = (profile.type == OUTETTS_V0_3) ? "<|space|>" : "<|text_sep|>";
+        text = std::regex_replace(ref_text, std::regex(R"(\s+)"), separator);
+        const std::string input = process_text(text_to_speak, profile.type);
+        if (!text.empty() && !input.empty()) text += separator;
+        text += input;
+    }
+    return "<|im_start|>\n<|text_start|>" + text + "<|text_end|>\n<|audio_start|>\n" + audio;
+}
+
 static std::string build_soprano_prompt(const std::string &text_to_speak) {
     return "[STOP][TEXT]" + process_text(text_to_speak, SOPRANO_1_1_80M) + "[START]";
 }
@@ -1811,15 +1888,33 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
 
     const std::string flow = is_continuous_lm ? "continuous_embd" : "tokens";
 
+    // A builtin codec voice or a LlamaSpeaker handle supplies the reference
+    // prompt through its codec speaker instead of the speaker JSON.
+    const ::codec_speaker * prompt_spk =
+        (!pending_codec_voice.empty() || decode_speaker_id >= 0) ? resolveDecodeSpeaker() : nullptr;
+    if (prompt_spk == nullptr && !pending_codec_voice.empty()) {
+        LOG_ERROR("getFormattedAudioCompletion: unknown codec voice '%s'", pending_codec_voice.c_str());
+    }
+
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
-            return {build_outetts_legacy_prompt(profile, speaker, has_speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::OUTETTS_V1_0:
-            return {build_outetts_v1_prompt(speaker, has_speaker, text_to_speak), grammar, embedding, flow};
+            if (prompt_spk != nullptr) {
+                return {build_outetts_codec_speaker_prompt(llama_model_get_vocab(main_ctx->model), profile,
+                                                           prompt_spk, text_to_speak),
+                        grammar, embedding, flow};
+            }
+            if (profile.prompt_kind == tts_prompt_kind::OUTETTS_V1_0) {
+                return {build_outetts_v1_prompt(speaker, has_speaker, text_to_speak), grammar, embedding, flow};
+            }
+            return {build_outetts_legacy_prompt(profile, speaker, has_speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::SOPRANO:
             return {build_soprano_prompt(text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::NEUTTS:
+            if (prompt_spk != nullptr) {
+                return {build_neutts_codec_speaker_prompt(prompt_spk, text_to_speak), grammar, embedding, flow};
+            }
             return {build_neutts_prompt(speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::CSM:
             return {build_csm_prompt(speaker, text_to_speak), "", embedding, flow};
