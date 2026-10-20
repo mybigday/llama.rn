@@ -725,6 +725,25 @@ static enum codec_status codec_qwen3_tts_tokenizer_decode_wrap(
     return codec_qwen3_tts_tokenizer_decode(ctx, tokens, out_pcm, params);
 }
 
+// Qwen3-TTS CustomVoice builtin voices condition the talker prompt, not the
+// decoder: `spk_id` I32 [1] is the codec-vocab row the talker embeds as its
+// speaker row, `language_id` I32 [1] (dialect voices) the language tag used
+// when the language is auto.
+static bool codec_qwen3_tts_tokenizer_speaker_validate(
+        const codec_model * /*model*/, const codec_speaker * spk, std::string * err) {
+    auto tag_ok = [&](const char * name, bool required) {
+        const codec_speaker_slot * s = spk->slot(name);
+        if (s == nullptr && !required) return true;
+        if (s != nullptr && s->type == GGML_TYPE_I32 && s->nelements() == 1 &&
+            *reinterpret_cast<const int32_t *>(s->data.data()) >= 0) {
+            return true;
+        }
+        *err = std::string("Qwen3-TTS speaker needs an I32 [1] ") + name + " slot";
+        return false;
+    };
+    return tag_ok("spk_id", true) && tag_ok("language_id", false);
+}
+
 const struct codec_model_vtable * codec_qwen3_tts_tokenizer_vtable() {
     static const codec_model_vtable vtable = {
         CODEC_ARCH_QWEN3_TTS_TOKENIZER,
@@ -735,6 +754,8 @@ const struct codec_model_vtable * codec_qwen3_tts_tokenizer_vtable() {
         codec_graph_size_exact,
         codec_qwen3_tts_tokenizer_encode_wrap,
         codec_qwen3_tts_tokenizer_decode_wrap,
+        nullptr,
+        codec_qwen3_tts_tokenizer_speaker_validate,
         nullptr,
     };
     return &vtable;

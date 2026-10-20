@@ -8,7 +8,7 @@
 // are unchanged and composed here; the loop-owning contract for hosts like
 // llama.rn (docs/codec_common_api.md §Boundary) is untouched.
 //
-// Ported from examples/tts-cli.cpp's cmd_synthesize + the run_* flow
+// Ported from tools/tts-cli.cpp's cmd_synthesize + the run_* flow
 // helpers; the flow bodies are verbatim, only the entry points fill a
 // tts_runner_result (PCM + stats) instead of writing WAV files.  Built only
 // when CODEC_TTS_BACKBONE=ON.
@@ -387,7 +387,130 @@ static double ms_since(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
-static bool timed_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * pcm, tts_runner_result * out) {
+// ─────────────────────────────────────────────────────────────────────
+// Frame-level streaming: while the AR loop runs, decode the frames
+// accumulated so far and hand each new piece of PCM to on_audio.  Every
+// window starts at the segment's first frame: causal decoders (Mimi, MOSS)
+// then reproduce the whole-segment decode exactly, where a shorter left
+// context would not (their transformers see all of the past); segments are
+// short, so the re-decode stays cheap.  The last `right` frames of a window
+// are held back because their audio still lacks right context; the next
+// window re-decodes them and the seam is cross-faded.  Decoders with global
+// attention (NeuCodec, WavTokenizer) depend on future frames too, so for them
+// the streamed audio only approximates the whole-segment decode.
+// ─────────────────────────────────────────────────────────────────────
+class frame_streamer {
+public:
+    frame_streamer(audio_lm_context * ctx, const tts_runner_params & a, tts_runner_result * out)
+        : ctx_(ctx), a_(a), out_(out) {}
+
+    // After each AR frame.  False = stop: the caller rejected audio or a
+    // decode failed (error() says which).
+    bool poll() {
+        if (failed_) return false;
+        const int32_t avail = audio_lm_decodable_frames(ctx_);
+        if (spf_ == 0 ? avail < k_probe_frames : avail < committed_ + chunk_ + right_) return true;
+        return window(avail, /*final=*/false);
+    }
+
+    // After the AR loop: emit the rest; *pcm gets every sample emitted.
+    bool finish(audio_lm_audio_output * pcm) {
+        if (failed_) return false;
+        const int32_t avail = audio_lm_decodable_frames(ctx_);
+        if (avail > committed_ && !window(avail, /*final=*/true)) return false;
+        pcm->pcm         = std::move(all_);
+        pcm->sample_rate = sr_;
+        pcm->n_channels  = nch_;
+        return true;
+    }
+
+    const std::string & error() const { return error_; }
+    bool                used()  const { return used_; }    // emitted this segment's audio itself
+
+private:
+    static constexpr int32_t k_probe_frames = 8;   // first window, measures samples per frame
+
+    bool window(int32_t avail, bool final) {
+        used_ = true;
+        const int32_t w0 = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        audio_lm_audio_output w;
+        const bool ok = audio_lm_decode_audio_range(ctx_, w0, avail, &w);
+        out_->decode_ms += ms_since(t0);
+        if (!ok) return fail(std::string("streaming decode failed: ") + audio_lm_last_error(ctx_));
+        const int32_t n = avail - w0;
+        const int32_t nch = std::max(1, w.n_channels);
+        const int64_t len = (int64_t) (w.pcm.size() / (size_t) nch);
+        if (spf_ == 0) {
+            spf_ = audio_lm_codec_hop(ctx_);
+            if (spf_ <= 0) return fail("streaming: the codec reports no hop size");
+            sr_  = w.sample_rate;
+            nch_ = nch;
+            const double frames_per_s = (double) sr_ / spf_;
+            chunk_ = std::max(1, (int32_t) std::lround(a_.stream_chunk_ms * frames_per_s / 1000.0));
+            right_ = std::max(1, (int32_t) std::lround(k_right_s * frames_per_s));
+            xfade_ = std::min((int32_t) std::lround(k_xfade_s * sr_), right_ * spf_);
+        }
+        if (nch != nch_ || std::llabs(len - (int64_t) n * spf_) > spf_) {
+            return fail("streaming: a window of " + std::to_string(n) + " frames decoded to " + std::to_string(len) +
+                        " samples, not about " + std::to_string((int64_t) n * spf_));
+        }
+        const int32_t commit = final ? avail : std::max(committed_, avail - right_);
+        const size_t  base   = (size_t) (committed_ - w0) * spf_;       // window-relative sample of the seam
+        if ((int64_t) base > len) return fail("streaming: decoded window too short");
+        // The last window keeps whatever the codec produces past the seam.
+        const size_t  n_new  = final ? (size_t) len - base : (size_t) (commit - committed_) * spf_;
+        std::vector<float> piece(w.pcm.begin() + (ptrdiff_t) (base * nch_),
+                                 w.pcm.begin() + (ptrdiff_t) ((base + n_new) * nch_));
+        // Cross-fade the held-back samples of the previous window into this one.
+        const size_t nx = std::min(pending_.size() / nch_, n_new);
+        for (size_t i = 0; i < nx; ++i) {
+            const float g = (float) (i + 1) / (float) (nx + 1);
+            for (int32_t c = 0; c < nch_; ++c) {
+                float & v = piece[i * nch_ + c];
+                v = g * v + (1.0f - g) * pending_[i * nch_ + c];
+            }
+        }
+        const size_t tail = base + n_new;
+        const size_t np = final ? 0 : std::min((size_t) xfade_, (size_t) len - tail);
+        pending_.assign(w.pcm.begin() + (ptrdiff_t) (tail * nch_), w.pcm.begin() + (ptrdiff_t) ((tail + np) * nch_));
+        committed_ = commit;
+        if (piece.empty()) return true;
+        all_.insert(all_.end(), piece.begin(), piece.end());
+        if (!a_.on_audio(piece.data(), (int32_t) (piece.size() / nch_), sr_, nch_)) {
+            return fail("stopped by the caller");
+        }
+        return true;
+    }
+
+    bool fail(const std::string & e) {
+        error_ = e;
+        failed_ = true;
+        return false;
+    }
+
+    static constexpr double k_right_s = 0.32;   // held back until the next window
+    static constexpr double k_xfade_s = 0.02;
+
+    audio_lm_context        * ctx_;
+    const tts_runner_params & a_;
+    tts_runner_result       * out_;
+    int32_t spf_ = 0, sr_ = 0, nch_ = 1;
+    int32_t chunk_ = 0, right_ = 0, xfade_ = 0;
+    int32_t committed_ = 0;     // output frames emitted
+    std::vector<float> pending_;
+    std::vector<float> all_;
+    std::string error_;
+    bool failed_ = false;
+    bool used_   = false;
+};
+
+// Frame-level streaming poll for the AR loops (fs = NULL: not streaming).
+static bool stream_poll(frame_streamer * fs) { return fs == nullptr || fs->poll(); }
+
+static bool timed_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * pcm, tts_runner_result * out,
+                               frame_streamer * fs = nullptr) {
+    if (fs != nullptr) return fs->finish(pcm);
     const auto t0 = std::chrono::steady_clock::now();
     const bool ok = audio_lm_decode_audio(ctx, pcm);
     out->decode_ms += ms_since(t0);
@@ -538,7 +661,7 @@ bool decode_embed_batch(llama_context * lctx, const float * embds, int32_t dim,
 bool run_continuous(audio_lm_context * ctx, llama_context * lctx,
                     const std::vector<llama_token> & toks, int32_t hidden,
                     int32_t max_frames, const tts_runner_params & a,
-                    int32_t * out_frames, const char ** out_stop) {
+                    int32_t * out_frames, const char ** out_stop, frame_streamer * fs) {
     audio_lm_set_continuous_params(ctx, a.cfg, a.timesteps, a.min_len);
     if (!decode_tokens(lctx, toks, 0, /*all_pos=*/true)) {
         std::fprintf(stderr, "prefill decode failed\n"); return false;
@@ -562,6 +685,7 @@ bool run_continuous(audio_lm_context * ctx, llama_context * lctx,
             *out_stop = "stop_head"; break;
         }
         (*out_frames)++;
+        if (!stream_poll(fs)) { *out_stop = "stream_stopped"; return false; }
         int32_t dim = 0;
         const float * fb = audio_lm_get_next_embed(ctx, &dim);
         if (!fb || dim != hidden) return false;
@@ -583,7 +707,7 @@ bool run_realtime_streaming(audio_lm_context * ctx,
                             int32_t hidden, int32_t n_cb, int32_t max_frames,
                             uint32_t seed, float temp, float top_p,
                             int32_t top_k, float rep_penalty, int32_t rep_window,
-                            int32_t * out_frames, const char ** out_stop) {
+                            int32_t * out_frames, const char ** out_stop, frame_streamer * fs) {
     audio_lm_set_uses_embed_override(ctx, true, 1);
 
     std::vector<llama_token> ctx_toks =
@@ -679,6 +803,7 @@ bool run_realtime_streaming(audio_lm_context * ctx,
             break;
         }
         (*out_frames)++;
+        if (!stream_poll(fs)) { *out_stop = "stream_stopped"; return false; }
 
         int32_t text_tok = (text_idx < (int32_t) text_toks.size())
                          ? text_toks[(size_t) text_idx] : text_pad;
@@ -701,7 +826,7 @@ bool run_lfm2_sequential(audio_lm_context * ctx, llama_context * lctx,
                          const std::vector<llama_token> & toks, int32_t hidden,
                          int32_t n_cb, int32_t max_frames, uint32_t seed,
                          float temp, float top_p, int32_t top_k,
-                         int32_t * out_frames, const char ** out_stop) {
+                         int32_t * out_frames, const char ** out_stop, frame_streamer * fs) {
     audio_lm_set_uses_embed_override(ctx, true, 1);
 
     if (!decode_tokens(lctx, toks, 0, /*all_pos=*/false)) {
@@ -775,6 +900,7 @@ bool run_lfm2_sequential(audio_lm_context * ctx, llama_context * lctx,
             break;
         }
         (*out_frames)++;
+        if (!stream_poll(fs)) { *out_stop = "stream_stopped"; return false; }
 
         std::vector<float> row(hidden, 0.0f);
         if (!audio_lm_compose_audio_codes_embd(
@@ -800,8 +926,8 @@ bool run_codebook_ar(audio_lm_context * ctx, llama_context * lctx,
                      float temp, float top_p, int32_t top_k,
                      const tts_constraint & constraint,
                      const std::vector<float> & speaker_prefix,
-                     const std::string & payload_text,
-                     int32_t * out_frames, const char ** out_stop) {
+                     const std::string & payload_text, const std::string & instruct,
+                     int32_t * out_frames, const char ** out_stop, frame_streamer * fs) {
     // A flat Type A logit-bias mask is only consumed by the cb0-from-backbone
     // sampler path.  Type A single-cb decode is not wired up yet (no such model
     // ships), so a non-empty mask here would be silently dropped → unconstrained
@@ -819,9 +945,19 @@ bool run_codebook_ar(audio_lm_context * ctx, llama_context * lctx,
     int32_t talker_trailing = 0;
     const bool talker = audio_lm_talker_has_projection(ctx);
     if (talker) {
+        // Instruct-capable talkers (CustomVoice 1.7B) take the instruction
+        // as a text-only user turn ahead of the assistant header.
+        std::string header = "<|im_start|>assistant\n";
+        if (!instruct.empty()) {
+            const char * v = audio_lm_meta_str(ctx, "codec.lm.qwen3tts.takes_instruct");
+            if (v != nullptr && std::strcmp(v, "true") == 0) {
+                header = "<|im_start|>user\n" + instruct + "<|im_end|>\n" + header;
+            } else {
+                std::fprintf(stderr, "note: --instruct ignored (this Qwen3-TTS model takes no instruction)\n");
+            }
+        }
         std::vector<llama_token> role =
-            tokenize_str(vocab, "<|im_start|>assistant\n", /*add_bos=*/false,
-                         /*parse_special=*/true);
+            tokenize_str(vocab, header, /*add_bos=*/false, /*parse_special=*/true);
         talker_text = tokenize_str(vocab, payload_text,
                                    /*add_bos=*/false, /*parse_special=*/false);
         if (talker_text.empty()) { std::fprintf(stderr, "talker: empty text\n"); return false; }
@@ -947,6 +1083,7 @@ bool run_codebook_ar(audio_lm_context * ctx, llama_context * lctx,
             *out_stop = "eos_code_c0"; break;
         }
         (*out_frames)++;
+        if (!stream_poll(fs)) { *out_stop = "stream_stopped"; return false; }
         int32_t dim = 0;
         const float * nb = audio_lm_get_next_embed(ctx, &dim);
         if (!nb || dim != hidden) return false;
@@ -1014,7 +1151,7 @@ bool run_token_single_cb(audio_lm_context * ctx, llama_context * lctx,
                          float temp, float top_p, int32_t top_k,
                          bool constrain_audio_mask, float rep_penalty,
                          int32_t rep_last_n, const std::string & grammar,
-                         int32_t * out_frames, const char ** out_stop) {
+                         int32_t * out_frames, const char ** out_stop, frame_streamer * fs) {
     const int32_t n_vocab = llama_vocab_n_tokens(vocab);
 
     // 1) Constrained mode only: teach observe_token the single-cb speech range +
@@ -1158,6 +1295,7 @@ bool run_token_single_cb(audio_lm_context * ctx, llama_context * lctx,
         // stored, so a single CONSUMED mid-frame leaves the count unchanged
         // until the last token of the frame arrives — avoiding over-counting.
         *out_frames = audio_lm_codes_n_frames(ctx);
+        if (!stream_poll(fs)) { *out_stop = "stream_stopped"; return false; }
         // OBSERVE_PASSTHROUGH mid-audio is unexpected under the mask (only
         // speech ∪ eos are reachable); fed back but not counted as a frame.
     }
@@ -2396,33 +2534,59 @@ static bool apply_decode_speaker(audio_lm_context * ctx, const tts_runner_params
     return true;
 }
 
-static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_result * out,
-                                       std::chrono::steady_clock::time_point t0);
+// ─────────────────────────────────────────────────────────────────────
+// Session: the codec + backbone loaded once, any number of synthesize
+// runs.  Every resource is owned here, so the per-flow branches of
+// tts_runner_run just return.
+// ─────────────────────────────────────────────────────────────────────
+struct tts_runner_session {
+    tts_flow_session * flow = nullptr;   // self-contained FlowLM (no backbone)
 
-bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out) {
-    const auto t0 = std::chrono::steady_clock::now();
-    const bool ok = tts_runner_synthesize_impl(a, out, t0);
-    out->total_ms = ms_since(t0);
-    return ok;
-}
+    audio_lm_context * ctx    = nullptr;
+    bool               llama_inited = false;
+    llama_model      * lmodel = nullptr;
+    llama_context    * lctx   = nullptr;
 
-static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_result * out,
-                                       std::chrono::steady_clock::time_point t0) {
+    bool                 pi_ok = false;
+    audio_lm_prompt_info pi;
+    std::string          deferred_pi_err;
+    int32_t              hidden = 0;
+    int32_t              n_cb   = 0;
+    codec_lm                       * lm_handle = nullptr;
+    const codec_lm_chatterbox_info * cbx       = nullptr;
+    bool                             is_outetts = false;
+    codec_common::outetts_version    ov{};
+    int32_t                          max_frames = 0;   // load-time cap the context is sized for
+
+    ~tts_runner_session() {
+        if (flow)   tts_flow_free(flow);
+        if (lctx)   llama_free(lctx);
+        if (lmodel) llama_model_free(lmodel);
+        if (llama_inited) llama_backend_free();
+        if (ctx)    audio_lm_free(ctx);
+    }
+};
+
+tts_runner_session * tts_runner_load(const tts_runner_params & a, std::string * err) {
+    auto * s = new tts_runner_session;
+    s->max_frames = a.max_frames;
+    auto fail = [&](const std::string & e) -> tts_runner_session * {
+        *err = e;
+        delete s;
+        return nullptr;
+    };
+
     // Pocket-TTS FlowLM is self-contained (no backbone) — try it first; a
-    // non-zero return means it handled the request.
+    // non-zero return means it is one.
     {
-        tts_runner_result fr;
-        int handled = tts_runner_synthesize_selfcontained(a, &fr);
-        if (handled) {
-            if (!fr.error.empty()) { out->error = fr.error; return false; }
-            fr.load_ms = 0.0;  // not split for the self-contained path
-            *out = std::move(fr);
-            return true;
+        std::string ferr;
+        if (tts_flow_open(a, &s->flow, &ferr)) {
+            if (s->flow == nullptr) return fail(ferr);
+            return s;
         }
     }
     if (a.backbone_path.empty()) {
-        out->error = "synthesize requires backbone_path (llama.cpp model)";
-        return false;
+        return fail("synthesize requires backbone_path (llama.cpp model)");
     }
 
     audio_lm_params p;
@@ -2430,45 +2594,31 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
     p.kv_overrides = a.kv_overrides;
     p.use_gpu    = a.use_gpu;
     p.n_threads  = a.n_threads;
-    std::string err;
-    auto * ctx = audio_lm_init(p, &err);
-    if (!ctx) { out->error = "audio_lm_init failed: " + err; return false; }
+    std::string ierr;
+    s->ctx = audio_lm_init(p, &ierr);
+    if (!s->ctx) return fail("audio_lm_init failed: " + ierr);
+    audio_lm_context * ctx = s->ctx;
 
     // audio_lm_get_prompt_info requires a codec_lm adaptor.  NeuTTS uses a
     // codec-only NeuCodec gguf (no codec_lm — the backbone lm_head emits the
     // audio tokens directly), so get_prompt_info fails there.  DEFER the abort:
     // load the backbone, detect NeuTTS from its vocab, and if it IS NeuTTS run
     // the self-contained Type A flow (which never touches `pi`).  If it is NOT
-    // NeuTTS, abort below with the original error.  Gate the deferral on the
-    // exact codec-only signal (no codec_lm handle), not on the error string.
-    {
-        std::string spk_err;
-        const auto t_spk = std::chrono::steady_clock::now();
-        const bool spk_ok = apply_decode_speaker(ctx, a, &spk_err);
-        out->speaker_ms = ms_since(t_spk);
-        if (!spk_ok) {
-            out->error = spk_err;
-            audio_lm_free(ctx);
-            return false;
-        }
-    }
-
-    audio_lm_prompt_info pi;
-    const bool pi_ok = audio_lm_get_prompt_info(ctx, &pi);
-    std::string deferred_pi_err;
+    // NeuTTS, abort in tts_runner_run with the original error.  Gate the
+    // deferral on the exact codec-only signal (no codec_lm handle), not on the
+    // error string.
+    audio_lm_prompt_info & pi = s->pi;
+    s->pi_ok = audio_lm_get_prompt_info(ctx, &pi);
+    const bool pi_ok = s->pi_ok;
     if (!pi_ok) {
         // Capture the error now — later ctx calls overwrite audio_lm_last_error.
-        deferred_pi_err = std::string("get_prompt_info failed: ") + audio_lm_last_error(ctx);
-        if (audio_lm_get_lm(ctx) != nullptr) {
-            // A real codec_lm is present but prompt-info still failed — that is
-            // a genuine error, not the codec-only NeuTTS case.  Abort now.
-            out->error = deferred_pi_err;
-            audio_lm_free(ctx);
-            return false;
-        }
+        s->deferred_pi_err = std::string("get_prompt_info failed: ") + audio_lm_last_error(ctx);
+        // A real codec_lm is present but prompt-info still failed — that is
+        // a genuine error, not the codec-only NeuTTS case.  Abort now.
+        if (audio_lm_get_lm(ctx) != nullptr) return fail(s->deferred_pi_err);
     }
-    const int32_t hidden = audio_lm_hidden_dim(ctx);
-    const int32_t n_cb   = audio_lm_n_codebook(ctx);
+    const int32_t hidden = s->hidden = audio_lm_hidden_dim(ctx);
+    const int32_t n_cb   = s->n_cb   = audio_lm_n_codebook(ctx);
     if (pi_ok) {
         std::printf("model: arch=%s kind=%d n_cb=%d hidden=%d cb0_backbone=%d audio_offset=%d eos_c0=%d\n",
                     pi.host_arch.c_str(), (int) pi.model_kind, n_cb, hidden,
@@ -2482,31 +2632,27 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         pi.host_arch == "llama" &&
         pi.model_kind == audio_lm_prompt_info::KIND_RESIDUAL_DEPTH_AR &&
         pi.eos_code_c0 < 0 && !pi.cb0_from_backbone) {
-        out->error =
+        return fail(
             "synthesize: this looks like a Moshi codec_lm (full-duplex dialogue, "
             "no audio EOS, Helium backbone).  Moshi is not supported by "
             "synthesize: the pinned llama.cpp has no Helium arch, moshiko.gguf "
             "ships no backbone, and the duplex protocol has no one-shot stop "
             "condition.  Its one-shot-TTS sibling is kyutai/dsm.  See "
-            "docs/codec_common_api.md.";
-        audio_lm_free(ctx);
-        return false;
+            "docs/codec_common_api.md.");
     }
 
     // ── Backbone init ──────────────────────────────────────────────
     llama_backend_init();
+    s->llama_inited = true;
     llama_model_params mp = llama_model_default_params();
     // Without --gpu the backbone stays on the CPU: an empty device list, else llama.cpp
     // would still offload batched ops to any GPU it finds.
     static ggml_backend_dev_t no_devices[] = { nullptr };
     mp.n_gpu_layers = a.use_gpu ? 999 : 0;
     if (!a.use_gpu) mp.devices = no_devices;
-    llama_model * lmodel = llama_model_load_from_file(a.backbone_path.c_str(), mp);
-    if (!lmodel) {
-        out->error = "llama_model_load_from_file failed: " + a.backbone_path;
-        audio_lm_free(ctx); llama_backend_free();
-        return false;
-    }
+    s->lmodel = llama_model_load_from_file(a.backbone_path.c_str(), mp);
+    if (!s->lmodel) return fail("llama_model_load_from_file failed: " + a.backbone_path);
+    llama_model * lmodel = s->lmodel;
     const int32_t n_embd = llama_model_n_embd(lmodel);
     // The n_embd==codec-hidden invariant only applies to codec_lm-backed flows
     // (the backbone hidden feeds the codec_lm adaptor).  NeuTTS is codec-only
@@ -2515,13 +2661,11 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
     if (pi_ok && n_embd != hidden) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "backbone n_embd=%d != codec hidden=%d — wrong backbone?", n_embd, hidden);
-        out->error = buf;
-        llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
-        return false;
+        return fail(buf);
     }
-    codec_lm * lm_handle = audio_lm_get_lm(ctx);
-    const codec_lm_chatterbox_info * cbx =
-        lm_handle ? codec_lm_chatterbox_get_info(lm_handle) : nullptr;
+    s->lm_handle = audio_lm_get_lm(ctx);
+    s->cbx = s->lm_handle ? codec_lm_chatterbox_get_info(s->lm_handle) : nullptr;
+    const codec_lm_chatterbox_info * cbx = s->cbx;
     const bool is_chatterbox = (cbx != nullptr);
     const float cbx_cfg = !is_chatterbox || cbx->is_turbo ? 0.0f
         : a.has_cfg_weight ? a.cfg_weight : (cbx->cfg_weight >= 0.0f ? cbx->cfg_weight : 0.5f);
@@ -2529,15 +2673,17 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
 
     // OuteTTS is ALSO a codec-only backbone (get_prompt_info fails, pi_ok=false)
     // that drives a 24kHz 2-codebook DAC purely via token ids.  Detect it here
-    // (V3 only for this path) so the deferred-pi abort below skips it too.
+    // (V3 only for this path) so the deferred-pi abort in run skips it too.
     // (Chatterbox T3's backbone has no vocab at all.)
-    codec_common::outetts_version ov{};
     const llama_vocab * bb_vocab = llama_model_get_vocab(lmodel);
-    const bool is_outetts =
+    s->is_outetts =
         llama_vocab_type(bb_vocab) != LLAMA_VOCAB_TYPE_NONE &&
-        detect_outetts_version(lmodel, bb_vocab, &ov);
-    const bool outetts_legacy = is_outetts && ov != codec_common::outetts_version::V3;
+        detect_outetts_version(lmodel, bb_vocab, &s->ov);
+    const bool is_outetts = s->is_outetts;
+    const bool outetts_legacy = is_outetts && s->ov != codec_common::outetts_version::V3;
 
+    // The context is sized once from the load-time max_frames; runs pass the
+    // same cap.
     const int32_t max_frames = a.max_frames > 0 ? a.max_frames : 512;
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx        = (uint32_t) std::max(4096, max_frames + 512);
@@ -2562,13 +2708,8 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
     if (pi_ok && pi.host_arch == "cosyvoice") cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (a.n_threads > 0) { cp.n_threads = a.n_threads; cp.n_threads_batch = a.n_threads; }
     cp.op_offload = a.use_gpu;
-    llama_context * lctx = llama_init_from_model(lmodel, cp);
-    out->load_ms = ms_since(t0);
-    if (!lctx) {
-        out->error = "llama_init_from_model failed";
-        llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
-        return false;
-    }
+    s->lctx = llama_init_from_model(lmodel, cp);
+    if (!s->lctx) return fail("llama_init_from_model failed");
     const llama_vocab * vocab = llama_model_get_vocab(lmodel);
 
     // ── Type A sanity: surface audio-token range bounds and edge pieces ──
@@ -2592,6 +2733,136 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                         a_off, a_off + a_cnt, a_eos, pf, pl);
         }
     }
+    return s;
+}
+
+void tts_runner_free(tts_runner_session * s) { delete s; }
+
+tts_runner_info tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file) {
+    tts_runner_info info;
+    if (s == nullptr) return info;
+    if (s->flow != nullptr) return info;   // FlowLM: voices come from --ref-audio only
+    std::vector<audio_lm_speaker_entry> entries;
+    if (speaker_file.empty()) {
+        entries = audio_lm_list_codec_speakers(s->ctx);
+    } else if (!audio_lm_list_speaker_file(s->ctx, speaker_file.c_str(), &entries)) {
+        info.error = audio_lm_last_error(s->ctx);
+    }
+    for (const auto & e : entries) {
+        info.voices.push_back(e.name);
+        if (e.is_default) info.default_voice = e.name;
+    }
+    info.takes_instruct = s->lm_handle != nullptr && codec_lm_cosyvoice_get_info(s->lm_handle) != nullptr;
+    return info;
+}
+
+static bool tts_runner_run_impl(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out,
+                                frame_streamer * fs);
+
+// One request: the speaker once, then each text segment as its own run.
+static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out) {
+    tts_runner_params ra = a;
+    ra.max_frames = s->max_frames;   // the context was sized for the load-time cap
+    const std::vector<std::string> segments = tts_split_text(a.text, a.segment_bytes);
+    if (segments.empty()) {
+        out->error = "empty text";
+        return false;
+    }
+    if (s->flow == nullptr) {
+        // The speaker the request names (the model default when it names none).
+        audio_lm_set_decode_speaker(s->ctx, nullptr);
+        std::string spk_err;
+        const auto t_spk = std::chrono::steady_clock::now();
+        const bool spk_ok = apply_decode_speaker(s->ctx, ra, &spk_err);
+        out->speaker_ms = ms_since(t_spk);
+        if (!spk_ok) {
+            out->error = spk_err;
+            return false;
+        }
+    }
+    out->pcm.clear();
+    out->n_frames  = 0;
+    out->decode_ms = 0.0;
+    for (size_t i = 0; i < segments.size(); ++i) {
+        if (segments.size() > 1) {
+            std::printf("segment %zu/%zu: %zu bytes\n", i + 1, segments.size(), segments[i].size());
+        }
+        ra.text = segments[i];
+        tts_runner_result r;
+        std::unique_ptr<frame_streamer> fs;
+        if (a.on_audio && a.stream_chunk_ms > 0 && s->flow == nullptr) {
+            fs = std::make_unique<frame_streamer>(s->ctx, ra, &r);
+        }
+        const bool ok = s->flow != nullptr ? tts_flow_run(s->flow, ra, &r) : tts_runner_run_impl(s, ra, &r, fs.get());
+        out->decode_ms += r.decode_ms;
+        if (!ok) {
+            out->error = fs && !fs->error().empty() ? fs->error() : r.error;
+            if (segments.size() > 1) out->error = "segment " + std::to_string(i + 1) + ": " + out->error;
+            return false;
+        }
+        out->n_frames   += r.n_frames;
+        out->stop_reason = r.stop_reason;
+        out->sample_rate = r.sample_rate;
+        out->n_channels  = r.n_channels;
+        if (!a.on_audio) {
+            out->pcm.insert(out->pcm.end(), r.pcm.begin(), r.pcm.end());
+        } else if (!(fs && fs->used()) && !r.pcm.empty() &&
+                   !a.on_audio(r.pcm.data(), (int32_t) (r.pcm.size() / std::max(1, r.n_channels)),
+                               r.sample_rate, r.n_channels)) {
+            out->error = "stopped by the caller";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool tts_runner_run(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const bool ok = tts_runner_run_segments(s, a, out);
+    out->total_ms = ms_since(t0);
+    return ok;
+}
+
+bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out) {
+    const auto t0 = std::chrono::steady_clock::now();
+    std::string err;
+    tts_runner_session * s = tts_runner_load(a, &err);
+    if (s == nullptr) {
+        out->error = err;
+        out->total_ms = ms_since(t0);
+        return false;
+    }
+    const double load_ms = ms_since(t0);
+    const bool ok = tts_runner_run(s, a, out);
+    // FlowLM loads and runs in one go, so its load time is not split out.
+    out->load_ms = s->flow != nullptr ? 0.0 : load_ms + out->speaker_ms;
+    tts_runner_free(s);
+    out->total_ms = ms_since(t0);
+    return ok;
+}
+
+static bool tts_runner_run_impl(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out,
+                                frame_streamer * fs) {
+    audio_lm_context * ctx    = s->ctx;
+    llama_model      * lmodel = s->lmodel;
+    llama_context    * lctx   = s->lctx;
+    const llama_vocab * vocab = llama_model_get_vocab(lmodel);
+    audio_lm_prompt_info pi = s->pi;   // a run may retarget model_kind (OuteTTS)
+    const bool pi_ok = s->pi_ok;
+    const std::string & deferred_pi_err = s->deferred_pi_err;
+    const int32_t hidden = s->hidden;
+    const int32_t n_cb   = s->n_cb;
+    codec_lm * lm_handle = s->lm_handle;
+    const codec_lm_chatterbox_info * cbx = s->cbx;
+    const bool is_chatterbox = (cbx != nullptr);
+    const bool is_outetts = s->is_outetts;
+    const codec_common::outetts_version ov = s->ov;
+    const int32_t max_frames = a.max_frames > 0 ? a.max_frames : 512;
+
+    // Every segment starts from a clean slate: no codes, no KV (the
+    // request's speaker is already set).
+    audio_lm_reset(ctx);
+    llama_memory_clear(llama_get_memory(lctx), true);
 
     // ── Chatterbox T3 flow (Flow 4) ───────────────────────────────────
     if (is_chatterbox) {
@@ -2601,36 +2872,28 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         const char * stop_reason = "max_frames";
         bool ok = run_chatterbox(ctx, lctx, lm_handle, cbx, a, hidden, max_frames,
                                  &speech_codes, &n_frames, &stop_reason);
-        llama_free(lctx);
-        llama_model_free(lmodel);
-        llama_backend_free();
         if (!ok) {
             out->error = std::string("chatterbox AR failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         std::printf("chatterbox AR done: %d frames, %zu speech codes, stop=%s\n",
                     n_frames, speech_codes.size(), stop_reason);
         if (speech_codes.empty()) {
             out->error = "no speech codes generated";
-            audio_lm_free(ctx);
             return false;
         }
         audio_lm_reset(ctx);
         if (!audio_lm_push_codes(ctx, speech_codes.data(),
                                  (int32_t) speech_codes.size(), 1)) {
             out->error = std::string("push_codes failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         audio_lm_audio_output pcm;
         if (!timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("decode_audio failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         fill_result_from_output(pcm, n_frames, stop_reason, out);
-        audio_lm_free(ctx);
         return true;
     }
 
@@ -2642,12 +2905,8 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         const char * stop_reason = "max_len";
         bool ok = run_cosyvoice(ctx, lctx, lm_handle, cvi, a, hidden, a.max_frames, &speech_codes,
                                 &n_frames, &stop_reason);
-        llama_free(lctx);
-        llama_model_free(lmodel);
-        llama_backend_free();
         if (!ok || speech_codes.empty()) {
             out->error = ok ? "no speech codes generated" : std::string("cosyvoice AR failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         std::printf("cosyvoice AR done: %d tokens (%zu to the flow), stop=%s\n",
@@ -2657,11 +2916,9 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         if (!audio_lm_push_codes(ctx, speech_codes.data(), (int32_t) speech_codes.size(), 1) ||
             !timed_decode_audio(ctx, &pcm, out)) {
             out->error = std::string("decode failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         fill_result_from_output(pcm, n_frames, stop_reason, out);
-        audio_lm_free(ctx);
         return true;
     }
 
@@ -2681,24 +2938,17 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
     // unpopulated `pi`).
     // Soprano: codec-only Vocos decoder fed the backbone's hidden states.
     if (!pi_ok && detect_soprano(ctx)) {
-        const bool ok = run_soprano(ctx, lctx, vocab, a, out);
-        llama_free(lctx); llama_model_free(lmodel); llama_backend_free();
-        audio_lm_free(ctx);
-        return ok;
+        return run_soprano(ctx, lctx, vocab, a, out);
     }
 
     // KittenTTS 2: codec-only S3G GGUF + Qwen3 speech-LM backbone.
     if (!pi_ok && detect_kitten_tts2(vocab)) {
         warn_grammar_unused(a.grammar, "KittenTTS");
-        const bool ok = run_kitten_tts2(ctx, lctx, vocab, a, out);
-        llama_free(lctx); llama_model_free(lmodel); llama_backend_free();
-        audio_lm_free(ctx);
-        return ok;
+        return run_kitten_tts2(ctx, lctx, vocab, a, out);
     }
 
     if (!pi_ok && !is_neutts && !is_outetts) {
         out->error = deferred_pi_err;
-        llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
         return false;
     }
 
@@ -2723,7 +2973,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
             build_outetts_prompt(vocab, ov, in_words, audio_lm_decode_speaker(ctx), &perr);
         if (outetts_prompt_toks.empty()) {
             out->error = perr;
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
 
@@ -2736,7 +2985,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                 out->error =
                     "OuteTTS: outetts_audio_token_ranges failed "
                     "(<|c1_0|>/<|c2_0|>/<|code|>/<|audio_end|> missing from vocab)";
-                llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
                 return false;
             }
         } else {
@@ -2746,7 +2994,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
             eos_id  = vocab_piece_id(vocab, "<|audio_end|>");
             if (off2[0] < 0 || eos_id < 0 || vocab_piece_id(vocab, "<|4095|>") != off2[0] + 4095) {
                 out->error = "OuteTTS: <|0|>..<|4095|> / <|audio_end|> not found as a contiguous vocab range";
-                llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
                 return false;
             }
         }
@@ -2766,7 +3013,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                 "raise --max-frames.",
                 outetts_prompt_toks.size(), n_ctx);
             out->error = buf;
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
 
@@ -2799,32 +3045,25 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                                       ot_temp, ot_top_p, ot_top_k,
                                       /*constrain_audio_mask=*/false,
                                       ot_rep_pen, ot_rep_n, ot_grammar,
-                                      &n_frames, &stop_reason);
-        llama_free(lctx);
-        llama_model_free(lmodel);
-        llama_backend_free();
+                                      &n_frames, &stop_reason, fs);
         if (!ok) {
             out->error = std::string("OuteTTS AR failed (") + stop_reason
                        + "); see stderr for the concrete cause";
-            audio_lm_free(ctx);
             return false;
         }
         std::printf("OuteTTS AR done: %d frames, stop=%s\n", n_frames, stop_reason);
         if (n_frames == 0) {
             out->error = "OuteTTS: no speech frames generated";
-            audio_lm_free(ctx);
             return false;
         }
         // observe_token accumulated the codes into ctx->codes already —
         // decode directly (DAC n_q=2 / WavTokenizer n_q=1).
         audio_lm_audio_output pcm;
-        if (!timed_decode_audio(ctx, &pcm, out)) {
+        if (!timed_decode_audio(ctx, &pcm, out, fs)) {
             out->error = std::string("OuteTTS: decode_audio failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         fill_result_from_output(pcm, n_frames, stop_reason, out);
-        audio_lm_free(ctx);
         return true;
     }
 
@@ -2837,7 +3076,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         if (!a.ref_audio_path.empty() && a.speaker_file.empty() && !audio_lm_codec_can_speaker_from_audio(ctx)) {
             out->error = "NeuTTS: --ref-audio needs a codec GGUF with the NeuCodec distill encoder "
                          "(this one cannot encode); use --voice / --speaker-file or a distill_neucodec codec";
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
         const codec_speaker * spk = audio_lm_decode_speaker(ctx);
@@ -2848,7 +3086,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
             ty != CODEC_SPEAKER_SLOT_I32) {
             out->error = "NeuTTS needs a reference voice: a codec GGUF with builtin voices (--voice), "
                          "--speaker-file, or --ref-audio + --ref-text with a distill_neucodec codec";
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
         const std::vector<int32_t> ref_codes(static_cast<const int32_t *>(data),
@@ -2857,14 +3094,12 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         const std::string ref_text = !a.ref_text.empty() ? a.ref_text : (spk_text != nullptr ? spk_text : "");
         if (ref_text.empty()) {
             out->error = "NeuTTS: the reference voice has no transcript; pass --ref-text (phonemes)";
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
 
         neutts_prompt_toks = build_neutts_prompt(vocab, ref_text, a.text, ref_codes);
         if (neutts_prompt_toks.empty()) {
             out->error = "NeuTTS: build_neutts_prompt returned empty (bad vocab or out-of-range codes)";
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
         std::printf("[neutts] ICL prompt: %d ref codes, %zu prompt tokens\n",
@@ -2876,7 +3111,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         int32_t off = -1, count = -1, eos_id = -1;
         if (!neutts_audio_token_range(vocab, &off, &count, &eos_id)) {
             out->error = "NeuTTS: neutts_audio_token_range failed at decode dispatch";
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
 
@@ -2891,7 +3125,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                 "use a shorter reference clip or raise --max-frames.",
                 neutts_prompt_toks.size(), n_ctx);
             out->error = buf;
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
 
@@ -2917,35 +3150,28 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                                       nt_temp, nt_top_p, nt_top_k,
                                       /*constrain_audio_mask=*/true,
                                       /*rep_penalty=*/1.0f, /*rep_last_n=*/0, a.grammar,
-                                      &n_frames, &stop_reason);
-        llama_free(lctx);
-        llama_model_free(lmodel);
-        llama_backend_free();
+                                      &n_frames, &stop_reason, fs);
         if (!ok) {
             // run_token_single_cb prints the concrete cause (mask / prefill /
             // feedback / contract-violation) to stderr; the ctx last_error may
             // be stale from the deferred get_prompt_info, so keep this generic.
             out->error = std::string("NeuTTS AR failed (") + stop_reason
                        + "); see stderr for the concrete cause";
-            audio_lm_free(ctx);
             return false;
         }
         std::printf("NeuTTS AR done: %d frames, stop=%s\n", n_frames, stop_reason);
         if (n_frames == 0) {
             out->error = "NeuTTS: no speech frames generated";
-            audio_lm_free(ctx);
             return false;
         }
         // observe_token accumulated the codes into ctx->codes already — decode
         // directly (no reset/push; reset would clear the accumulator).
         audio_lm_audio_output pcm;
-        if (!timed_decode_audio(ctx, &pcm, out)) {
+        if (!timed_decode_audio(ctx, &pcm, out, fs)) {
             out->error = std::string("NeuTTS: decode_audio failed: ") + audio_lm_last_error(ctx);
-            audio_lm_free(ctx);
             return false;
         }
         fill_result_from_output(pcm, n_frames, stop_reason, out);
-        audio_lm_free(ctx);
         return true;
     }
 
@@ -2953,7 +3179,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
     std::vector<llama_token> toks = tokenize_prompt(vocab, pi, a.text);
     if (toks.empty()) {
         out->error = "empty prompt after tokenize";
-        llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
         return false;
     }
     std::printf("prompt: \"%s%s%s\" → %zu tokens\n",
@@ -2967,7 +3192,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         std::string lerr;
         if (!load_ref_audio(a.ref_audio_path, ref_pcm, &ref_n, &ref_sr, &lerr)) {
             out->error = lerr;
-            llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
             return false;
         }
         const bool have_ref = !ref_pcm.empty();
@@ -2980,7 +3204,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
             audio_lm_prompt sp;
             if (!audio_lm_build_prompt(ctx, in, &sp)) {
                 out->error = std::string("build_prompt (speaker) failed: ") + audio_lm_last_error(ctx);
-                llama_free(lctx); llama_model_free(lmodel); audio_lm_free(ctx); llama_backend_free();
                 return false;
             }
             if (!sp.embeds_prefix.empty() && sp.embeds_prefix_hidden == hidden) {
@@ -3001,7 +3224,13 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
         // spec (unreliable / early-truncating output).  So when the model is a
         // talker (needs the x-vector) and no usable speaker prefix was built,
         // refuse with a clear message rather than emit garbage.
-        if (audio_lm_talker_has_projection(ctx) &&
+        // CustomVoice codecs carry builtin voices (`spk_id`) instead.
+        const codec_speaker * voice = audio_lm_decode_speaker(ctx);
+        codec_speaker_slot_type vty;
+        int64_t vne[4];
+        const void * vdata = nullptr;
+        const bool builtin_voice = voice != nullptr && codec_speaker_get_slot(voice, "spk_id", &vty, vne, &vdata);
+        if (audio_lm_talker_has_projection(ctx) && !builtin_voice &&
             (speaker_prefix.empty() ||
              (int32_t) speaker_prefix.size() != hidden)) {
             out->error =
@@ -3010,8 +3239,6 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                 "encode produced no x-vector.  Pass --ref-audio <wav> (any "
                 "sample rate / channel count; it is resampled to the encoder's "
                 "rate automatically).";
-            llama_free(lctx); llama_model_free(lmodel);
-            audio_lm_free(ctx); llama_backend_free();
             return false;
         }
     }
@@ -3047,26 +3274,22 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
 
     if (pi.is_continuous) {
         ar_ok = run_continuous(ctx, lctx, toks, hidden, max_frames, a,
-                               &n_frames, &stop_reason);
+                               &n_frames, &stop_reason, fs);
     } else if (pi.sequential_text_audio) {
         TextEmbdTable tetab;
         std::string terr;
         if (!tetab.load(a.backbone_path.c_str(), hidden, terr)) {
             out->error = "lfm2: text_embd load failed: " + terr;
-            llama_free(lctx); llama_model_free(lmodel); llama_backend_free();
-            audio_lm_free(ctx);
             return false;
         }
         ar_ok = run_lfm2_sequential(ctx, lctx, vocab, pi, tetab, toks, hidden,
                                     n_cb, max_frames, seed, temp, top_p,
-                                    top_k, &n_frames, &stop_reason);
+                                    top_k, &n_frames, &stop_reason, fs);
     } else if (pi.streaming_interleave) {
         TextEmbdTable tetab;
         std::string terr;
         if (!tetab.load(a.backbone_path.c_str(), hidden, terr)) {
             out->error = "realtime: text_embd load failed: " + terr;
-            llama_free(lctx); llama_model_free(lmodel); llama_backend_free();
-            audio_lm_free(ctx);
             return false;
         }
         const float rep_pen = a.has_rep_penalty ? a.repetition_penalty
@@ -3075,38 +3298,29 @@ static bool tts_runner_synthesize_impl(const tts_runner_params & a, tts_runner_r
                                        hidden, n_cb, max_frames, seed,
                                        temp, top_p, top_k, rep_pen,
                                        pi.repetition_window,
-                                       &n_frames, &stop_reason);
+                                       &n_frames, &stop_reason, fs);
     } else {
         ar_ok = run_codebook_ar(ctx, lctx, lmodel, vocab, pi, toks, hidden, n_cb,
                                 max_frames, seed, temp, top_p, top_k, constraint,
-                                speaker_prefix, a.text, &n_frames, &stop_reason);
+                                speaker_prefix, a.text, a.instruct, &n_frames, &stop_reason, fs);
     }
-
-    llama_free(lctx);
-    llama_model_free(lmodel);
-    llama_backend_free();
 
     if (!ar_ok) {
         out->error = std::string("AR loop failed: ") + audio_lm_last_error(ctx);
-        audio_lm_free(ctx);
         return false;
     }
     std::printf("AR loop done: %d frames, stop=%s\n", n_frames, stop_reason);
     if (n_frames == 0) {
         out->error = "no audio frames generated";
-        audio_lm_free(ctx);
         return false;
     }
 
     audio_lm_audio_output pcm;
-    if (!timed_decode_audio(ctx, &pcm, out)) {
+    if (!timed_decode_audio(ctx, &pcm, out, fs)) {
         out->error = std::string("decode_audio failed: ") + audio_lm_last_error(ctx);
-        audio_lm_free(ctx);
         return false;
     }
     fill_result_from_output(pcm, n_frames, stop_reason, out);
-    audio_lm_free(ctx);
     return true;
 }
-
 }  // namespace codec_common

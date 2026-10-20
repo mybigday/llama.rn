@@ -15,8 +15,8 @@
 // flow (continuous CFM, residual depth-AR, parallel-heads delay,
 // streaming interleave, sequential text→audio, Chatterbox CFG dual-seq,
 // and the self-contained Pocket-TTS FlowLM), sampling, EOS handling, and
-// codes→PCM decode.  `examples/tts-cli` is a thin driver over this; a
-// future server example can link the same library.
+// codes→PCM decode.  `tools/tts-cli` (one-shot tts_runner_synthesize)
+// and `tools/tts-server` (a tts_runner_session) are thin drivers over it.
 //
 // This library is built only when CODEC_TTS_BACKBONE=ON.  When it is
 // OFF, tts-cli falls back to the self-contained (no-backbone) FlowLM path
@@ -25,6 +25,7 @@
 #include "codec.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -158,6 +159,20 @@ struct tts_runner_params {
     // error, not a crash.  Empty → the model's auto-grammar (if any) is used
     // instead; see codec_common::tts_auto_grammar.
     std::string grammar;
+
+    // Long input runs a segment at a time: sentences packed up to this many
+    // UTF-8 bytes per segment, blank lines always split (tts_split_text).
+    // 0 = the whole text in one run.
+    int32_t segment_bytes = 0;
+
+    // Streaming.  When set, every piece of audio goes to on_audio (model
+    // sample rate / channels, interleaved) as soon as it is ready and
+    // result.pcm stays empty; return false to stop the run.  Pieces are whole
+    // segments, or with stream_chunk_ms > 0 chunks of about that much audio
+    // decoded while the AR loop runs — for models whose codes accumulate in
+    // audio_lm (the others still stream per segment).
+    std::function<bool(const float * pcm, int32_t n_samples, int32_t sample_rate, int32_t n_channels)> on_audio;
+    int32_t stream_chunk_ms = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -192,6 +207,48 @@ struct tts_runner_result {
 int tts_runner_synthesize_selfcontained(const tts_runner_params & params,
                                         tts_runner_result * out);
 
+// Split synthesis text into segments of at most max_bytes UTF-8 bytes:
+// sentences packed greedily, paragraph (blank-line) breaks always split, an
+// over-long sentence cut at clause punctuation, then spaces (one with
+// neither stays whole, over the budget — never cut mid-word).
+// max_bytes <= 0 returns the trimmed text as one segment.
+std::vector<std::string> tts_split_text(const std::string & text, int32_t max_bytes);
+
+// Self-contained FlowLM split into open / run / free (what
+// tts_runner_synthesize_selfcontained composes).  tts_flow_open returns 0
+// when the codec GGUF is not a FlowLM, 1 otherwise; *out is NULL (and *err
+// set) when a FlowLM failed to open.
+struct tts_flow_session;
+int  tts_flow_open(const tts_runner_params & params, tts_flow_session ** out, std::string * err);
+bool tts_flow_run (tts_flow_session * s, const tts_runner_params & params, tts_runner_result * out);
+void tts_flow_free(tts_flow_session * s);
+
+// ─────────────────────────────────────────────────────────────────────
+// Session — load once, synthesize many (a server).  tts_runner_load reads
+// the load-time fields of `params` (codec_path, kv_overrides,
+// backbone_path, n_threads, use_gpu, max_frames, and cfg_weight for the
+// Chatterbox CFG pair); tts_runner_run reads the per-request ones (text,
+// voice / speaker_file / ref_audio, sampler knobs, ...); max_frames stays
+// the load-time one.  Runs on one session are not thread-safe: callers
+// serialize them.  Only compiled into codec_tts_runner.
+// ─────────────────────────────────────────────────────────────────────
+struct tts_runner_session;
+
+struct tts_runner_info {
+    std::vector<std::string> voices;      // the speakers `voice` can name
+    std::string              default_voice;
+    bool                     takes_instruct = false;   // CosyVoice instruct mode
+    std::string              error;       // speaker file could not be listed
+};
+
+tts_runner_session * tts_runner_load(const tts_runner_params & params, std::string * err);
+bool                 tts_runner_run (tts_runner_session * s, const tts_runner_params & params,
+                                     tts_runner_result * out);
+void                 tts_runner_free(tts_runner_session * s);
+// Voices are the codec GGUF's builtin speakers, or those in `speaker_file`
+// when the runs pass one.
+tts_runner_info      tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file = "");
+
 // Run the full reference host loop and synthesize `params.text` → PCM.
 // Returns true on success (result.pcm populated); false with
 // result.error set on failure.  Tries the self-contained FlowLM path
@@ -201,7 +258,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & params,
 // the codec_tts_runner library.
 //
 // Diagnostic progress is printed to stdout/stderr (the same lines
-// examples/tts-cli emitted); hosts that want silence can capture them.
+// tools/tts-cli emitted); hosts that want silence can capture them.
 bool tts_runner_synthesize(const tts_runner_params & params,
                            tts_runner_result * out);
 

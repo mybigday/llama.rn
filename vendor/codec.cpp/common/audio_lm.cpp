@@ -80,6 +80,7 @@ struct audio_lm_context {
     // Qwen3-TTS talker prompt control tags (codec-vocab, looked up in
     // audio_embd_0 = codec_embedding).  -1 when absent (non-Qwen3-TTS).
     int32_t q3_nothink_id   = -1;
+    int32_t q3_think_id     = -1;
     int32_t q3_think_bos_id = -1;
     int32_t q3_think_eos_id = -1;
     int32_t q3_codec_pad_id = -1;
@@ -288,6 +289,7 @@ static void init_decode_transform(audio_lm_context * ctx) {
         if (const char * v = meta_str(ctx, key)) dst = std::atoi(v);
     };
     read_i("codec.lm.qwen3tts.nothink_id",   ctx->q3_nothink_id);
+    read_i("codec.lm.qwen3tts.think_id",     ctx->q3_think_id);
     read_i("codec.lm.qwen3tts.think_bos_id", ctx->q3_think_bos_id);
     read_i("codec.lm.qwen3tts.think_eos_id", ctx->q3_think_eos_id);
     read_i("codec.lm.pad_code_c0",           ctx->q3_codec_pad_id);
@@ -1664,12 +1666,34 @@ bool audio_lm_build_talker_prefix(audio_lm_context * ctx,
         return false;
     }
 
-    // The codec control stream (auto-language, with x-vector row inserted):
-    //   [nothink, think_bos, think_eos, <XVEC>, codec_pad, codec_bos]
-    // The text lane aligned to it (all but last col):
-    //   [tts_pad, tts_pad, tts_pad, tts_pad, tts_bos]
-    // and text[0] is summed with the final codec col (codec_bos).
-    const int32_t n_ctrl = 5 + (xvector ? 1 : 0);   // control rows (excl. text[0] row)
+    // Without an x-vector, a CustomVoice codec speaker supplies the speaker
+    // row as codec_embd[spk_id], and a dialect voice its language tag.
+    int32_t spk_tag = -1, lang_tag = -1;
+    if (xvector == nullptr) {
+        if (const codec_speaker * spk = audio_lm_decode_speaker(ctx)) {
+            codec_speaker_slot_type ty;
+            int64_t ne[4];
+            const void * data = nullptr;
+            if (codec_speaker_get_slot(spk, "spk_id", &ty, ne, &data) && ty == CODEC_SPEAKER_SLOT_I32) {
+                spk_tag = *static_cast<const int32_t *>(data);
+            }
+            if (codec_speaker_get_slot(spk, "language_id", &ty, ne, &data) && ty == CODEC_SPEAKER_SLOT_I32) {
+                lang_tag = *static_cast<const int32_t *>(data);
+            }
+        }
+    }
+    if (lang_tag >= 0 && ctx->q3_think_id < 0) {
+        ctx->last_error = "audio_lm_build_talker_prefix: language tag without codec.lm.qwen3tts.think_id";
+        return false;
+    }
+    const bool has_spk = xvector != nullptr || spk_tag >= 0;
+
+    // The codec control stream (with the speaker row inserted):
+    //   auto language: [nothink, think_bos, think_eos, <SPK>, codec_pad, codec_bos]
+    //   language tag:  [think, think_bos, <LANG>, think_eos, <SPK>, codec_pad, codec_bos]
+    // The text lane aligned to it (all but last col) is tts_pad, then
+    // tts_bos, and text[0] is summed with the final codec col (codec_bos).
+    const int32_t n_ctrl = 5 + (lang_tag >= 0 ? 1 : 0) + (has_spk ? 1 : 0);   // control rows (excl. text[0] row)
     const int32_t n_rows = n_role + n_ctrl + 1;      // + text[0] row
     if (n_rows > out_cap_rows) {
         ctx->last_error = "audio_lm_build_talker_prefix: output row cap too small";
@@ -1696,10 +1720,17 @@ bool audio_lm_build_talker_prefix(audio_lm_context * ctx,
     // codec lane cycles [nothink, think_bos, think_eos, XVEC, codec_pad].
     struct CtrlRow { int32_t text_tok; int32_t codec_tag; bool is_xvec; };
     std::vector<CtrlRow> ctrl;
-    ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_nothink_id,   false});
-    ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_bos_id, false});
+    if (lang_tag >= 0) {
+        ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_id,     false});
+        ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_bos_id, false});
+        ctrl.push_back({ctx->q3_tts_pad_id, lang_tag,             false});
+    } else {
+        ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_nothink_id,   false});
+        ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_bos_id, false});
+    }
     ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_eos_id, false});
     if (xvector) ctrl.push_back({ctx->q3_tts_pad_id, -1, true});
+    else if (spk_tag >= 0) ctrl.push_back({ctx->q3_tts_pad_id, spk_tag, false});
     ctrl.push_back({ctx->q3_tts_bos_id, ctx->q3_codec_pad_id, false});
     for (const CtrlRow & c : ctrl) {
         float * dst = out_embds + (size_t) r * H;
@@ -1775,7 +1806,35 @@ bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
     return true;
 }
 
+// Output frames the codes accumulated so far decode to: latent frames, or
+// code frames minus the delay-pattern tail.
+static int32_t audio_lm_max_delay(const audio_lm_context * ctx) {
+    int32_t max_delay = 0;
+    if (!ctx->delay_pattern.empty() && (int32_t) ctx->delay_pattern.size() >= ctx->n_cb) {
+        for (int32_t q = ctx->audio_cb_offset; q < ctx->n_cb; ++q) {
+            max_delay = std::max(max_delay, ctx->delay_pattern[(size_t) q]);
+        }
+    }
+    return max_delay;
+}
+
+int32_t audio_lm_codec_hop(const audio_lm_context * ctx) {
+    return ctx != nullptr && ctx->model != nullptr ? codec_model_hop_size(ctx->model) : 0;
+}
+
+int32_t audio_lm_decodable_frames(const audio_lm_context * ctx) {
+    if (ctx == nullptr) return 0;
+    if (ctx->is_continuous) return ctx->latent_n_frames;
+    return std::max(0, ctx->codes_n_frames - audio_lm_max_delay(ctx));
+}
+
 bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    return audio_lm_decode_audio_range(ctx, 0, -1, out);
+}
+
+bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, int32_t frame_end,
+                                 audio_lm_audio_output * out) {
     if (ctx == nullptr || out == nullptr) return false;
 
     // Continuous-latent models: decode the accumulated latent patches.
@@ -1784,12 +1843,17 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
             ctx->last_error = "audio_lm_decode_audio: no latents accumulated";
             return false;
         }
-        const int32_t D = ctx->latent_dim, T = ctx->latent_n_frames;
+        if (frame_end < 0) frame_end = ctx->latent_n_frames;
+        if (frame_begin < 0 || frame_begin >= frame_end || frame_end > ctx->latent_n_frames) {
+            ctx->last_error = "audio_lm_decode_audio: frame range out of bounds";
+            return false;
+        }
+        const int32_t D = ctx->latent_dim, T = frame_end - frame_begin;
         // Transpose frame-major [T, D] → channel-major [D, T] for decode.
         std::vector<float> chan((size_t) D * T);
         for (int32_t t = 0; t < T; ++t)
             for (int32_t d = 0; d < D; ++d)
-                chan[(size_t) d * T + t] = ctx->latents[(size_t) t * D + d];
+                chan[(size_t) d * T + t] = ctx->latents[(size_t) (frame_begin + t) * D + d];
         codec_pcm_buffer pcm = {};
         auto dp = codec_decode_default_params();
         const enum codec_status rc = codec_decode_quantized_representation(
@@ -1855,16 +1919,22 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
         ctx->last_error = "audio_lm_decode_audio: too few frames to cover delay_pattern";
         return false;
     }
-    const int32_t n_frames_out = (max_delay > 0) ? (n_frames_in - max_delay) : n_frames_in;
+    const int32_t n_frames_total = (max_delay > 0) ? (n_frames_in - max_delay) : n_frames_in;
+    if (frame_end < 0) frame_end = n_frames_total;
+    if (frame_begin < 0 || frame_begin >= frame_end || frame_end > n_frames_total) {
+        ctx->last_error = "audio_lm_decode_audio: frame range out of bounds";
+        return false;
+    }
+    const int32_t n_frames_out = frame_end - frame_begin;
 
     const int32_t codebook_sz = codec_model_codebook_size(ctx->model);
     std::vector<int32_t> decode_codes;
-    const int32_t * codes_ptr = ctx->codes.data();
+    const int32_t * codes_ptr = ctx->codes.data() + (size_t) frame_begin * n_cb_in;
     if (offset > 0 || max_delay > 0 || ctx->cb0_speech_offset != 0) {
         decode_codes.resize((size_t) n_frames_out * (size_t) n_q);
         for (int32_t t = 0; t < n_frames_out; ++t) {
             for (int32_t q = 0; q < n_q; ++q) {
-                const int32_t src_t = t + audio_delays[(size_t) q];
+                const int32_t src_t = frame_begin + t + audio_delays[(size_t) q];
                 int32_t code = ctx->codes[(size_t) src_t * n_cb_in + (offset + q)];
                 // Merged text+speech cb0 (MOSS-TTSD): map back to raw
                 // quantizer index space.  Only the first *audio* codebook
@@ -1933,7 +2003,11 @@ bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx) {
 }
 
 bool audio_lm_set_decode_speaker(audio_lm_context * ctx, const char * name) {
-    if (ctx == nullptr || ctx->model == nullptr || name == nullptr) return false;
+    if (ctx == nullptr || ctx->model == nullptr) return false;
+    if (name == nullptr) {
+        audio_lm_adopt_speaker(ctx, nullptr);
+        return true;
+    }
     const codec_speaker * spk = codec_get_speaker(ctx->model, name);
     if (spk == nullptr) {
         std::string avail;

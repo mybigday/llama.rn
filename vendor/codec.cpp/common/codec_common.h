@@ -3,7 +3,7 @@
 
 // Generic audio-LM API for codec.cpp.  See docs/codec_common_api.md
 // for the full design.  Mirrors llama.cpp's `common/` layer pattern:
-// the host (llama.rn's rn-tts, examples/tts-cli, …) keeps full
+// the host (llama.rn's rn-tts, tools/tts-cli, …) keeps full
 // ownership of the `llama_decode` loop, the sampler, and KV
 // management; this layer provides build-time + per-step + end-of-
 // sequence hooks that the host calls at three points in its existing
@@ -170,6 +170,7 @@ const char * audio_lm_last_error     (const audio_lm_context * ctx);
 // ─────────────────────────────────────────────────────────────────────
 bool audio_lm_codec_has_speakers         (const audio_lm_context * ctx);
 bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx);
+// `name` = NULL goes back to the model's default speaker.
 bool audio_lm_set_decode_speaker         (audio_lm_context * ctx, const char * name);
 // `name` = NULL loads the file's default speaker.
 bool audio_lm_load_decode_speaker        (audio_lm_context * ctx, const char * path,
@@ -454,6 +455,19 @@ bool audio_lm_push_codes(audio_lm_context * ctx,
 // ─────────────────────────────────────────────────────────────────────
 bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out);
 
+// Chunked decode for streaming: output frames [frame_begin, frame_end) of
+// the audio accumulated so far (frame_end = -1: up to the last one).  Frames
+// are what the codec decodes — latent frames, or code frames after the
+// delay-pattern undo — and audio_lm_decodable_frames counts them.  A window
+// decodes with no context beyond its edges, so callers overlap windows and
+// cross-fade the seams.
+bool    audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, int32_t frame_end,
+                                    audio_lm_audio_output * out);
+int32_t audio_lm_decodable_frames(const audio_lm_context * ctx);
+// Samples per decoded frame.  A window of n frames decodes to about n * hop
+// samples aligned at its start; some codecs drop a few at the end (DAC: 8).
+int32_t audio_lm_codec_hop(const audio_lm_context * ctx);
+
 // Decode host-collected latents straight through the codec, in the codec's
 // own `codec_decode_quantized_representation` layout (Soprano: frame-major
 // [n_frames, dim] backbone hidden states).  For codec-only continuous models
@@ -694,9 +708,12 @@ bool audio_lm_compose_audio_codes_embd(audio_lm_context * ctx,
 //
 // `role_tokens` are the tokenized "<|im_start|>assistant\n" header (host
 // tokenizes them), `text_tokens` the payload text tokens.  `xvector` (may
-// be null) is the ECAPA x-vector (hidden floats).  On success writes the
-// prefix rows (row-major, `out_n_rows * hidden` floats) into `out_embds`
-// (host sizes it to at least `(3 + 5 + n_text_prefix) * hidden`), sets
+// be null) is the ECAPA x-vector (hidden floats).  Without one, the decode
+// speaker's `spk_id` slot (CustomVoice builtin voices) supplies the speaker
+// row as codec_embd[spk_id], and its `language_id` slot (dialect voices)
+// switches the control stream to [think, think_bos, LANG, think_eos].  On
+// success writes the prefix rows (row-major, `out_n_rows * hidden` floats)
+// into `out_embds` (host sizes it to at least `(n_role + 7 + 1) * hidden`), sets
 // `*out_n_rows`, and reports how many payload text tokens were consumed by
 // the prefix in `*out_text_consumed` (1: text[0] summed at row 8).
 bool audio_lm_talker_has_projection(const audio_lm_context * ctx);

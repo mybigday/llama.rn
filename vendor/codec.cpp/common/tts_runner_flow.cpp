@@ -6,7 +6,7 @@
 // no llama dependency, so it lives in the always-built codec_common library
 // and keeps the FlowLM path available even in CODEC_TTS_BACKBONE=OFF builds.
 //
-// Ported verbatim from examples/tts-cli.cpp's run_flow_lm_synthesize; the
+// Ported verbatim from tools/tts-cli.cpp's run_flow_lm_synthesize; the
 // only change is that it fills a tts_runner_result (PCM + stats) instead of
 // writing the WAV — the caller marshals output.
 
@@ -56,27 +56,46 @@ int flow_prepare_text(std::string & text) {
 
 }  // namespace
 
-int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
-                                        tts_runner_result * out) {
+struct tts_flow_session {
+    codec_model   * model = nullptr;
+    codec_lm      * lm    = nullptr;
+    codec_context * cctx  = nullptr;
+    const codec_lm_flow_info * fi = nullptr;
+    ~tts_flow_session() {
+        if (cctx)  codec_free(cctx);
+        if (lm)    codec_lm_free(lm);
+        if (model) codec_model_free(model);
+    }
+};
+
+int tts_flow_open(const tts_runner_params & a, tts_flow_session ** out, std::string * err) {
+    *out = nullptr;
     // Load the codec model + context (self-contained).
     codec_model_params mparams = codec_model_default_params();
     mparams.use_gpu   = a.use_gpu;
     mparams.n_threads = a.n_threads > 0 ? a.n_threads : 1;
-    codec_model * model = load_codec_model(a.codec_path, mparams, a.kv_overrides);
-    if (!model) { out->error = "flow_lm: model load failed"; return 1; }
+    auto * s = new tts_flow_session;
+    s->model = load_codec_model(a.codec_path, mparams, a.kv_overrides);
+    if (!s->model) { *err = "flow_lm: model load failed"; delete s; return 1; }
 
-    codec_lm * lm = codec_lm_create(model);
-    if (!lm) {
-        // Not an LM-bearing codec, or a different kind — let the caller decide.
-        codec_model_free(model);
-        return 0;
-    }
-    const codec_lm_flow_info * fi = codec_lm_flow_get_info(lm);
-    if (!fi) { codec_lm_free(lm); codec_model_free(model); return 0; }   // not flow_lm
+    s->lm = codec_lm_create(s->model);
+    // Not an LM-bearing codec, or a different kind — let the caller decide.
+    if (!s->lm) { delete s; return 0; }
+    s->fi = codec_lm_flow_get_info(s->lm);
+    if (!s->fi) { delete s; return 0; }   // not flow_lm
 
-    codec_context * cctx = codec_init_from_model(model, codec_context_default_params());
-    if (!cctx) { out->error = "flow_lm: ctx init failed"; codec_lm_free(lm); codec_model_free(model); return 1; }
+    s->cctx = codec_init_from_model(s->model, codec_context_default_params());
+    if (!s->cctx) { *err = "flow_lm: ctx init failed"; delete s; return 1; }
+    *out = s;
+    return 1;
+}
 
+void tts_flow_free(tts_flow_session * s) { delete s; }
+
+bool tts_flow_run(tts_flow_session * s, const tts_runner_params & a, tts_runner_result * out) {
+    codec_lm * lm = s->lm;
+    codec_context * cctx = s->cctx;
+    const codec_lm_flow_info * fi = s->fi;
     const int32_t ldim    = fi->ldim;
     const int32_t d_model = fi->d_model;
 
@@ -87,7 +106,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
     int32_t n_tok = 0;
     if (codec_lm_flow_tokenize(lm, text.c_str(), ids.data(), (int32_t) ids.size(), &n_tok) != CODEC_STATUS_SUCCESS || n_tok <= 0) {
         out->error = std::string("flow_lm: tokenize failed: ") + codec_lm_get_last_error(lm);
-        codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+        return false;
     }
     ids.resize(n_tok);
     std::printf("flow_lm: text=\"%s\" -> %d tokens; d_model=%d ldim=%d\n", text.c_str(), n_tok, d_model, ldim);
@@ -100,7 +119,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
         std::string werr;
         if (!codec_example_load_wav_pcm16(a.ref_audio_path.c_str(), &wav, &werr)) {
             out->error = "flow_lm: ref-audio load failed: " + werr;
-            codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+            return false;
         }
         // Mono F32 (average channels), keep native rate — pocket_mimi encodes at
         // 24 kHz; the CLI assumes the ref is already 24 kHz (as kyutai voices are).
@@ -117,7 +136,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
         codec_latent_buffer lb; std::memset(&lb, 0, sizeof(lb));
         if (codec_encode_latent(cctx, &au, &tb, &lb, codec_encode_default_params()) != CODEC_STATUS_SUCCESS) {
             out->error = std::string("flow_lm: ref-audio encode failed: ") + codec_get_last_error(cctx);
-            codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+            return false;
         }
         n_voice = lb.n_frames;
         voice_rows.resize((size_t) n_voice * d_model);
@@ -125,7 +144,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
         if (codec_lm_flow_speaker_rows(lm, lb.data, n_voice, voice_rows.data(), n_voice) != CODEC_STATUS_SUCCESS) {
             out->error = std::string("flow_lm: speaker_rows failed: ") + codec_lm_get_last_error(lm);
             codec_latent_buffer_free(&lb);
-            codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+            return false;
         }
         codec_latent_buffer_free(&lb);
         std::printf("flow_lm: voice conditioning from %s -> %d rows\n", a.ref_audio_path.c_str(), n_voice);
@@ -133,10 +152,10 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
 
     // ── State + prefill ─────────────────────────────────────────────
     codec_lm_state * st = codec_lm_state_new(lm);
-    if (!st) { out->error = "flow_lm: state_new failed"; codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1; }
+    if (!st) { out->error = "flow_lm: state_new failed"; return false; }
     if (codec_lm_flow_prefill(st, ids.data(), n_tok, n_voice > 0 ? voice_rows.data() : nullptr, n_voice) != CODEC_STATUS_SUCCESS) {
         out->error = std::string("flow_lm: prefill failed: ") + codec_lm_state_get_last_error(st);
-        codec_lm_state_free(st); codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+        codec_lm_state_free(st); return false;
     }
 
     // frames_after_eos policy: fixed from GGUF if >= 0, else the word-count guess.
@@ -173,7 +192,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
         if (codec_lm_flow_step(st, noise.data(), lat.data(), &eos_logit, &is_eos) != CODEC_STATUS_SUCCESS) {
             char buf[128]; std::snprintf(buf, sizeof(buf), "flow_lm: step %d failed: ", step);
             out->error = std::string(buf) + codec_lm_state_get_last_error(st);
-            codec_lm_state_free(st); codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+            codec_lm_state_free(st); return false;
         }
         // Optional min-length guard: ignore EOS for the first --min-len frames.
         // The FlowLM is a short-utterance model whose EOS head can fire on frame
@@ -194,7 +213,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
 
     if (n_frames == 0) {
         out->error = "flow_lm: no frames generated";
-        codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+        return false;
     }
 
     // ── Decode: latents [ldim, n_frames] channel-major -> PCM ───────
@@ -208,7 +227,7 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
     codec_pcm_buffer pcm; std::memset(&pcm, 0, sizeof(pcm));
     if (codec_decode_quantized_representation(cctx, lat_cm.data(), ldim, n_frames, &pcm, codec_decode_default_params()) != CODEC_STATUS_SUCCESS) {
         out->error = std::string("flow_lm: decode failed: ") + codec_get_last_error(cctx);
-        codec_free(cctx); codec_lm_free(lm); codec_model_free(model); return 1;
+        return false;
     }
     out->pcm.assign(pcm.data, pcm.data + pcm.n_samples);
     out->sample_rate = pcm.sample_rate;
@@ -216,8 +235,20 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
     out->n_frames    = n_frames;
     out->stop_reason = stop_reason;
     codec_pcm_buffer_free(&pcm);
-    codec_free(cctx); codec_lm_free(lm); codec_model_free(model);
-    return 1;
+    return true;
 }
+
+int tts_runner_synthesize_selfcontained(const tts_runner_params & a,
+                                        tts_runner_result * out) {
+    tts_flow_session * s = nullptr;
+    const int handled = tts_flow_open(a, &s, &out->error);
+    if (s != nullptr) {
+        tts_flow_run(s, a, out);
+        tts_flow_free(s);
+    }
+    return handled;
+}
+
+
 
 }  // namespace codec_common
