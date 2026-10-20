@@ -626,14 +626,10 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 #endif
         }
 
-        // TTS speaker id: thread from completion options into tts_wrapper so
-        // rn-completion.cpp can resolve the speaker via getSpeaker(pending_speaker_id).
-        // Default -1 means no speaker override.
+        // TTS speaker id from the completion options: a registry speaker that
+        // overrides the one getFormattedAudioCompletion armed (-1 = none).
         if (ctx->tts_wrapper != nullptr) {
             ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(params, "speakerId", -1);
-            if (ctx->tts_wrapper->pending_speaker_id >= 0) {
-                ctx->tts_wrapper->decode_speaker_id = ctx->tts_wrapper->pending_speaker_id;
-            }
         }
     }
 }

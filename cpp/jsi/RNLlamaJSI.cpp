@@ -1201,7 +1201,9 @@ namespace rnllama_jsi {
                             continue;
                         }
 
-                        const std::string token_text = common_token_to_piece(ctx->ctx, token_with_probs.tok);
+                        const std::string token_text = ctx->completion->isAudioGeneration()
+                            ? std::string()
+                            : common_token_to_piece(ctx->ctx, token_with_probs.tok);
                         size_t pos = std::min(sent_count, ctx->completion->generated_text.size());
                         const std::string str_test = ctx->completion->generated_text.substr(pos);
 

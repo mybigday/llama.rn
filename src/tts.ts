@@ -57,8 +57,9 @@ export interface TTSCapabilities {
    */
   canSpeakerFromAudio: boolean
   /**
-   * Reference sampling settings stored in the codec GGUF, in completion
-   * param names. Only keys the model specifies are present.
+   * Always empty: a text-to-speech completion samples with the model's own
+   * settings (codec.cpp).
+   * @deprecated
    */
   samplingDefaults: {
     temperature?: number

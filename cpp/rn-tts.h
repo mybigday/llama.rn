@@ -4,30 +4,26 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <random>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
 #include "llama.h"
 #include "nlohmann/json.hpp"
 
 using json = nlohmann::ordered_json;
 
-struct codec_model;
-struct codec_context;
-struct codec_lm;
-struct codec_lm_state;
-struct codec_lm_info;
-struct codec_speaker;
+struct codec_audio_lm;
 struct common_sampler;
-namespace codec_common { struct audio_lm_context; struct audio_lm_prompt_info; }
+struct common_params_sampling;
 
 namespace rnllama {
 
-// Forward declarations
 struct llama_rn_context;
+struct tts_guard_sampler;
 
-// TTS type enumeration
+// Model families llama.rn reports in getTTSCapabilities().type.  The audio
+// side (prompt formats, sampling, stop rules, decoding) is codec.cpp's
+// codec_audio_lm; this only names the model for the JS layer.
 enum tts_type {
     UNKNOWN = -1,
     OUTETTS_V0_1 = 0,
@@ -41,41 +37,23 @@ enum tts_type {
     QWEN3_TTS_0_6B = 8,
     MOSS_TTS_REALTIME = 9,
     MOSS_TTSD_V07 = 10,
-    CHATTERBOX_T3 = 11,             // English Chatterbox (t3_cfg)
-    CHATTERBOX_T3_MULTILINGUAL = 12, // 23-language Chatterbox (t3_mtl23ls_v3)
-    BLUEMAGPIE_TTS = 13,             // OpenFormosa BlueMagpie-TTS (Barbet + AudioVAE)
-    CHATTERBOX_TURBO = 14,           // Chatterbox Turbo (GPT-2 T3 + MeanFlow S3Gen)
-    COSYVOICE = 15,                  // CosyVoice family (BreezyVoice, CosyVoice-300M, v2, v3)
+    CHATTERBOX_T3 = 11,
+    CHATTERBOX_T3_MULTILINGUAL = 12,
+    BLUEMAGPIE_TTS = 13,
+    CHATTERBOX_TURBO = 14,
+    COSYVOICE = 15,
 };
 
-// Audio completion result structure.
-// `flow` tells JS which downstream path to take:
-//   "tokens"           — standard completion → tryAddAudioToken → decodeAudioTokens.
-//                        Also used for CODEC_LM_AR models (CSM / Qwen3-TTS /
-//                        MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox): the
-//                        completion loop drives the codec_lm step machine per
-//                        `llama_decode` via `tryCodecLmAudioStep`; JS collects
-//                        `audio_tokens` from the completion result the same
-//                        way it does for OuteTTS/Soprano/NeuTTS.
-//   "continuous_embd"  — standard completion loop but each step drives the
-//                        codec_lm's continuous-latent step machine
-//                        (BlueMagpie-TTS / VoxCPM); collect `audio_embeddings`
-//                        from the completion result and feed them into
-//                        `decodeAudioEmbeddings` to get PCM.
+// getFormattedAudioCompletion() result.  The prompt itself is codec.cpp's and
+// stays native: completion() runs the armed request whatever prompt it gets.
 struct llama_rn_audio_completion_result {
     std::string prompt;
     std::string grammar;
-    bool embedding;
+    bool embedding = false;
     std::string flow;
-    // Qwen3-TTS talker: pre-built prefix embedding rows (row-major,
-    // n_prefix_rows * hidden floats) injected before the AR loop starts.
-    // Non-empty only when flow == "talker_embd".
-    std::vector<float> talker_prefix_embd;
-    int talker_prefix_rows   = 0;
-    int talker_prefix_hidden = 0;
 };
 
-// Options + per-frame progress hook for the codec_lm AR driver.
+// generateAudioCodes() options (deprecated entry point).
 struct llama_rn_audio_codes_options {
     std::string prompt;
     int  max_frames = 500;
@@ -85,492 +63,183 @@ struct llama_rn_audio_codes_options {
     uint32_t seed = 0;
 };
 
-// Progress callback fires after each AR step with the just-sampled codes
-// for that frame (length = n_codebook).  Return false to abort.
 using llama_rn_audio_codes_progress_cb =
     std::function<bool(int step, const std::vector<int32_t> &codes)>;
 
 struct llama_rn_audio_codes_result {
-    std::vector<int32_t> codes;   // (n_frames * n_codebook) interleaved
+    std::vector<int32_t> codes;   // one entry per audio frame
     int n_codebook = 0;
     int n_frames = 0;
     bool stopped_on_eos = false;
     bool aborted = false;
 };
 
-// Native-backed speaker handle.  Stored in per-context registry; the JS
-// side holds only a numeric id.  `baked` is false until bakeSpeaker runs
-// the codec_lm_speaker_encode path and fills emb/rows/hidden_dim.
-// `audio_hash` is a cheap 64-bit FNV-1a hash of the raw PCM samples used
-// for future cache-reuse (Task 5).
+// A registry speaker (LlamaSpeaker): reference audio with its transcript, or
+// a speaker in a speaker file.  codec_audio_lm derives the conditioning when
+// the speaker is used.
 struct rn_speaker {
-    // Raw PCM + metadata (kept until baked so re-bake is cheap)
     std::vector<float> pcm;
-    int sample_rate      = 0;
+    int sample_rate = 0;
     std::string ref_text;
-    float emotion        = 0.5f;
-    bool has_emotion     = false;
-
-    // Baked embedding (n_rows * hidden_dim, row-major f32)
-    std::vector<float> emb;
-    int rows             = 0;
-    int hidden_dim       = 0;
-    bool baked           = false;
-    bool bake_tried      = false;  // autoBakeSpeaker tries once
-
-    // Cache key: 64-bit FNV-1a hash of the PCM buffer
-    uint64_t audio_hash  = 0;
-
-    // Decoder-side speaker (codec_speaker: e.g. S3G / CosyVoice prompt tokens,
-    // prompt mel and x-vector).  Derived from `pcm` on first decode when the
-    // codec can do that, or loaded from a speaker file (then `pcm` is empty).
-    std::shared_ptr<::codec_speaker> codec_spk;
-    bool codec_spk_tried = false;
+    std::string speaker_file;
+    std::string speaker_name;   // in speaker_file ("" = its default)
+    // Kept for the JS shape of LlamaSpeaker; nothing is baked ahead of use.
+    int rows = 0;
+    bool baked = true;
 };
 
-// A codec_speaker as listed by the codec GGUF or a speaker file.
 struct llama_rn_speaker_info {
     std::string name;
     std::string ref_text;
     bool is_default = false;
 };
 
-// Single source of truth for everything the JS layer needs to drive a TTS
-// session — populated from the native profile so JS doesn't keep its own
-// parallel mapping. Voice resolution lives entirely on the JS side: the
-// wrapper looks up the name `default` in its per-family/per-language voice
-// table, so different small-model variants (e.g. neutts-nano-german vs
-// neutts-nano-spanish) can ship different reference speakers without the
-// native side having to track them.
 struct llama_rn_tts_capabilities {
-    int type;                       // matches tts_type enum
-    std::string prompt_kind;        // "outetts_legacy" | "outetts_v0_3" | "outetts_v1_0" | "soprano" | "neutts" | ""
-    std::string family;             // "outetts" | "soprano" | "neutts" | ""
-    bool requires_phonemes;
-    std::string default_language;   // language hint for phonemizer hook ("en-us" today)
-    // Builtin decoder voices of the codec GGUF (codec_speaker); a voice name
-    // passed as `speaker` selects one of them.
+    int type = UNKNOWN;             // tts_type
+    std::string prompt_kind;
+    std::string family;
+    bool requires_phonemes = false;
+    std::string default_language = "en-us";
     std::vector<llama_rn_speaker_info> builtin_voices;
-    // True when createSpeaker's reference audio also conditions the decoder.
     bool can_speaker_from_audio = false;
-    // Reference sampling defaults stored in the codec GGUF (temperature,
-    // top_k, top_p, min_p, penalty_repeat); only keys the model specifies.
+    bool takes_instruct = false;
+    int sample_rate = 0;
+    // Always empty: codec_audio_lm samples with the model's own settings.
     json sampling_defaults = json::object();
 };
 
-// (T × n_q) audio code range — start token id + count + per-codebook size.
-// Mirrors the fields in `tts_model_profile::audio_token_config::code_range`
-// but lives in the public header so callers / JSI can forward-declare it.
-struct llama_rn_audio_code_range {
-    int32_t start;
-    int     count;
-    int     codebook_size;
-};
-
-// TTS context for TTS-specific functionality
+// Text-to-speech over codec.cpp's codec_audio_lm (include/codec_audio_lm.h):
+// codec.cpp says what to feed the backbone, how to sample and when to stop;
+// this drives the backbone (the main llama_context) through that loop.
 struct llama_rn_context_tts {
-    // TTS state fields
+    ::codec_audio_lm * alm = nullptr;
+
+    // The last generation: its PCM (decoded and joined across segments) and
+    // one entry per audio frame for the completion result's `audio_tokens`
+    // (the sampled backbone token, or the frame index for codec-head models).
+    std::vector<float> generated_pcm;
     std::vector<llama_token> audio_tokens;
-    int pending_codebook1 = -1;
+    std::string stop_reason;
 
-    // Codec runtime handles
-    ::codec_model *codec_model = nullptr;
-    ::codec_context *codec_ctx = nullptr;
-    // codec_lm adaptor (created lazily on first codec_lm-AR call, freed by
-    // dtor).  Stays NULL when the loaded codec.gguf has no `lm.*` section,
-    // in which case the model is treated as a plain codec.
-    ::codec_lm *codec_lm = nullptr;
-    ::codec_lm_state *codec_lm_state = nullptr;
-    bool codec_lm_probed = false;
-    tts_type type = UNKNOWN;
+    // Speaker id from the completion params (JSIParams); -1 = none.
+    int pending_speaker_id = -1;
 
-    // codec_common audio_lm context (Phase B / audio_lm_* API).  Wraps
-    // the codec_model + codec_lm into the codec_common abstraction layer
-    // that knows about per-model prompt formats (talker, cb0_from_backbone,
-    // streaming_interleave, chatterbox).  Initialized once alongside
-    // codec_ctx; drives Qwen3-TTS / MOSS-TTSD / MOSS-Realtime / Chatterbox.
-    // Freed in dtor.  NULL for codec-only GGUF files without an LM section.
-    ::codec_common::audio_lm_context * audio_lm_ctx = nullptr;
-    // Prompt info cached after audio_lm_ctx init (filled by
-    // audio_lm_get_prompt_info; empty when no LM section).
-    // NOT heap-allocated — it's a plain struct stored by value below.
-    bool audio_lm_pi_valid = false;
-
-    // Vocab-probed audio token ranges.  Resolved lazily on first
-    // tryAddAudioToken / isAudioToken / etc. — replaces the hardcoded
-    // `tts_model_profile::audio.code_ranges` values which only matched
-    // the original Llama-based releases.  OuteTTS V0.x is now Qwen2-based
-    // (audio range starts at 151672, not 50307); OuteTTS V1.0 0.6B is
-    // Qwen3-based (`<|c1_0|>=151669`, `<|c2_0|>=152694`, not 128256/129281).
-    // Probing the actual vocab keeps the profile robust to backbone swaps.
-    std::vector<llama_rn_audio_code_range> resolved_code_ranges;
-    bool resolved_ranges_ready = false;
-
-    // Continuous-latent flow (BlueMagpie-TTS / VoxCPM): the completion loop
-    // in `rn-completion.cpp` calls `tryContinuousAudioStep` after each
-    // `llama_decode`; that hook runs codec_lm_step_generate +
-    // step_feedback_embd and accumulates the produced latent patch here
-    // (frame-major, [T, latent_dim]) plus records the LocEnc feedback embd
-    // as the payload for the NEXT batch's `b.embd`.  When the stop head
-    // fires, `audio_embeddings_done` is set and the completion loop
-    // terminates.  The completion result surfaces
-    // `audio_embeddings` / `audio_embedding_dim` alongside the standard
-    // fields; JS collects them and calls `decodeAudioEmbeddings` to get
-    // PCM.  Kept off the codec_lm path (generateAudioCodes) — that stays
-    // codebook-only.
-    std::vector<float> audio_embeddings;         // [n_frames * latent_dim]
-    int audio_embedding_dim = 0;                 // latent_dim
-    std::vector<float> pending_feedback_embd;    // [hidden_dim], next b.embd
-    bool audio_embeddings_pending = false;       // feedback embd ready
-    bool audio_embeddings_done = false;          // stop head fired
-
-    // Prompt-prefill scratch for the continuous-latent flow.  The completion
-    // loop decodes the whole text prompt with per-position logits and
-    // accumulates every position's backbone hidden here (position-major,
-    // [n_prompt * hidden_dim]).  Once the full prompt is decoded it calls
-    // `tryContinuousPrefill(...)` which forwards these to
-    // `codec_lm_text_prefill` (seeding the RALM K/V cache + priming patch 0),
-    // then clears the buffer.  `continuous_prefill_done` guards single-run
-    // semantics within a generation; `reset()` clears it (and the RALM state
-    // via `codec_lm_state_reset`) so a second completion re-primes.
-    std::vector<float> prompt_hiddens;           // [n_prompt * hidden_dim]
-    bool continuous_prefill_done = false;        // prefill ran this generation
-
-    // Codebook codec_lm-AR flow (CSM / Qwen3-TTS / MOSS-TTSD /
-    // MOSS-TTS-Realtime / Chatterbox).  Structurally parallel to the
-    // continuous flow above but the codec_lm produces N codebook codes per
-    // step (not a latent patch); those codes are appended to `audio_tokens`
-    // interleaved (T, N) so the standard `decodeAudioTokens` path picks
-    // them up.  `pending_next_embd` carries the composed audio embedding
-    // that becomes the next `llama_decode`'s `b.embd`.
-    //   - pending_speaker_emb_*: one-shot injection before the first token
-    //     batch, sourced from `codec_lm_speaker_encode` (voice-clone
-    //     models).  Cleared once fed to `llama_decode`.
-    //   - pending_next_embd: composed by `codec_lm_compose_next_embd`
-    //     after each step; ~hidden_dim floats.  Cleared once the completion
-    //     loop injects it as the next batch's `b.embd`.
-    //   - codec_lm_ar_step: monotonically incremented per emitted frame,
-    //     used by `compose_next_embd` for models with learned per-step
-    //     positional embeddings (Chatterbox `speech_pos_emb`).
-    //   - codec_lm_ar_rng: seed state for the codebook-internal sampler
-    //     (`sample_codec_logits`).  Seeded from the completion params on
-    //     first call; persists across steps within a completion.
-    // ── Native speaker registry ──────────────────────────────────────────
-    // Keyed by monotonically-increasing integer id.  Freed with the context.
     std::unordered_map<int, rn_speaker> speakers;
     int next_speaker_id = 1;
 
-    // Speaker id threaded from completion params / getFormattedAudioCompletion.
-    // -1 means "no speaker override".  Set by parseCompletionParams (via JSI)
-    // and by getFormattedAudioCompletion's speakerId argument.  Task 5 reads
-    // this in rn-completion.cpp to resolve the speaker and inject its baked
-    // embedding or PCM into the generation pipeline.
-    int pending_speaker_id = -1;
-
-    std::vector<float> pending_speaker_emb_prefix;  // [rows * hidden_dim]
-    int pending_speaker_emb_rows = 0;
-    int pending_speaker_emb_hidden_dim = 0;
-    std::vector<float> pending_next_embd;           // [hidden_dim], next b.embd
-    bool codec_lm_ar_pending_embd = false;          // next_embd ready
-    bool codec_lm_ar_done = false;                  // codec_lm stop fired
-    int  codec_lm_ar_step = 0;                      // AR step index
-    uint64_t codec_lm_ar_rng = 0;                   // codebook sampler seed
-    bool codec_lm_ar_stopped_on_eos = false;        // for progress-cb result
-
-    // ── Qwen3-TTS talker (audio_lm_talker_has_projection) ──────────────
-    // These fields survive across steps within one generation; reset() clears
-    // them.  Populated by getFormattedAudioCompletion when the talker prefix
-    // is built, consumed per-step by tryCodecLmAudioStep.
-    std::vector<int32_t> talker_text_tokens;   // tokenized payload text
-    int talker_trailing = 0;                   // trailing text emit counter
-    // Pre-built talker prefix embedding (row-major, n_rows * hidden floats).
-    // Set in getFormattedAudioCompletion; consumed once by nextToken in
-    // rn-completion.cpp to prime the backbone KV before the AR loop starts.
-    std::vector<float> talker_prefix_embd;
-    int talker_prefix_rows   = 0;
-    int talker_prefix_hidden = 0;
-
-    // ── MOSS-TTSD cb0-from-backbone backbone sampler ────────────────────
-    // Built when pi.cb0_from_backbone is detected; uses GBNF grammar from
-    // tts_auto_grammar to constrain backbone cb0 sampling to the speech range.
-    ::common_sampler * bb_sampler = nullptr;
-    bool bb_sampler_built = false;
-
-    // ── Chatterbox T3 ────────────────────────────────────────────────────
-    // Chatterbox drives a dual-sequence CFG decode loop (cond + uncond lanes
-    // in parallel, seq_ids 0 and 1).  n_seq_chatterbox is 1 (no CFG) or 2.
-    int  chatterbox_n_seq     = 0;     // set during tryChatterboxPrefill
-    int  chatterbox_n_past    = 0;     // KV-cache position after prefill
-    // Set by getFormattedAudioCompletion when flow="chatterbox_embd"; signals
-    // rn-completion.cpp to call tryChatterboxPrefill before the AR loop.
-    // Survives rewind()/reset() (same design as talker_prefix_*); cleared
-    // at the entry of getFormattedAudioCompletion for non-Chatterbox models.
-    bool chatterbox_prefill_pending = false;
-    std::string chatterbox_text;           // text stored here so params.prompt
-                                           // can be empty (backbone has no tokenizer)
-    // CFG weight for the Chatterbox AR loop (passed to tryChatterboxPrefill).
-    float chatterbox_cfg_weight = 0.7f;
-    // When pending_speaker_id >= 0 and the model is Chatterbox, the speaker's
-    // PCM is stashed here so tryChatterboxPrefill (called from rn-completion.cpp)
-    // can pass it as ref_pcm to codec_lm_chatterbox_build_prompt, which runs
-    // the full VE+cond_enc path (same result as the baked emb, but the codec
-    // API only accepts the 256-d intermediate or raw PCM, not the 34-row cond
-    // output that encodeInto produces).  Cleared in getFormattedAudioCompletion.
-    std::vector<float> pending_chatterbox_ref_pcm;
-    int pending_chatterbox_ref_n_samples = 0;
-    int pending_chatterbox_ref_sample_rate = 0;
-
-    // ── CosyVoice (BreezyVoice / CosyVoice-300M, CosyVoice2/3) ───────────
-    // Same shape as the Chatterbox flow: getFormattedAudioCompletion arms the
-    // prefill (flow="cosyvoice_embd"), rn-completion.cpp runs
-    // tryCosyVoicePrefill, then each step samples one speech token from the
-    // codec_lm speech head and feeds its speech embedding back.  The prompt
-    // conditioning (prompt speech tokens, x-vector, transcript) comes from
-    // the decoder speaker.  Set at getFormattedAudioCompletion, survives
-    // rewind()/reset().
-    bool cosyvoice_prefill_pending = false;
-    std::string cosyvoice_text;
-    std::vector<int32_t> cosyvoice_decoded;  // sampled speech tokens (RAS window)
-    int  cosyvoice_min_len = 0;              // eos is masked before this many tokens
-    int  cosyvoice_max_len = 0;
-    std::mt19937 cosyvoice_rng;
-
-    // Payload text stashed at getFormattedAudioCompletion time so
-    // tryCodecLmAudioStep can call codec_common::tts_auto_grammar(pi, text)
-    // with the *actual* text — the metadata-derived GBNF for MOSS-TTSD's
-    // cb0-from-backbone constrains cb0 samples to the speech-token range ∪
-    // {eos_code_c0}, without which cb0 samples from the full 152k Qwen3 vocab
-    // and produces incoherent output.  Cleared by reset() (like talker_prefix).
-    std::string audio_lm_payload_text;
-
-    // ── MOSS-TTS-Realtime (streaming_interleave) ─────────────────────────
-    // Realtime interleaves ONE payload text token per audio frame:
-    //   next_row = text_embd[text_token] + compose_audio_codes_embd(codes).
-    // The text-embedding table (`token_embd.weight`) lives in the BACKBONE
-    // GGUF, not the codec — llama.cpp exposes no raw-embedding API, so we
-    // mmap the backbone a second time and dequantize rows on demand (see
-    // `rnllama_text_embd_table` in rn-tts.cpp, mirrors codec.cpp's
-    // TextEmbdTable).  These fields survive rewind()/reset() (same design as
-    // talker_*): set in getFormattedAudioCompletion, consumed by the realtime
-    // prefill in rn-completion.cpp + the per-step realtime driver in
-    // tryCodecLmAudioStep.  Cleared at the entry of getFormattedAudioCompletion
-    // for non-realtime models; the text-embd table is freed there and in dtor.
-    bool realtime_active          = false;  // this generation is realtime
-    bool realtime_prefill_pending = false;  // prefill block not yet decoded
-    std::vector<int32_t> realtime_ctx_tokens;   // system+user+assistant context
-    std::vector<int32_t> realtime_text_tokens;  // payload text tokens
-    int  realtime_text_idx = 0;                 // next payload token to consume
-    // Opaque handle to the backbone text-embd table (rnllama_text_embd_table*).
-    void * realtime_text_embd = nullptr;
-    // Per-codebook sampler chains (rnllama_codebook_sampler*), one per codebook,
-    // each carrying its own windowed repetition-penalty state.  Without the
-    // per-codebook rep penalty the realtime codebooks collapse into repeated
-    // codes (silent output).  Allocated on first realtime step, freed in dtor /
-    // getFormattedAudioCompletion.
-    std::vector<void *> realtime_cb_samplers;
-
-    // Constructor and destructor
-    // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
-    // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)
-    // to whatever backend codec.cpp's `ggml_backend_init_best` picks.
-    // Defaults match the loaded backbone's GPU offload state where
-    // possible; the caller (JS) can override.
-    // `kv_overrides` are llama.cpp-style "KEY=TYPE:VALUE" GGUF metadata
-    // overrides for the codec GGUF (e.g. "cosyvoice.flow.n_timesteps=int:6").
-    // `n_threads` is the codec's CPU thread count; several codec.cpp decoders
-    // (CosyVoice flow, Chatterbox S3G) read it from the model, not from the
-    // per-call decode params.
-    llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false,
-                         const std::vector<std::string> &kv_overrides = {}, int n_threads = 0);
+    // `backbone_path` is the main model's GGUF; models whose text lane reads
+    // the backbone's embedding table (MOSS-TTS-Realtime) need it.  Throws on
+    // failure.
+    llama_rn_context_tts(const std::string &vocoder_model_path, const std::string &backbone_path,
+                         bool use_gpu = false, const std::vector<std::string> &kv_overrides = {},
+                         int n_threads = 0);
     ~llama_rn_context_tts();
 
-    // TTS utility methods
+    // Per-completion state (rewind); the armed request survives.
     void reset();
-    tts_type getTTSType(llama_rn_context* main_ctx, json speaker = nullptr);
-    // Detect-only variant for the JS layer to read the model's TTS family
-    // without needing a speaker JSON or any text input.
-    tts_type detectTTSType(llama_rn_context* main_ctx);
-    // Full capability snapshot — single source of truth for JS-side wrappers.
+
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
-    // speakerId: registry id (>= 0) for voice-clone injection via the baked
-    // speaker embedding.  -1 (default) leaves every existing code path
-    // unchanged.  When >= 0, pending_speaker_id is set and each injection
-    // point in rn-completion.cpp / getFormattedAudioCompletion re-sources the
-    // speaker embedding from the native registry (auto-baking on first use).
-    // speaker: parsed speaker payload; null means "no speaker" (an empty
-    // object still counts as a provided speaker, matching the old "" vs "{}"
-    // string semantics).
-    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId = -1);
-    // DEPRECATED source-compat shim.  As of the "one completion API"
-    // refactor, codec_lm-AR TTS (CSM / Qwen3-TTS / MOSS-TTSD /
-    // MOSS-TTS-Realtime / Chatterbox) shares the standard `completion`
-    // loop with everything else — this wrapper just primes params +
-    // optional speaker prefix and drives it, then drains
-    // `audio_tokens` into the result for streaming callers.  New callers
-    // should skip this and use `completion` + `decodeAudioTokens`
-    // directly.  Returns result.codes.empty() on failure (check logs).
-    llama_rn_audio_codes_result generateAudioCodes(llama_rn_context* main_ctx, const llama_rn_audio_codes_options &opts, const llama_rn_audio_codes_progress_cb &on_frame = nullptr);
+    // Checks the backbone context against what the model asks for; empty
+    // when it fits, else the reason.
+    std::string checkBackbone(llama_rn_context* main_ctx);
 
-    // True when the loaded codec.gguf's codec_lm reports
-    // `is_continuous = true` (BlueMagpie-TTS / VoxCPM continuous-latent
-    // CFM).  Probed lazily (opens the codec_lm handle on first call);
-    // idempotent.  The completion loop uses this to switch to the
-    // step-hook-driven path instead of standard token sampling.
-    bool isTTSContinuous(llama_rn_context* main_ctx);
+    // Arms a request: `text`, plus the voice from `speakerId` (registry), else
+    // `speaker.codec_voice` (builtin voice name), else the model's default.
+    // The voice is applied here so an unknown voice fails early.
+    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker,
+                                                                 const std::string &text_to_speak, int speakerId = -1);
+    bool isArmed() const { return armed; }
 
-    // Continuous-latent per-step hook, called from the completion loop
-    // after each `llama_decode` when `isTTSContinuous` is true.
-    // Runs codec_lm_step_generate on the just-read backbone hidden and
-    // accumulates the produced latent patch into `audio_embeddings`.
-    // Also runs codec_lm_step_feedback_embd to produce the LocEnc feedback
-    // embedding for the NEXT `llama_decode` (into `pending_feedback_embd`)
-    // unless the stop head fired.  Returns true iff the step succeeded;
-    // sets `audio_embeddings_done = true` on stop, otherwise leaves
-    // `audio_embeddings_pending = true` for the completion loop to
-    // consume via `pending_feedback_embd`.
-    bool tryContinuousAudioStep(llama_rn_context* main_ctx, const float * hidden, int hidden_dim);
+    // ── Generation, inside the completion flow ───────────────────────────
+    // loadPrompt calls beginGeneration (an armed request), nextToken calls
+    // step, endCompletion calls endGeneration.  Long text is generated one
+    // segment at a time: after a STOP, nextSegment decodes the segment and
+    // prefills the next one.  beginGeneration / nextSegment set the
+    // context's sampling params to the model's (restored by endGeneration);
+    // the completion re-inits its sampler after them.  Throw on failure.
+    bool isGenerating() const { return generating; }
+    // Returns the KV position after the first segment's prompt.
+    int beginGeneration(llama_rn_context* main_ctx);
+    struct step_result {
+        bool stop = false;          // the segment ended (see nextSegment)
+        bool fed = false;           // one position was decoded at n_past
+        bool audio = false;         // this step produced an audio frame
+        llama_token tok = -1;       // audio: the sampled token, else the frame index
+    };
+    // One step: sample with `smpl` when the model asks, observe, decode what
+    // it feeds at `n_past`.
+    step_result step(llama_rn_context* main_ctx, common_sampler * smpl, int n_past);
+    // After a STOP: keeps the segment's audio; returns the KV position after
+    // the next segment's prompt, or -1 when it was the last.
+    int nextSegment(llama_rn_context* main_ctx);
+    // Keeps the audio generated so far (generated_pcm) and restores the
+    // context.  Safe to call when not generating.
+    void endGeneration(llama_rn_context* main_ctx);
 
-    // Continuous-latent prompt-prefill hook, called from the completion loop
-    // ONCE after the whole text prompt has been decoded (with per-position
-    // logits) and before the first `tryContinuousAudioStep`.  Forwards the
-    // per-position backbone hiddens ([n_pos * dim], position-major) to
-    // `codec_lm_text_prefill`, which runs the prefix through tslm_adapter +
-    // the RALM causally, seeds the RALM K/V cache for positions [0..n_pos),
-    // and caches the last position's non-FSQ lm_hidden so the FIRST
-    // subsequent `codec_lm_step_generate` runs a "primed" step (its h_in is
-    // ignored).  Guards kind/dim like `tryContinuousAudioStep`.  Returns true
-    // on success (or harmless no-op when already primed).
-    bool tryContinuousPrefill(llama_rn_context* main_ctx, const float * hiddens, int n_pos, int dim);
+    // DEPRECATED: arms `opts.prompt` and runs a completion.
+    llama_rn_audio_codes_result generateAudioCodes(llama_rn_context* main_ctx, const llama_rn_audio_codes_options &opts,
+                                                   const llama_rn_audio_codes_progress_cb &on_frame = nullptr);
 
-    // Talker-prefix prefill: called ONCE from the completion loop when
-    // `flow == "talker_embd"` is detected and the prefix embd batch has been
-    // built and decoded.  Sets up `audio_lm_set_uses_embed_override` so the
-    // per-step observe/compose wiring works, then schedules the first
-    // next-embd via `audio_lm_get_next_embed` (which returns the cur hidden
-    // from the last prefill row).  Returns true on success.
-    bool tryTalkerPrefill(llama_rn_context * main_ctx,
-                          const float * last_hidden, int hidden_dim);
-
-    // MOSS-TTS-Realtime (streaming_interleave) prefill: called ONCE from the
-    // completion loop when `realtime_prefill_pending` is set.  Composes the
-    // streaming prefill block — one row per context token (audio lanes =
-    // audio_pad_code) followed by the first `prefill_text_len` payload text
-    // tokens (audio lanes = audio_pad_code, the LAST row's cb0 lane =
-    // bos_code_c0), each row = text_embd[token] + compose_audio_codes_embd —
-    // decodes it as a single embd batch, arms embed-override, sets
-    // `realtime_text_idx = prefill_n`, and fires the first realtime step from
-    // the block's last-row hidden so `pending_next_embd` is ready before the
-    // AR loop.  Returns the KV position after the block (or -1 on failure).
-    int tryRealtimePrefill(llama_rn_context * main_ctx, int n_past);
-
-    // Chatterbox T3 prefill: tokenize text, build cond+uncond prompts via
-    // codec_lm_chatterbox_build_prompt, and decode them via two-sequence
-    // llama_decode.  Sets chatterbox_n_seq + chatterbox_n_past on success.
-    bool tryChatterboxPrefill(llama_rn_context * main_ctx,
-                              const std::string & text,
-                              const float * ref_pcm,
-                              int ref_n_samples, int ref_sample_rate,
-                              float cfg_weight);
-
-    // CosyVoice prefill: builds [sos][text][task_id][prompt speech] from the
-    // decoder speaker and decodes it.  Returns the KV position after the
-    // prompt, or -1 on failure.
-    int tryCosyVoicePrefill(llama_rn_context * main_ctx, const std::string & text);
-    // One CosyVoice AR step on the backbone's last hidden state.
-    bool tryCosyVoiceStep(llama_rn_context * main_ctx, const float * hidden, int hidden_dim);
-
-    // True when the loaded codec.gguf's codec_lm reports a codebook AR kind
-    // (`residual_depth_ar` or `parallel_heads_delay`).  Probed lazily
-    // (opens the codec_lm handle on first call); idempotent.  Returns false
-    // for continuous-latent kinds (use `isTTSContinuous` instead) and for
-    // codec.gguf's without an LM section.  The completion loop uses this
-    // to switch to the codec_lm step-machine per-step hook instead of
-    // standard token sampling.
-    bool isTTSCodecLmAR(llama_rn_context* main_ctx);
-
-    // Codec_lm-AR per-step hook, called from the completion loop after
-    // each `llama_decode` when `isTTSCodecLmAR` is true.
-    //   1. For `residual_depth_ar` codec_lm's where c0 comes from the
-    //      backbone's own head (MOSS-TTS-Realtime / MOSS-TTSD, i.e.
-    //      `audio_codebook_offset > 0`), stashes the backbone-sampled
-    //      token via `codec_lm_state_set_text_context` BEFORE step_begin.
-    //   2. Runs `codec_lm_step_begin(hidden)` then loops
-    //      `step_logits` → `sample_codec_logits` → `step_push_code`
-    //      `n_codebook` times, then `step_finish` to get the frame's N
-    //      codes.
-    //   3. Detects the model-specific stop condition (currently: CSM's
-    //      "codes[0]==0 after step>0" heuristic; other kinds don't have
-    //      one in the codebook path — they rely on the backbone emitting
-    //      an actual EOS token which the completion loop already handles).
-    //      On stop: `codec_lm_ar_done = true`, no next_embd produced.
-    //   4. Appends the frame's N codes to `audio_tokens` (T, N)
-    //      interleaved; `decodeAudioTokens` consumes them unchanged.
-    //   5. Composes next-step backbone embed via
-    //      `codec_lm_compose_next_embd(codes, codec_lm_ar_step, out)` and
-    //      writes it to `pending_next_embd`; the completion loop injects
-    //      that as the next batch's `b.embd`.
-    //
-    // `backbone_sampled_tok` is the backbone's own sampled token this step
-    // (from `common_sampler_sample`).  Only consumed for text-modality-cb0
-    // models; ignored otherwise.  Pass -1 when unavailable / not needed.
-    bool tryCodecLmAudioStep(llama_rn_context* main_ctx,
-                             llama_token backbone_sampled_tok,
-                             const float * hidden, int hidden_dim);
-    // ── Per-context speaker registry API ─────────────────────────────────
-    // Shared encode helper used by the bakeSpeaker path — fills
-    // spk.emb / rows / hidden_dim / baked.
-    // `ref_codes` may be empty; only forwarded when needs_ref_speech_tokens.
-    bool encodeInto(llama_rn_context* main_ctx, rn_speaker & spk,
-                    const std::vector<int32_t> & ref_codes);
-
-    // Allocate a new speaker slot; if bake=true, immediately runs encodeInto.
-    // Returns the new speaker id (always >= 1).
-    int createSpeaker(llama_rn_context* main_ctx,
-                      const std::vector<float> & pcm, int sample_rate,
-                      const std::string & ref_text, float emotion,
-                      bool has_emotion, bool bake);
-
-    // Run encodeInto for an existing (unbaked) speaker.  Returns false if id
-    // not found, vocoder unavailable, or encoding failed.
+    // ── Speaker registry ─────────────────────────────────────────────────
+    int createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
+                      const std::string &ref_text, float emotion, bool has_emotion, bool bake);
     bool bakeSpeaker(llama_rn_context* main_ctx, int id);
-
-    // Look up a speaker by id; returns nullptr if not found.
     const rn_speaker* getSpeaker(int id) const;
-
-    // Auto-bake helper: resolves id → baked rn_speaker (baking on first use).
-    // Returns nullptr when id < 0, not found, or bake fails.
-    const rn_speaker* autoBakeSpeaker(llama_rn_context* main_ctx, int id);
-
-    // Remove a speaker from the registry (no-op if id unknown).
     void releaseSpeaker(int id);
-
-    // ── Decoder speakers (codec_speaker) ─────────────────────────────────
-    // Captured by getFormattedAudioCompletion (and a completion's speakerId)
-    // so decodeAudioTokens still knows the speaker after later completion
-    // params reset pending_speaker_id.  A registry speaker wins over a
-    // builtin voice name; neither = the codec's default speaker.
-    int decode_speaker_id = -1;
-    std::string pending_codec_voice;
-    // Load a speaker file (name empty = the file's default) into the registry.
-    // Returns the new speaker id; throws on failure.
-    int loadSpeaker(const std::string & path, const std::string & name);
-    // Write a registry speaker's decoder conditioning to a speaker file.
     // Throws on failure.
-    void saveSpeaker(int id, const std::string & path, const std::string & name);
-    // Speakers stored in a speaker file.  Throws on failure.
-    std::vector<llama_rn_speaker_info> listSpeakers(const std::string & path);
-    // The decoder speaker for the current generation (nullptr = the codec's
-    // default, or a codec without speakers).
-    const ::codec_speaker * resolveDecodeSpeaker();
+    int loadSpeaker(const std::string &path, const std::string &name);
+    // Writes the decoder speaker a registry speaker conditions to a speaker
+    // file.  Throws on failure.
+    void saveSpeaker(int id, const std::string &path, const std::string &name);
+    std::vector<llama_rn_speaker_info> listSpeakers(const std::string &path);
+
+    // The last generation's audio.  The arguments are the completion result's
+    // `audio_tokens` / `embeddings` and only checked for presence: the audio
+    // is what codec_audio_lm decoded.
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
-    // codec_decode of a (n_frames x n_q) code buffer with the decoder speaker.
-    std::vector<float> decodeCodes(llama_rn_context* main_ctx, std::vector<int32_t> &codes,
-                                   int32_t n_frames, int32_t n_q);
-    std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings, int embedding_dim);
+    std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings,
+                                             int embedding_dim);
     int getAudioSampleRate() const;
-    bool isAudioToken(llama_rn_context* main_ctx, llama_token token, const std::string &token_text = "");
-    bool tryAddAudioToken(llama_rn_context* main_ctx, llama_token token, const std::string &token_text = "");
-    bool shouldCaptureAudioEmbeddings(llama_rn_context* main_ctx);
+
+private:
+    struct armed_voice {
+        std::string voice;      // builtin voice name ("" = default)
+        int speaker_id = -1;    // registry speaker
+        bool operator==(const armed_voice &o) const { return voice == o.voice && speaker_id == o.speaker_id; }
+    };
+
+    // Applies `v` with codec_audio_lm_tts_set_voice unless it is already in
+    // use.  Throws on failure.
+    void applyVoice(const armed_voice &v);
+    // Prompt of segment `seg` (codec_audio_lm), decoded from position 0.
+    int beginSegment(llama_rn_context* main_ctx);
+    // Decodes the current segment and appends it, joined, to generated_pcm.
+    void finishSegment(llama_rn_context* main_ctx, bool last);
+
+    bool armed = false;
+    std::string armed_text;
+    armed_voice armed_v;
+    bool voice_applied = false;
+    armed_voice applied_v;
+
+    // The generation in progress.
+    bool generating = false;
+    bool no_guidance = false;       // the context has too few sequences for the model's guidance pair
+    std::vector<std::string> segments;
+    size_t seg = 0;
+    bool seg_open = false;          // the current segment has not been decoded yet
+    int32_t seg_frames = 0;
+    int32_t seg_max_frames = 0;
+    int32_t n_seq = 1;
+    int32_t n_embd = 0;
+    bool needs_hidden = false;
+    bool sample_next = false;
+    int32_t min_frames = 0;
+    llama_token stop_token = -1;
+    std::vector<llama_token> penalty_prompt;   // fed to the sampler before its first draw
+    std::unique_ptr<tts_guard_sampler> guard;
+    std::unique_ptr<::common_params_sampling> saved_sampling;
+    bool saved_embedding = false;
 };
 
 }

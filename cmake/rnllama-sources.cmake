@@ -40,6 +40,7 @@ set(RNLLAMA_INCLUDE_DIRS
     ${_vendor}/hash                             # sha256.c includes rotate-bits/ bare
     ${_codec}/include
     ${_codec}/common
+    ${_codec}/src                               # common/audio_lm_family*.cpp include "lm/lm_models.h"
 )
 
 # --- ggml ---------------------------------------------------------------------
@@ -114,10 +115,15 @@ file(GLOB RNLLAMA_CODEC_SOURCES CONFIGURE_DEPENDS
     ${_codec}/src/models/*.cpp
     ${_codec}/src/ops/*.cpp
     ${_codec}/src/runtime/*.cpp
-    # codec_common API only: tts_runner{,_flow}.cpp are codec.cpp's reference
-    # host loop (needs examples/utils and un-prefixed common_* symbols);
-    # rn-tts drives its own AR loop via codec_lm_*.
+    # codec_audio_lm (include/codec_audio_lm.h) and the families behind it,
+    # as codec.cpp's codec_audio_lm_objs.  tts_runner*.cpp / tts_c.cpp are
+    # codec.cpp's own host over its bundled llama.cpp; rn-tts is llama.rn's.
     ${_codec}/common/audio_lm.cpp
+    ${_codec}/common/audio_lm_c.cpp
+    ${_codec}/common/audio_lm_family*.cpp
+    ${_codec}/common/audio_lm_sampler.cpp
+    ${_codec}/common/tts_segment.cpp
+    ${_codec}/common/kitten_text.cpp
 )
 # WAV/NPY helpers for the host test probes (include dir: ${RNLLAMA_CODEC_CPP_DIR}/examples)
 file(GLOB RNLLAMA_CODEC_UTILS_SOURCES CONFIGURE_DEPENDS ${_codec}/examples/utils/*.cpp)

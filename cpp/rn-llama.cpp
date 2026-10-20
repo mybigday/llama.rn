@@ -912,9 +912,16 @@ void llama_rn_context::setMediaHashes(const std::vector<std::string> &hashes) {
 
 bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size, bool use_gpu,
                                    const std::vector<std::string> &kv_overrides) {
+    (void) batch_size;   // codec.cpp sizes its own decode
     try {
-        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, batch_size, use_gpu, kv_overrides,
+        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, params.model.path, use_gpu, kv_overrides,
                                                params.cpuparams.n_threads);
+        const std::string why = tts_wrapper->checkBackbone(this);
+        if (!why.empty()) {
+            delete tts_wrapper;
+            tts_wrapper = nullptr;
+            throw std::runtime_error(why);
+        }
         has_vocoder = true;
         return true;
     } catch (const std::exception& e) {

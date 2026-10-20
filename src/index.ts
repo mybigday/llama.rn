@@ -1216,15 +1216,18 @@ export class LlamaContext {
   }
 
   /**
-   * Build a formatted prompt for the loaded TTS model.
+   * Arm a text-to-speech request; the next `completion()` runs it.
    *
-   * Breaking change: takes an options object — the previous `(speaker, text)`
-   * positional signature has been removed.
+   * codec.cpp builds the model's prompt and sampling, so that completion
+   * ignores the prompt, grammar and sampling params it is given; `n_predict`
+   * caps the audio frames and `seed` seeds the sampling. Its
+   * `result.audio_tokens` has one entry per audio frame; `decodeAudioTokens`
+   * then returns the audio.
    *
    * - `prompt` — text to speak. Phonemized if `phonemizer` is supplied.
-   * - `speaker` — built-in voice name (string), a structured speaker object
-   *   (shape depends on the model family — see `OuteTTSSpeaker` /
-   *   `NeuTTSSpeaker`), or `undefined` to fall back to the family default.
+   * - `speaker` — a builtin voice name of the codec (`builtinVoices`), a
+   *   `LlamaSpeaker`, or `undefined` for the model's default voice.
+   *   Structured speaker objects are not used.
    * - `phonemizer` — optional `(text, language) => string | Promise<string>`.
    *   When set, `prompt` and `speaker.ref_text` (if missing `ref_phones`) go
    *   through it. Models that need phonemes (NeuTTS) get off-distribution
@@ -1340,6 +1343,10 @@ export class LlamaContext {
     return llamaGetFormattedAudioCompletion(this.id, payload, inputText)
   }
 
+  /**
+   * Audio (PCM at `getAudioSampleRate()`) of the last text-to-speech
+   * completion. `tokens` is that completion's `audio_tokens`.
+   */
   async decodeAudioTokens(
     tokens: number[] | Int32Array,
   ): Promise<Array<number>> {
@@ -1354,24 +1361,14 @@ export class LlamaContext {
   }
 
   /**
-   * DEPRECATED: source-compat wrapper for codec_lm-AR TTS.
+   * DEPRECATED: arms `prompt` with the default voice (or `speakerId` of the
+   * completion params) and runs it like `completion()`. `codes` has one entry
+   * per audio frame; `maxFrames` caps them. The sampling options are not used
+   * (the model's own apply). Use `getFormattedAudioCompletion` +
+   * `completion()` + `decodeAudioTokens`.
    *
-   * As of the "one completion API" refactor, codec_lm-AR models (CSM /
-   * Qwen3-TTS / MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox) run through
-   * the standard `completion` loop with `flow = 'tokens'` and
-   * `embedding = true`.  The per-step codec_lm state machine that used
-   * to live inside this call is now a hook on the completion loop
-   * (`tryCodecLmAudioStep`); the codes get appended to
-   * `result.audio_tokens` the same way OuteTTS / Soprano / NeuTTS do.
-   *
-   * This method still works — internally it just primes params +
-   * speaker prefix, runs `completion`, and drains `audio_tokens` — but
-   * new callers should skip it and use `completion()` +
-   * `decodeAudioTokens` directly.
-   *
-   * `onFrame` (optional) fires after each AR step with that frame's
-   * codes for streaming UIs. It is fire-and-forget — its return value
-   * isn't read.
+   * `onFrame` (optional) fires per audio frame. It is fire-and-forget — its
+   * return value isn't read.
    */
   async generateAudioCodes(options: {
     prompt: string
@@ -1449,6 +1446,7 @@ export class LlamaContext {
     return await llamaListSpeakers(this.id, path)
   }
 
+  /** Same as `decodeAudioTokens`: the audio of the last text-to-speech completion. */
   async decodeAudioEmbeddings(
     embeddings: number[] | Float32Array,
     embeddingDim: number,

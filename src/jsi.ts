@@ -136,17 +136,9 @@ declare global {
     prompt: string
     grammar?: string
     embedding: boolean
-    // 'tokens'           — feed `prompt` through `completion()` and collect audio tokens.
-    //                      Covers the codec_lm-AR family too (CSM / Qwen3-TTS /
-    //                      MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox): the
-    //                      native completion loop drives the codec_lm step
-    //                      machine per `llama_decode` and appends codes to the
-    //                      standard audio-token buffer (`result.audio_tokens`).
-    // 'continuous_embd'  — feed `prompt` through `completion()`; the loop drives the
-    //                      codec_lm's continuous-latent step machine per
-    //                      `llama_decode` (BlueMagpie-TTS / VoxCPM).  Collect
-    //                      `embeddings` + `embedding_dim` from the completion
-    //                      result and pass them to `decodeAudioEmbeddings`.
+    // Always 'tokens': the next `completion()` runs the request and returns
+    // one `audio_tokens` entry per audio frame; `decodeAudioTokens` returns
+    // the audio.  'continuous_embd' is no longer produced.
     flow: 'tokens' | 'continuous_embd' | ''
   }>
   var llamaGetTTSCapabilities: (contextId: number) => Promise<TTSCapabilities>
