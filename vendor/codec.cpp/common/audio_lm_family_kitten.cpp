@@ -211,14 +211,12 @@ public:
         return true;
     }
 
-    bool decode(audio_lm_audio_output * out) override {
+    bool generation(alm_generation * out) override {
         if (codes_.empty()) return fail("the model produced no audio tokens");
         // S3Gen drops its last tokens as lookahead: pad with silence (vocoder.py).
         std::vector<int32_t> codes = codes_;
         codes.insert(codes.end(), (size_t) cfg_run_.n_trailing_silence, cfg_run_.silence);
-        audio_lm_reset(alm_);
-        if (!audio_lm_push_codes(alm_, codes.data(), (int32_t) codes.size(), 1)) return fail_alm("push codes");
-        return audio_lm_decode_audio(alm_, out) || fail_alm("decode");
+        return generation_from_codes(codes, out);
     }
 
 private:

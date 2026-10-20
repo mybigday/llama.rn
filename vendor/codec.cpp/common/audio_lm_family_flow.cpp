@@ -159,15 +159,13 @@ public:
     const float * next_embd(int32_t) const override { return next_.data(); }
     int32_t decodable_frames() const override { return n_frames_; }
 
-    bool decode(audio_lm_audio_output * out) override {
-        const int32_t ldim = fi_->ldim, n = n_frames_;
-        if (n == 0) return fail("no frames generated");
-        // Frame-major [t * ldim + d] -> the codec's channel-major [d * n + t].
-        std::vector<float> cm((size_t) ldim * n);
-        for (int32_t t = 0; t < n; ++t) {
-            for (int32_t d = 0; d < ldim; ++d) cm[(size_t) d * n + t] = latents_[(size_t) t * ldim + d];
-        }
-        return audio_lm_decode_latents(alm_, cm.data(), n, ldim, out) || fail_alm("decode");
+    bool generation(alm_generation * out) override {
+        if (n_frames_ == 0) return fail("no frames generated");
+        out->latent   = true;
+        out->n_frames = n_frames_;
+        out->width    = fi_->ldim;
+        out->latents.assign(latents_.begin(), latents_.begin() + (size_t) n_frames_ * fi_->ldim);
+        return true;
     }
 
 private:

@@ -71,10 +71,19 @@ public:
         return true;
     }
 
-    bool decode(audio_lm_audio_output * out) override {
+    bool generation(alm_generation * out) override {
         const int32_t n = n_embd_ > 0 ? (int32_t) (hiddens_.size() / (size_t) n_embd_) : 0;
         if (n < 2) return fail("Soprano: the model produced no speech");
-        return audio_lm_decode_latents(alm_, hiddens_.data(), n, n_embd_, out) || fail_alm("decode");
+        out->latent   = true;
+        out->n_frames = n;
+        out->width    = n_embd_;
+        out->latents  = hiddens_;
+        return true;
+    }
+    // The Soprano decoder takes the backbone hiddens frame-major as they are.
+    bool decode_generation(const alm_generation & g, audio_lm_audio_output * out) override {
+        if (!g.latent || g.n_frames < 2 || g.width != n_embd_) return fail("not a Soprano generation");
+        return audio_lm_decode_latents(alm_, g.latents.data(), g.n_frames, g.width, out) || fail_alm("decode");
     }
 
 private:

@@ -174,8 +174,29 @@ const float * alm_family::next_embd(int32_t) const { return nullptr; }
 
 bool alm_family::generate_self_contained() { return fail("this model needs a backbone"); }
 
-bool alm_family::decode(audio_lm_audio_output * out) {
-    return audio_lm_decode_audio(alm_, out) || fail_alm("decode");
+bool alm_family::generation(alm_generation * out) {
+    out->latent = audio_lm_is_continuous(alm_);
+    return audio_lm_generation_input(alm_, &out->codes, &out->latents, &out->n_frames, &out->width) ||
+           fail_alm("decode");
+}
+
+bool alm_family::decode_generation(const alm_generation & g, audio_lm_audio_output * out) {
+    if (g.n_frames <= 0 || g.width <= 0) return fail("empty generation");
+    const bool ok = g.latent
+        ? audio_lm_decode_latents_frame_major(alm_, g.latents.data(), g.n_frames, g.width, out)
+        : audio_lm_decode_codec_codes(alm_, g.codes.data(), g.n_frames, g.width, out);
+    return ok || fail_alm("decode");
+}
+
+// Codes of a family that keeps its own (single-codebook) token list.
+bool alm_family::generation_from_codes(const std::vector<int32_t> & codes, alm_generation * out) {
+    out->latent = false;
+    if (codes.empty()) return fail("no speech codes generated");
+    if (!audio_lm_codec_codes(alm_, codes.data(), (int32_t) codes.size(), 1, 0, -1, &out->codes, &out->width)) {
+        return fail_alm("decode");
+    }
+    out->n_frames = (int32_t) (out->codes.size() / (size_t) out->width);
+    return true;
 }
 
 // ── detection ────────────────────────────────────────────────────────
@@ -204,8 +225,10 @@ static std::unique_ptr<alm_family> make_family(audio_lm_context * alm, std::stri
             if (pi.is_continuous)         return alm_family_continuous(alm);
             if (pi.streaming_interleave)  return alm_family_realtime(alm);
             if (pi.sequential_text_audio) return alm_family_lfm2(alm);
-            if (pi.host_arch == "llama" && pi.model_kind == audio_lm_prompt_info::KIND_RESIDUAL_DEPTH_AR &&
-                pi.eos_code_c0 < 0 && !pi.cb0_from_backbone) {
+            // Moshi's codebook 0 is its text stream; CSM's is audio.
+            const char * c0mod = audio_lm_meta_str(alm, "codec.lm.residual.c0_input_modality");
+            if (pi.model_kind == audio_lm_prompt_info::KIND_RESIDUAL_DEPTH_AR && c0mod &&
+                std::strcmp(c0mod, "text") == 0) {
                 if (err) *err = "Moshi (full-duplex dialogue, no audio end) is not a one-shot TTS model";
                 return nullptr;
             }

@@ -149,14 +149,11 @@ public:
 
     const float * next_embd(int32_t) const override { return next_.data(); }   // the same row on every sequence
 
-    bool decode(audio_lm_audio_output * out) override {
+    bool generation(alm_generation * out) override {
         std::vector<int32_t> codes = codes_;
         // Turbo appends S3GEN_SIL x 3 before S3Gen (tts_turbo.py::generate).
         if (ci_->silence_token >= 0) codes.insert(codes.end(), (size_t) ci_->n_trailing_silence, ci_->silence_token);
-        if (codes.empty()) return fail("no speech codes generated");
-        audio_lm_reset(alm_);
-        if (!audio_lm_push_codes(alm_, codes.data(), (int32_t) codes.size(), 1)) return fail_alm("push codes");
-        return audio_lm_decode_audio(alm_, out) || fail_alm("decode");
+        return generation_from_codes(codes, out);
     }
 
 private:

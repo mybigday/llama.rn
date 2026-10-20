@@ -130,6 +130,7 @@ struct codec_audio_lm {
 
     std::vector<audio_lm_speaker_entry> voices;
     std::vector<std::string>            segments;
+    alm_generation                      exported;   // codec_audio_lm_get_generation
 
     ~codec_audio_lm() {
         family.reset();
@@ -370,6 +371,40 @@ bool codec_audio_lm_decode(struct codec_audio_lm * ctx, struct codec_pcm_buffer 
     if (ctx == nullptr || out == nullptr) return false;
     audio_lm_audio_output pcm;
     if (!ctx->family->decode(&pcm)) return ctx->fail_family();
+    return fill_pcm(pcm.pcm.data(), pcm.pcm.size(), pcm.sample_rate, pcm.n_channels, out) || ctx->fail("out of memory");
+}
+
+bool codec_audio_lm_get_generation(struct codec_audio_lm * ctx, struct codec_audio_lm_generation * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    alm_generation g;
+    if (!ctx->family->generation(&g)) return ctx->fail_family();
+    ctx->exported = std::move(g);
+    const alm_generation & e = ctx->exported;
+    *out = {};
+    out->kind     = e.latent ? CODEC_AUDIO_LM_DATA_LATENTS : CODEC_AUDIO_LM_DATA_CODES;
+    out->n_frames = e.n_frames;
+    out->width    = e.width;
+    out->codes    = e.latent ? nullptr : e.codes.data();
+    out->latents  = e.latent ? e.latents.data() : nullptr;
+    return true;
+}
+
+bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct codec_audio_lm_generation * gen,
+                                      struct codec_pcm_buffer * out) {
+    if (ctx == nullptr || gen == nullptr || out == nullptr) return false;
+    const bool latent = gen->kind == CODEC_AUDIO_LM_DATA_LATENTS;
+    if (gen->n_frames <= 0 || gen->width <= 0 || (latent ? gen->latents == nullptr : gen->codes == nullptr)) {
+        return ctx->fail("codec_audio_lm_decode_generation: empty generation");
+    }
+    alm_generation g;
+    g.latent   = latent;
+    g.n_frames = gen->n_frames;
+    g.width    = gen->width;
+    const size_t n = (size_t) gen->n_frames * (size_t) gen->width;
+    if (latent) g.latents.assign(gen->latents, gen->latents + n);
+    else        g.codes.assign(gen->codes, gen->codes + n);
+    audio_lm_audio_output pcm;
+    if (!ctx->family->decode_generation(g, &pcm)) return ctx->fail_family();
     return fill_pcm(pcm.pcm.data(), pcm.pcm.size(), pcm.sample_rate, pcm.n_channels, out) || ctx->fail("out of memory");
 }
 

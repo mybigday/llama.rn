@@ -260,7 +260,7 @@ public:
 
     const float * next_embd(int32_t) const override { return next_.data(); }
 
-    bool decode(audio_lm_audio_output * out) override {
+    bool generation(alm_generation * out) override {
         // v3 llm_job: after more than max_silent_run consecutive silent/breath
         // tokens, further ones are dropped from the flow input (they were fed back).
         std::vector<int32_t> codes;
@@ -274,10 +274,7 @@ public:
         }
         codec_log(CODEC_LOG_LEVEL_INFO, "cosyvoice AR done: %zu tokens (%zu to the flow), stop=%s\n", decoded_.size(), codes.size(),
                   stop_reason_.c_str());
-        if (codes.empty()) return fail("no speech codes generated");
-        audio_lm_reset(alm_);
-        if (!audio_lm_push_codes(alm_, codes.data(), (int32_t) codes.size(), 1)) return fail_alm("push codes");
-        return audio_lm_decode_audio(alm_, out) || fail_alm("decode");
+        return generation_from_codes(codes, out);
     }
 
 private:

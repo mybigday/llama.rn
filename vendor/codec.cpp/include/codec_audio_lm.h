@@ -328,6 +328,30 @@ bool codec_audio_lm_generate_self_contained(struct codec_audio_lm * ctx);
 // Audio of the prompt's generation.  Free with codec_pcm_buffer_free.
 bool codec_audio_lm_decode(struct codec_audio_lm * ctx, struct codec_pcm_buffer * out);
 
+// A generation's decoder input, to keep and decode later (out of order, more
+// than once).  Self-contained: decoding needs nothing of the generation but
+// this and the decoder speaker.  Frame-major [n_frames x width].
+enum codec_audio_lm_data_kind {
+    CODEC_AUDIO_LM_DATA_CODES   = 0,   // codec quantizer codes; width = codebooks per frame
+    CODEC_AUDIO_LM_DATA_LATENTS = 1,   // continuous latents; width = latent dim
+};
+struct codec_audio_lm_generation {
+    enum codec_audio_lm_data_kind kind;
+    int32_t         n_frames;
+    int32_t         width;
+    const int32_t * codes;     // CODES, else NULL
+    const float   * latents;   // LATENTS, else NULL
+};
+// The current generation's decoder input: what codec_audio_lm_decode decodes.
+// The arrays belong to ctx and stay valid until the next call of this function
+// or codec_audio_lm_free; copy them to keep the generation.
+bool codec_audio_lm_get_generation(struct codec_audio_lm * ctx, struct codec_audio_lm_generation * out);
+// Decode a generation of this model (from get_generation, possibly of an
+// earlier prompt) with the current decoder speaker.  The in-progress
+// generation is left untouched.  Free `out` with codec_pcm_buffer_free.
+bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct codec_audio_lm_generation * gen,
+                                      struct codec_pcm_buffer * out);
+
 // Streaming.  Call codec_audio_lm_stream_poll after every observe whose
 // verdict has is_audio; it returns (in `out`, possibly empty) the audio that
 // became final since the last call, at most every `chunk_ms` of new audio.

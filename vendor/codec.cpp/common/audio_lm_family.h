@@ -85,6 +85,16 @@ struct alm_tts_request {
     void apply(codec_audio_lm_sampler & sp) const;
 };
 
+// A generation's decoder input (codec_audio_lm_generation): codec quantizer
+// codes or frame-major latents, [n_frames, width].
+struct alm_generation {
+    bool                 latent   = false;
+    int32_t              n_frames = 0;
+    int32_t              width    = 0;
+    std::vector<int32_t> codes;
+    std::vector<float>   latents;
+};
+
 struct alm_tts_voice {
     std::string        voice;
     std::string        speaker_file;
@@ -139,14 +149,24 @@ public:
     // Set by observe() on STOP; "max_frames" until then.
     const std::string & stop_reason() const { return stop_reason_; }
     virtual bool generate_self_contained();
-    // Default: audio_lm_decode_audio over the accumulated codes / latents.
-    virtual bool decode(audio_lm_audio_output * out);
+    // The decoder input of the current generation.  Default: the codes /
+    // latents accumulated in the audio_lm context, mapped to codec input.
+    virtual bool generation(alm_generation * out);
+    // Decode a generation (this one or an earlier one) with the decoder
+    // speaker, without touching the current one.  Default: codec_decode of
+    // the codes, or the codec's latent decode of the frame-major latents.
+    virtual bool decode_generation(const alm_generation & g, audio_lm_audio_output * out);
+    bool decode(audio_lm_audio_output * out) {
+        alm_generation g;
+        return generation(&g) && decode_generation(g, out);
+    }
 
     const std::string & error() const { return error_; }
 
 protected:
     bool fail(const std::string & e) { error_ = e; return false; }
     bool fail_alm(const char * what);   // e + audio_lm_last_error
+    bool generation_from_codes(const std::vector<int32_t> & codes, alm_generation * out);
 
     audio_lm_context * alm_;
     std::string        error_;

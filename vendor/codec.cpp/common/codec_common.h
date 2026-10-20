@@ -477,6 +477,23 @@ int32_t audio_lm_codec_latent_dim(const audio_lm_context * ctx);
 // that have no codec_lm adaptor.
 bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
                              int32_t n_frames, int32_t dim, audio_lm_audio_output * out);
+// Same for frame-major [n_frames, dim] latents (the continuous / flow layout).
+bool audio_lm_decode_latents_frame_major(audio_lm_context * ctx, const float * latents,
+                                         int32_t n_frames, int32_t dim, audio_lm_audio_output * out);
+
+// The codec input decode_audio builds, apart from the decoding: frames
+// [frame_begin, frame_end) (-1 = all) of frame-major LM codes [n_frames_in, n_cb_in]
+// mapped to codec quantizer codes [n_frames, *out_n_q] (control codebooks
+// dropped, delay pattern undone, merged cb0 shifted).
+bool audio_lm_codec_codes(audio_lm_context * ctx, const int32_t * lm_codes, int32_t n_frames_in, int32_t n_cb_in,
+                          int32_t frame_begin, int32_t frame_end, std::vector<int32_t> * out, int32_t * out_n_q);
+// codec_decode of quantizer codes with the decoder speaker.
+bool audio_lm_decode_codec_codes(audio_lm_context * ctx, const int32_t * codes, int32_t n_frames, int32_t n_q,
+                                 audio_lm_audio_output * out);
+// The accumulated generation as codec input: quantizer codes (codes, width = n_q)
+// or, for continuous models, frame-major latents (latents, width = dim).
+bool audio_lm_generation_input(audio_lm_context * ctx, std::vector<int32_t> * codes, std::vector<float> * latents,
+                               int32_t * n_frames, int32_t * width);
 
 // Encode mono F32 PCM (any rate; resampled linearly to the codec's) to its continuous
 // latent, channel-major [dim, n_frames] (latent[d*n_frames + t]) — the input

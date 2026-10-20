@@ -1870,54 +1870,44 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
     return audio_lm_decode_audio_range(ctx, 0, -1, out);
 }
 
-bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, int32_t frame_end,
-                                 audio_lm_audio_output * out) {
-    if (ctx == nullptr || out == nullptr) return false;
+static void audio_lm_take_pcm(codec_pcm_buffer * pcm, audio_lm_audio_output * out) {
+    out->pcm.assign(pcm->data, pcm->data + (size_t) pcm->n_samples * (size_t) pcm->n_channels);
+    out->sample_rate = pcm->sample_rate;
+    out->n_channels  = pcm->n_channels;
+    codec_pcm_buffer_free(pcm);
+}
 
-    // Continuous-latent models: decode the accumulated latent patches.
-    if (ctx->is_continuous) {
-        if (ctx->latent_n_frames <= 0) {
-            ctx->last_error = "audio_lm_decode_audio: no latents accumulated";
-            return false;
-        }
-        if (frame_end < 0) frame_end = ctx->latent_n_frames;
-        if (frame_begin < 0 || frame_begin >= frame_end || frame_end > ctx->latent_n_frames) {
-            ctx->last_error = "audio_lm_decode_audio: frame range out of bounds";
-            return false;
-        }
-        const int32_t D = ctx->latent_dim, T = frame_end - frame_begin;
-        // Transpose frame-major [T, D] → channel-major [D, T] for decode.
-        std::vector<float> chan((size_t) D * T);
-        for (int32_t t = 0; t < T; ++t)
-            for (int32_t d = 0; d < D; ++d)
-                chan[(size_t) d * T + t] = ctx->latents[(size_t) (frame_begin + t) * D + d];
-        codec_pcm_buffer pcm = {};
-        auto dp = codec_decode_default_params();
-        const enum codec_status rc = codec_decode_quantized_representation(
-            ctx->codec_ctx, chan.data(), D, T, &pcm, dp);
-        if (rc != CODEC_STATUS_SUCCESS) {
-            const char * raw = codec_get_last_error(ctx->codec_ctx);
-            ctx->last_error = std::string("audio_lm_decode_audio: decode_latents failed (")
-                               + (raw ? raw : "?") + ")";
-            return false;
-        }
-        out->pcm.assign(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) pcm.n_channels);
-        out->sample_rate = pcm.sample_rate;
-        out->n_channels  = pcm.n_channels;
-        codec_pcm_buffer_free(&pcm);
-        return true;
+bool audio_lm_decode_latents_frame_major(audio_lm_context * ctx, const float * latents,
+                                         int32_t n_frames, int32_t dim, audio_lm_audio_output * out) {
+    if (ctx == nullptr || latents == nullptr || out == nullptr) return false;
+    if (n_frames <= 0 || dim <= 0) {
+        ctx->last_error = "audio_lm_decode_audio: no latents";
+        return false;
     }
+    // Transpose frame-major [T, D] → channel-major [D, T] for decode.
+    std::vector<float> chan((size_t) dim * n_frames);
+    for (int32_t t = 0; t < n_frames; ++t)
+        for (int32_t d = 0; d < dim; ++d)
+            chan[(size_t) d * n_frames + t] = latents[(size_t) t * dim + d];
+    codec_pcm_buffer pcm = {};
+    auto dp = codec_decode_default_params();
+    const enum codec_status rc = codec_decode_quantized_representation(
+        ctx->codec_ctx, chan.data(), dim, n_frames, &pcm, dp);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_get_last_error(ctx->codec_ctx);
+        ctx->last_error = std::string("audio_lm_decode_audio: decode_latents failed (")
+                           + (raw ? raw : "?") + ")";
+        return false;
+    }
+    audio_lm_take_pcm(&pcm, out);
+    return true;
+}
 
-    if (ctx->codes_n_frames <= 0 || ctx->n_cb <= 0) {
+bool audio_lm_codec_codes(audio_lm_context * ctx, const int32_t * lm_codes, int32_t n_frames_in, int32_t n_cb_in,
+                          int32_t frame_begin, int32_t frame_end, std::vector<int32_t> * out, int32_t * out_n_q) {
+    if (ctx == nullptr || out == nullptr || out_n_q == nullptr) return false;
+    if (lm_codes == nullptr || n_frames_in <= 0 || n_cb_in <= 0) {
         ctx->last_error = "audio_lm_decode_audio: no codes accumulated";
-        return false;
-    }
-    if (!(ctx->modality_mask & OUTPUT_AUDIO)) {
-        ctx->last_error = "audio_lm_decode_audio: model has no OUTPUT_AUDIO modality";
-        return false;
-    }
-    if (!codec_model_has_decoder(ctx->model)) {
-        ctx->last_error = "audio_lm_decode_audio: codec has no decoder";
         return false;
     }
 
@@ -1931,7 +1921,6 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
     //   * decode the remaining n_q = n_cb - offset codebooks (RVQ decodes
     //     with fewer levels than the codec's native n_q — Realtime's codec
     //     has 32 levels but the LM only predicts the first 16/15).
-    const int32_t n_cb_in = ctx->n_cb;
     const int32_t offset  = ctx->audio_cb_offset;
     const int32_t n_q     = n_cb_in - offset;
     if (n_q <= 0) {
@@ -1951,7 +1940,6 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
         }
     }
 
-    const int32_t n_frames_in = ctx->codes_n_frames;
     if (max_delay > 0 && n_frames_in <= max_delay) {
         ctx->last_error = "audio_lm_decode_audio: too few frames to cover delay_pattern";
         return false;
@@ -1965,14 +1953,13 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
     const int32_t n_frames_out = frame_end - frame_begin;
 
     const int32_t codebook_sz = codec_model_codebook_size(ctx->model);
-    std::vector<int32_t> decode_codes;
-    const int32_t * codes_ptr = ctx->codes.data() + (size_t) frame_begin * n_cb_in;
-    if (offset > 0 || max_delay > 0 || ctx->cb0_speech_offset != 0) {
-        decode_codes.resize((size_t) n_frames_out * (size_t) n_q);
-        for (int32_t t = 0; t < n_frames_out; ++t) {
-            for (int32_t q = 0; q < n_q; ++q) {
-                const int32_t src_t = frame_begin + t + audio_delays[(size_t) q];
-                int32_t code = ctx->codes[(size_t) src_t * n_cb_in + (offset + q)];
+    const bool transform = offset > 0 || max_delay > 0 || ctx->cb0_speech_offset != 0;
+    out->resize((size_t) n_frames_out * (size_t) n_q);
+    for (int32_t t = 0; t < n_frames_out; ++t) {
+        for (int32_t q = 0; q < n_q; ++q) {
+            const int32_t src_t = frame_begin + t + audio_delays[(size_t) q];
+            int32_t code = lm_codes[(size_t) src_t * n_cb_in + (offset + q)];
+            if (transform) {
                 // Merged text+speech cb0 (MOSS-TTSD): map back to raw
                 // quantizer index space.  Only the first *audio* codebook
                 // (q==0 after any pure-control slice) carries the offset.
@@ -1987,16 +1974,34 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
                     if (code < 0)            code = 0;
                     if (code >= codebook_sz) code = codebook_sz - 1;
                 }
-                decode_codes[(size_t) t * n_q + q] = code;
             }
+            (*out)[(size_t) t * n_q + q] = code;
         }
-        codes_ptr = decode_codes.data();
+    }
+    *out_n_q = n_q;
+    return true;
+}
+
+bool audio_lm_decode_codec_codes(audio_lm_context * ctx, const int32_t * codes, int32_t n_frames, int32_t n_q,
+                                 audio_lm_audio_output * out) {
+    if (ctx == nullptr || codes == nullptr || out == nullptr) return false;
+    if (n_frames <= 0 || n_q <= 0) {
+        ctx->last_error = "audio_lm_decode_audio: no codes";
+        return false;
+    }
+    if (!(ctx->modality_mask & OUTPUT_AUDIO)) {
+        ctx->last_error = "audio_lm_decode_audio: model has no OUTPUT_AUDIO modality";
+        return false;
+    }
+    if (!codec_model_has_decoder(ctx->model)) {
+        ctx->last_error = "audio_lm_decode_audio: codec has no decoder";
+        return false;
     }
 
     codec_token_buffer tokens = {};
-    tokens.data         = const_cast<int32_t *>(codes_ptr);
-    tokens.n_tokens     = n_frames_out * n_q;
-    tokens.n_frames     = n_frames_out;
+    tokens.data         = const_cast<int32_t *>(codes);
+    tokens.n_tokens     = n_frames * n_q;
+    tokens.n_frames     = n_frames;
     tokens.n_q          = n_q;
     tokens.codebook_size = codec_model_codebook_size(ctx->model);
     tokens.sample_rate   = codec_model_sample_rate(ctx->model);
@@ -2014,12 +2019,64 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
                            + (raw ? raw : "?") + ")";
         return false;
     }
-
-    out->pcm.assign(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) pcm.n_channels);
-    out->sample_rate = pcm.sample_rate;
-    out->n_channels  = pcm.n_channels;
-    codec_pcm_buffer_free(&pcm);
+    audio_lm_take_pcm(&pcm, out);
     return true;
+}
+
+bool audio_lm_generation_input(audio_lm_context * ctx, std::vector<int32_t> * codes, std::vector<float> * latents,
+                               int32_t * n_frames, int32_t * width) {
+    if (ctx == nullptr || codes == nullptr || latents == nullptr || n_frames == nullptr || width == nullptr) return false;
+    codes->clear();
+    latents->clear();
+    if (ctx->is_continuous) {
+        if (ctx->latent_n_frames <= 0) {
+            ctx->last_error = "audio_lm_decode_audio: no latents accumulated";
+            return false;
+        }
+        latents->assign(ctx->latents.begin(), ctx->latents.begin() + (size_t) ctx->latent_n_frames * ctx->latent_dim);
+        *n_frames = ctx->latent_n_frames;
+        *width    = ctx->latent_dim;
+        return true;
+    }
+    if (!audio_lm_codec_codes(ctx, ctx->codes.data(), ctx->codes_n_frames, ctx->n_cb, 0, -1, codes, width)) return false;
+    *n_frames = (int32_t) (codes->size() / (size_t) *width);
+    return true;
+}
+
+bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, int32_t frame_end,
+                                 audio_lm_audio_output * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+
+    // Continuous-latent models: decode the accumulated latent patches.
+    if (ctx->is_continuous) {
+        if (ctx->latent_n_frames <= 0) {
+            ctx->last_error = "audio_lm_decode_audio: no latents accumulated";
+            return false;
+        }
+        if (frame_end < 0) frame_end = ctx->latent_n_frames;
+        if (frame_begin < 0 || frame_begin >= frame_end || frame_end > ctx->latent_n_frames) {
+            ctx->last_error = "audio_lm_decode_audio: frame range out of bounds";
+            return false;
+        }
+        return audio_lm_decode_latents_frame_major(ctx, ctx->latents.data() + (size_t) frame_begin * ctx->latent_dim,
+                                                   frame_end - frame_begin, ctx->latent_dim, out);
+    }
+
+    if (ctx->codes_n_frames <= 0 || ctx->n_cb <= 0) {
+        ctx->last_error = "audio_lm_decode_audio: no codes accumulated";
+        return false;
+    }
+    if (!(ctx->modality_mask & OUTPUT_AUDIO)) {
+        ctx->last_error = "audio_lm_decode_audio: model has no OUTPUT_AUDIO modality";
+        return false;
+    }
+    std::vector<int32_t> codes;
+    int32_t n_q = 0;
+    if (!audio_lm_codec_codes(ctx, ctx->codes.data(), ctx->codes_n_frames, ctx->n_cb, frame_begin, frame_end,
+                              &codes, &n_q)) {
+        return false;
+    }
+    return audio_lm_decode_codec_codes(ctx, codes.data(), (int32_t) (codes.size() / (size_t) n_q), n_q, out);
 }
 
 // ─── Decoder speaker ────────────────────────────────────────────────
