@@ -1238,6 +1238,8 @@ const struct codec_model_vtable * codec_wavtokenizer_vtable() {
         codec_wavtokenizer_encode_wrap,
         codec_wavtokenizer_decode_wrap,
         nullptr,
+        codec_speaker_validate_token_prompt,
+        nullptr,
     };
     return &vtable;
 }

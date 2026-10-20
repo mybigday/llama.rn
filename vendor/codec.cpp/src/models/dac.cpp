@@ -1161,6 +1161,8 @@ const struct codec_model_vtable * codec_dac_vtable() {
         codec_dac_encode_wrap,
         codec_dac_decode_wrap,
         codec_dac_decode_latent_wrap,
+        codec_speaker_validate_token_prompt,
+        nullptr,
     };
     return &vtable;
 }

@@ -1,5 +1,6 @@
 #include "neucodec.h"
 
+#include "../ops/audio_frontend.h"
 #include "../ops/conv1d.h"
 #include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
@@ -743,6 +744,10 @@ static bool codec_neu_init_decode_build(
 struct neucodec_encode_build {
     int32_t n_in = 0;
     int32_t n_in_sem = 0;
+    // Raw input at `in_sample_rate` resampled in-graph to 16 kHz and padded
+    // like the host path (speaker_from_audio). 0 = n_in / n_in_sem are fed.
+    int32_t n_raw = 0;
+    int32_t in_sample_rate = 0;
     int32_t n_q = 1;
     int32_t codebook_dim = 8;
     int32_t codebook_size = 65536;
@@ -966,10 +971,24 @@ static bool codec_neu_build_encode(ggml_context * ctx_eval, void * user_data, gg
 
     auto W = [&](const std::string & name) { return codec_neu_W(ctx_eval, p->model, name); };
 
-    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_in, 1);
-    codec_neu_set_enc_name(t_pcm, "neucodec.encode.pcm");
-    ggml_tensor * t_sem = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_in_sem, 1);
-    codec_neu_set_enc_name(t_sem, "neucodec.encode.sem");
+    ggml_tensor * t_pcm = nullptr;
+    ggml_tensor * t_sem = nullptr;
+    if (p->n_raw > 0) {
+        ggml_tensor * raw = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, p->n_raw);
+        codec_neu_set_enc_name(raw, "neucodec.encode.raw");
+        ggml_set_input(raw);
+        ggml_tensor * x16 = codec_op_resample_sinc_hann(ctx_eval, raw, p->in_sample_rate, 16000);
+        if (x16 == nullptr) return false;
+        const int32_t n16 = (int32_t) x16->ne[0];
+        t_pcm = ggml_reshape_2d(ctx_eval, codec_op_pad_1d(ctx_eval, x16, 0, p->n_in - n16), p->n_in, 1);
+        t_sem = ggml_reshape_2d(ctx_eval, codec_op_pad_1d(ctx_eval, x16, 160, p->n_in_sem - 160 - n16),
+                                p->n_in_sem, 1);
+    } else {
+        t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_in, 1);
+        codec_neu_set_enc_name(t_pcm, "neucodec.encode.pcm");
+        t_sem = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_in_sem, 1);
+        codec_neu_set_enc_name(t_sem, "neucodec.encode.sem");
+    }
 
     // Distill acoustic encoder
     ggml_tensor * x = codec_neu_build_distill_first_block(ctx_eval, p->model, t_pcm);
@@ -1404,6 +1423,7 @@ enum codec_status codec_neucodec_init(struct codec_model * model) {
     model->sample_rate = neu.sample_rate;
     model->encode_sample_rate = neu.encode_sample_rate;
     model->has_encoder = neu.has_encoder;
+    model->can_speaker_from_audio = neu.has_encoder && neu.encoder_type == 1;
     model->has_decoder = neu.has_decoder;
     model->hop_size = neu.hop_size;
     model->n_q = neu.n_q;
@@ -1437,9 +1457,12 @@ enum codec_status codec_neucodec_decode(
     return codec_neu_decode_graph(ctx, tokens, use_n_q, out_pcm);
 }
 
+// `sample_rate` != 16 kHz resamples inside the graph (speaker_from_audio);
+// codec_encode always passes 16 kHz PCM.
 static enum codec_status codec_neu_encode_graph(
     codec_context * ctx,
     const std::vector<float> & pcm,
+    int32_t sample_rate,
     struct codec_token_buffer * out_tokens) {
 
     codec_neucodec & neu = *static_cast<codec_neucodec *>(ctx->model->impl);
@@ -1452,15 +1475,21 @@ static enum codec_status codec_neu_encode_graph(
         return CODEC_STATUS_NOT_SUPPORTED;
     }
 
-    const int32_t n_in = (int32_t) pcm.size();
+    const bool resample = sample_rate != 16000;
+    const int32_t n_in = resample ? (int32_t) codec_resample_out_len((int64_t) pcm.size(), sample_rate, 16000)
+                                  : (int32_t) pcm.size();
     const int32_t pad_for_wav = 320 - (n_in % 320);
     const int32_t n_in_pad = n_in + pad_for_wav;
     const int32_t n_in_sem = n_in_pad + 320;
 
-    std::vector<float> pcm_pad((size_t) n_in_pad, 0.0f);
-    std::memcpy(pcm_pad.data(), pcm.data(), pcm.size() * sizeof(float));
-    std::vector<float> sem_pad((size_t) n_in_sem, 0.0f);
-    std::memcpy(sem_pad.data() + 160, pcm_pad.data(), pcm_pad.size() * sizeof(float));
+    std::vector<float> pcm_pad;
+    std::vector<float> sem_pad;
+    if (!resample) {
+        pcm_pad.assign((size_t) n_in_pad, 0.0f);
+        std::memcpy(pcm_pad.data(), pcm.data(), pcm.size() * sizeof(float));
+        sem_pad.assign((size_t) n_in_sem, 0.0f);
+        std::memcpy(sem_pad.data() + 160, pcm_pad.data(), pcm_pad.size() * sizeof(float));
+    }
 
     codec_graph_eval_guard eval_guard(ctx);
     std::string err;
@@ -1471,11 +1500,17 @@ static enum codec_status codec_neu_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
     build.model = ctx->model;
+    if (resample) {
+        build.n_raw = (int32_t) pcm.size();
+        build.in_sample_rate = sample_rate;
+    }
 
+    // Resampling graphs key on the raw length and rate (n_frames = rate).
     codec_graph_cache_entry * entry = nullptr;
     if (!codec_graph_cache_get_or_build(
             ctx,
-            { CODEC_GRAPH_NEUCODEC_ENCODE, /*n_frames=*/0, /*n_q=*/build.n_q, /*hop=*/0, /*n_in=*/n_in_pad, /*latent_dim=*/0 },
+            { CODEC_GRAPH_NEUCODEC_ENCODE, /*n_frames=*/resample ? sample_rate : 0, /*n_q=*/build.n_q, /*hop=*/0,
+              /*n_in=*/resample ? build.n_raw : n_in_pad, /*latent_dim=*/0 },
             codec_neu_build_encode,
             &build,
             sizeof(build),
@@ -1485,11 +1520,12 @@ static enum codec_status codec_neu_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.pcm").c_str());
-    ggml_tensor * t_sem = codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.sem").c_str());
+    ggml_tensor * t_raw = resample ? codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.raw").c_str()) : nullptr;
+    ggml_tensor * t_pcm = resample ? nullptr : codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.pcm").c_str());
+    ggml_tensor * t_sem = resample ? nullptr : codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.sem").c_str());
     ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.out").c_str());
     ggml_tensor * t_basis = codec_graph_get_tensor(ctx, entry, codec_neu_encode_name("neucodec.encode.fsq.basis").c_str());
-    if (t_pcm == nullptr || t_sem == nullptr || t_out == nullptr || t_basis == nullptr) {
+    if ((resample ? t_raw == nullptr : (t_pcm == nullptr || t_sem == nullptr)) || t_out == nullptr || t_basis == nullptr) {
         codec_context_set_error(ctx, "cached NeuCodec encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -1499,8 +1535,9 @@ static enum codec_status codec_neu_encode_graph(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (!codec_runtime_write_tensor(t_pcm, pcm_pad.data(), pcm_pad.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_sem, sem_pad.data(), sem_pad.size() * sizeof(float), &err)) {
+    if (resample ? !codec_runtime_write_tensor(t_raw, pcm.data(), pcm.size() * sizeof(float), &err)
+                 : (!codec_runtime_write_tensor(t_pcm, pcm_pad.data(), pcm_pad.size() * sizeof(float), &err) ||
+                    !codec_runtime_write_tensor(t_sem, sem_pad.data(), sem_pad.size() * sizeof(float), &err))) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -1569,6 +1606,12 @@ static enum codec_status codec_neu_encode_graph(
     return CODEC_STATUS_SUCCESS;
 }
 
+static enum codec_status codec_neu_encode_at(
+    struct codec_context * ctx,
+    const std::vector<float> & pcm,
+    int32_t sample_rate,
+    struct codec_token_buffer * out_tokens);
+
 enum codec_status codec_neucodec_encode(
     struct codec_context * ctx,
     const std::vector<float> & pcm,
@@ -1587,7 +1630,16 @@ enum codec_status codec_neucodec_encode(
         codec_context_set_error(ctx, "NeuCodec encode n_q must be 0 or 1");
         return CODEC_STATUS_INVALID_ARG;
     }
+    return codec_neu_encode_at(ctx, pcm, 16000, out_tokens);
+}
 
+static enum codec_status codec_neu_encode_at(
+    struct codec_context * ctx,
+    const std::vector<float> & pcm,
+    int32_t sample_rate,
+    struct codec_token_buffer * out_tokens) {
+
+    codec_neucodec & neu = *static_cast<codec_neucodec *>(ctx->model->impl);
     if (neu.encoder_type == 1 && !neu.distill_bias_ready) {
         std::string err;
         const int32_t down_max_dist = 3000;
@@ -1615,7 +1667,26 @@ enum codec_status codec_neucodec_encode(
         neu.distill_bias_ready = true;
     }
 
-    return codec_neu_encode_graph(ctx, pcm, out_tokens);
+    return codec_neu_encode_graph(ctx, pcm, sample_rate, out_tokens);
+}
+
+// NeuTTS reference: `ref_codes` = the clip's codec tokens (NeuCodec
+// encode_code), resampled to 16 kHz inside the encode graph.
+static enum codec_status codec_neu_speaker_from_audio(
+    codec_context * ctx, const std::vector<float> & pcm, int32_t sample_rate, codec_speaker * out) {
+
+    codec_neucodec & neu = *static_cast<codec_neucodec *>(ctx->model->impl);
+    if (!neu.has_encoder || neu.encoder_type != 1) {
+        codec_context_set_error(ctx, "NeuCodec speaker_from_audio needs the distill encoder");
+        return CODEC_STATUS_NOT_SUPPORTED;
+    }
+    codec_token_buffer tb = {};
+    const enum codec_status st = codec_neu_encode_at(ctx, pcm, sample_rate, &tb);
+    if (st != CODEC_STATUS_SUCCESS) return st;
+    const int64_t ne[1] = { tb.n_frames };
+    codec_speaker_add_slot(out, "ref_codes", GGML_TYPE_I32, ne, 1, tb.data);
+    codec_token_buffer_free(&tb);
+    return CODEC_STATUS_SUCCESS;
 }
 
 static void * codec_neu_create_impl() {
@@ -1655,6 +1726,9 @@ const struct codec_model_vtable * codec_neucodec_vtable() {
         codec_graph_size_exact,
         codec_neu_encode_wrap,
         codec_neu_decode_wrap,
+        nullptr,
+        codec_speaker_validate_ref_codes,
+        codec_neu_speaker_from_audio,
     };
     return &vtable;
 }
@@ -1669,6 +1743,9 @@ const struct codec_model_vtable * codec_distill_neucodec_vtable() {
         codec_graph_size_exact,
         codec_neu_encode_wrap,
         codec_neu_decode_wrap,
+        nullptr,
+        codec_speaker_validate_ref_codes,
+        codec_neu_speaker_from_audio,
     };
     return &vtable;
 }

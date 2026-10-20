@@ -189,6 +189,13 @@ struct codec_model_vtable {
 // Loads `spk.<name>.<slot>` tensors + `<arch>.spk.*` metadata from the model
 // GGUF into model->speakers (after arch init, which may add legacy speakers).
 bool codec_model_load_speakers(codec_model * model, std::string * err);
+// Shared speaker_validate bodies for token codecs whose speakers condition
+// the TTS LM rather than the decoder:
+//  * token prompt (OuteTTS): `ref_text` + `audio_prompt` I32 [N], the
+//    backbone token ids of the reference's audio section;
+//  * reference codes (NeuTTS): `ref_codes` I32 [T] codec tokens (n_q = 1).
+bool codec_speaker_validate_token_prompt(const codec_model * model, const codec_speaker * spk, std::string * err);
+bool codec_speaker_validate_ref_codes(const codec_model * model, const codec_speaker * spk, std::string * err);
 // Appends a slot holding a copy of `data`.
 void codec_speaker_add_slot(
     codec_speaker * spk, const char * slot, enum ggml_type type,

@@ -63,49 +63,6 @@ struct tts_constraint {
 std::vector<llama_logit_bias> build_flat_audio_mask(int32_t offset, int32_t count,
                                                     int32_t eos_id, int32_t n_vocab);
 
-// ── OuteTTS V3 prompt builder ─────────────────────────────────────────────────
-//
-// Speaker profile: per-word text, acoustic features, and c1/c2 code frames.
-// Populated by load_outetts_speaker from a JSON file (outetts 0.4.4 schema).
-
-struct OutettsSpeakerWord {
-    std::string          word;                // raw word text
-    float                duration   = 0.0f;  // duration in seconds
-    std::vector<int32_t> c1;                  // DAC codebook-0 indices, 0..1023
-    std::vector<int32_t> c2;                  // DAC codebook-1 indices, 0..1023
-    int32_t energy             = 0;           // quantized 0..100
-    int32_t spectral_centroid  = 0;
-    int32_t pitch              = 0;
-};
-
-struct OutettsSpeaker {
-    std::string                      text;    // reference text for this speaker
-    std::vector<OutettsSpeakerWord>  words;
-};
-
-// Parse an OuteTTS V3 speaker JSON file (outetts 0.4.4 schema) into *out.
-// Returns true on success, false on parse failure (prints to stderr).
-bool load_outetts_speaker(const std::string & json_path, OutettsSpeaker * out);
-
-// Assemble the exact OuteTTS V3 prefill token sequence (outetts10-facts §Step 1):
-//
-//   <|im_start|>\n
-//   <|text_start|>SPEAKER_TEXT. TARGET_TEXT<|text_end|>\n
-//   <|audio_start|>\n
-//   <speaker word blocks>\n
-//   <|word_start|>
-//
-// Each speaker word block is one line:
-//   <|word_start|>WORD<|features|><|t_D.DD|><|energy_N|><|spectral_centroid_N|><|pitch_N|>
-//   <|code|><|c1_X|><|c2_X|>...<|word_end|>
-//
-// Code tokens are appended as raw llama_token ids (c1_base+code, c2_base+code).
-// Valid code range: 0..1023.  Returns empty on any error (null vocab, empty text,
-// out-of-range code).
-std::vector<llama_token> build_outetts_v3_prompt(const llama_vocab      * vocab,
-                                                 const std::string      & text,
-                                                 const OutettsSpeaker   & speaker);
-
 // ── NeuTTS detection ─────────────────────────────────────────────────────────
 //
 // Identifies a NeuTTS backbone from its vocab signature tokens.

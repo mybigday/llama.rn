@@ -60,10 +60,13 @@ static void codec_backend_set_n_threads(ggml_backend_t backend, int n_threads) {
 
 static ggml_backend_t codec_backend_init(bool use_gpu) {
     if (use_gpu) {
-        // Load any dynamically available backends and pick the best available device.
-        // This follows ggml's own backend selection logic and should work for any
-        // ggml-native accelerator backend compiled/available (CUDA/Vulkan/Metal/SYCL/OpenCL/etc.).
-        ggml_backend_load_all();
+        // Load dynamic backends only when none are registered yet (as llama.cpp does):
+        // a host that loaded its own (GGML_BACKEND_DL) keeps them, and load_all does not
+        // scan the exe dir / cwd for stray libggml-*.so. Static builds register theirs up front.
+        // Then pick the best device via ggml's own selection (CUDA/Vulkan/Metal/SYCL/OpenCL/etc.).
+        if (!ggml_backend_reg_count()) {
+            ggml_backend_load_all();
+        }
 
         ggml_backend_t backend = ggml_backend_init_best();
         if (backend != nullptr) {

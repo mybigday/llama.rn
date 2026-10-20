@@ -98,6 +98,9 @@ struct rda_impl {
     bool    has_pre_head_norm = false; // LFM2: RMSNorm applied to depth_h_last
                                        // before each head.  Per-cb weight.
     int32_t depth_text_vocab = 0;      // text vocab for the c0_is_text input
+    int32_t cb0_suppress_from = -1;    // cb0 ids >= this (bar eos_code_c0) are
+                                       // never sampled; -1 = none.  Qwen3-TTS:
+                                       // vocab - 1024 (its control tags).
 
     // Tensor handles (live in codec->weights).  One uniform layout —
     // the per-pos linear inside `codec_op_lm_per_pos_linear` handles
@@ -822,6 +825,13 @@ bool init(codec_lm * lm) {
     impl->has_output_norm  = codec_read_bool_kv(gf, "codec.lm.residual.depth_has_output_norm", true);
     impl->use_rope         = codec_read_bool_kv(gf, "codec.lm.residual.depth_use_rope", true);
     impl->depth_text_vocab = codec_read_i32_kv (gf, "codec.lm.residual.depth_text_vocab", 0);
+    // The reference's suppress_tokens.  Qwen3-TTS GGUFs converted before the
+    // key carry the qwen3tts tags; their talker suppresses [vocab - 1024, vocab).
+    impl->cb0_suppress_from = codec_read_i32_kv(gf, "codec.lm.cb0_suppress_from", -1);
+    if (impl->cb0_suppress_from < 0 && codec_read_i32_kv(gf, "codec.lm.qwen3tts.think_eos_id", -1) >= 0 &&
+        !lm->codebook_sizes_buf.empty()) {
+        impl->cb0_suppress_from = std::max(0, lm->codebook_sizes_buf[0] - 1024);
+    }
     impl->in_proj_per_pos  = codec_read_bool_kv(gf, "codec.lm.residual.depth_in_proj_per_pos", false);
     impl->in_proj_has_bias = codec_read_bool_kv(gf, "codec.lm.residual.depth_in_proj_has_bias", false);
     impl->has_pre_head_norm = codec_read_bool_kv(gf, "codec.lm.residual.depth_has_pre_head_norm", false);
@@ -1211,6 +1221,12 @@ enum codec_status run_c0_head(codec_lm_state * st, const float * h_in) {
     if (!codec_runtime_read_tensor(t_lg, sst->logits_buf[0].data(),
                                    (size_t) v0 * sizeof(float), &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (impl->cb0_suppress_from >= 0) {
+        const int32_t eos = st->lm->info.eos_code_c0;
+        for (int32_t i = impl->cb0_suppress_from; i < v0; ++i) {
+            if (i != eos) sst->logits_buf[0][(size_t) i] = -INFINITY;
+        }
     }
     return CODEC_STATUS_SUCCESS;
 }

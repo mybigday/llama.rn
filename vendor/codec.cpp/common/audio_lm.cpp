@@ -1381,6 +1381,13 @@ static std::string word_to_grammar(const std::string & word) {
     return "[" + cls + "]+";
 }
 
+// Each word holds 1..750 frames (<|t_10.00|> at 75 frames/s).
+// Structural markers are matched as tokens (bare <|...|> in GBNF), so the
+// sampler cannot spell them out of text pieces (a spelled <|audio_end|>
+// never stops the loop); numbers are bounded like the vocab's own pieces
+// (<|t_0.00|>..<|t_10.00|>, features 0..1000).
+static const char * kOuteDecimal = "DECIMAL    ::= [0-9] \".\" [0-9] [0-9] | \"10.00\"\n";
+
 std::string outetts_build_grammar(outetts_version v, const std::string & text) {
     std::vector<std::string> wg;
     for (const auto & w : oute_split_ws(text)) wg.push_back(word_to_grammar(w));
@@ -1394,22 +1401,24 @@ std::string outetts_build_grammar(outetts_version v, const std::string & text) {
     const std::string word_alt = join(wg, " | ");
 
     std::string g;
-    if (v == outetts_version::V2) {
-        g += "root       ::= NL? " + join(wg, " audioBlock ") + " audioEnd NL EOS?\n";
-        g += "audioBlock ::= TIME CODE* space NL?\n";
-        g += "TEXT ::= [A-Za-z0-9 .,?!]+\n";
-        g += "EOS      ::= \"<|im_end|>\"\n";
-        g += "emotionStart ::= \"<|emotion_start|>\"\n";
-        g += "emotionEnd ::= \"<|emotion_end|>\"\n";
-        g += "audioEnd   ::= \"<|audio_end|>\"\n";
-        g += "space      ::= \"<|space|>\"\n";
-        g += "WORD       ::= " + word_alt + "\n";
+    if (v == outetts_version::V1 || v == outetts_version::V2) {
+        // Every input word, each followed by its audio block (llama.rn's
+        // legacy grammar) of 1..750 codes from the WavTokenizer codebook
+        // 0..4095: at least one (a seed can otherwise emit `word<|t_..|><|space|>`
+        // for every word and produce no audio), at most the longest duration
+        // token <|t_10.00|> at 75 frames/s (a seed can loop on one word's codes).
+        const bool v2 = v == outetts_version::V2;
+        g += "root       ::= NL? " + join(wg, " audioBlock ") + " audioBlock audioEnd NL? EOS?\n";
+        g += std::string("audioBlock ::= TIME ") + (v2 ? "" : "codeStart ") + "CODE{1,750} " +
+             (v2 ? "space" : "codeEnd") + " NL?\n";
+        g += "EOS        ::= <|im_end|>\n";
+        g += "audioEnd   ::= <|audio_end|>\n";
+        g += v2 ? "space      ::= <|space|>\n"
+                : "codeStart  ::= <|code_start|>\ncodeEnd    ::= <|code_end|>\n";
         g += "NL         ::= [\\n]\n";
-        g += "TIME  ::= \"<|t_\" DECIMAL \"|>\"\n";
-        g += "CODE    ::= \"<|\" DIGITS \"|>\"\n";
-        g += "DIGITS     ::= [0-9]+\n";
-        g += "DECIMAL    ::= [0-9]+ \".\" [0-9]+\n";
-        g += "punch ::= \"<|\" [a-z_]+ \"|>\"\n";
+        g += "TIME       ::= \"<|t_\" DECIMAL \"|>\"\n";
+        g += "CODE       ::= \"<|\" ( " + gbnf_uint_range_rule(4095) + " ) \"|>\"\n";
+        g += kOuteDecimal;
         return g;
     }
     // V3
@@ -1417,25 +1426,25 @@ std::string outetts_build_grammar(outetts_version v, const std::string & text) {
     g += "leadWord ::= WORD audioBlock\n";
     g += "wordBlock ::= wordStart WORD audioBlock\n";
     g += "audioBlock ::= codeBlock wordEnd NL?\n";
-    g += "codeBlock ::= features TIME energy spectralCentroid pitch CODE CODES*\n";
+    g += "codeBlock ::= features TIME energy spectralCentroid pitch CODE CODES{1,750}\n";
     g += "TEXT ::= [A-Za-z0-9.,!?]+\n";
-    g += "EOS      ::= \"<|im_end|>\"\n";
-    g += "audioEnd   ::= \"<|audio_end|>\"\n";
-    g += "wordStart ::= \"<|word_start|>\"\n";
-    g += "wordEnd ::= \"<|word_end|>\"\n";
-    g += "features ::= \"<|features|>\"\n";
+    g += "EOS      ::= <|im_end|>\n";
+    g += "audioEnd   ::= <|audio_end|>\n";
+    g += "wordStart ::= <|word_start|>\n";
+    g += "wordEnd ::= <|word_end|>\n";
+    g += "features ::= <|features|>\n";
     g += "energy ::= \"<|energy_\" DIGITS \"|>\"\n";
     g += "spectralCentroid ::= \"<|spectral_centroid_\" DIGITS \"|>\"\n";
     g += "pitch ::= \"<|pitch_\" DIGITS \"|>\"\n";
     g += "WORD       ::= " + word_alt + "\n";
     g += "NL         ::= [\\n]\n";
     g += "TIME       ::= \"<|t_\" DECIMAL \"|>\"\n";
-    g += "CODE       ::= \"<|code|>\"\n";
+    g += "CODE       ::= <|code|>\n";
     g += "CODES      ::= CODE1 CODE2\n";
-    g += "CODE1      ::= \"<|c1_\" DIGITS \"|>\"\n";
-    g += "CODE2      ::= \"<|c2_\" DIGITS \"|>\"\n";
-    g += "DIGITS     ::= [0-9]+\n";
-    g += "DECIMAL    ::= [0-9]+ \".\" [0-9]+\n";
+    g += "CODE1      ::= \"<|c1_\" ( " + gbnf_uint_range_rule(1023) + " ) \"|>\"\n";
+    g += "CODE2      ::= \"<|c2_\" ( " + gbnf_uint_range_rule(1023) + " ) \"|>\"\n";
+    g += "DIGITS     ::= " + gbnf_uint_range_rule(1000) + "\n";
+    g += kOuteDecimal;
     return g;
 }
 
@@ -1741,6 +1750,28 @@ bool audio_lm_talker_trailing_text_embd(audio_lm_context * ctx,
                           + (raw && *raw ? raw : "?") + ")";
         return false;
     }
+    return true;
+}
+
+bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
+                             int32_t n_frames, int32_t dim, audio_lm_audio_output * out) {
+    if (ctx == nullptr || latents == nullptr || out == nullptr) return false;
+    if (n_frames <= 0) {
+        ctx->last_error = "audio_lm_decode_latents: no latents";
+        return false;
+    }
+    codec_pcm_buffer pcm = {};
+    const enum codec_status rc = codec_decode_quantized_representation(
+        ctx->codec_ctx, latents, dim, n_frames, &pcm, codec_decode_default_params());
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_get_last_error(ctx->codec_ctx);
+        ctx->last_error = std::string("audio_lm_decode_latents: ") + (raw ? raw : "?");
+        return false;
+    }
+    out->pcm.assign(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) pcm.n_channels);
+    out->sample_rate = pcm.sample_rate;
+    out->n_channels  = pcm.n_channels;
+    codec_pcm_buffer_free(&pcm);
     return true;
 }
 
