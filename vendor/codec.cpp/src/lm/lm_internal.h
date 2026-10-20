@@ -2,6 +2,7 @@
 #define CODEC_LM_INTERNAL_H
 
 #include "codec_lm.h"
+#include "lm_models.h"
 
 #include "../codec_internal.h"
 #include "../runtime/graph.h"

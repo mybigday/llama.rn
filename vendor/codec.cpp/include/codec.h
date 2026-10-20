@@ -314,6 +314,33 @@ bool codec_speaker_get_slot(
     int64_t ne[4],
     const void ** data);
 
+// Logging.  Everything codec.cpp reports (and the log of the ggml backends
+// libcodec runs on) goes to one callback, as llama.cpp's llama_log_set; the
+// levels have ggml_log_level's values, so a ggml / llama.cpp log callback can
+// be passed as is.  The default prints INFO / DEBUG to stdout and WARN /
+// ERROR to stderr.  `callback` NULL restores it.  Not thread-safe against
+// concurrent logging: set it before using the library.
+enum codec_log_level {
+    CODEC_LOG_LEVEL_NONE  = 0,
+    CODEC_LOG_LEVEL_INFO  = 1,
+    CODEC_LOG_LEVEL_WARN  = 2,
+    CODEC_LOG_LEVEL_ERROR = 3,
+    CODEC_LOG_LEVEL_DEBUG = 4,
+    CODEC_LOG_LEVEL_CONT  = 5,  // continues the previous message
+};
+
+typedef void (*codec_log_callback)(enum codec_log_level level, const char * text, void * user_data);
+
+void codec_log_set(codec_log_callback callback, void * user_data);
+
+// Emit through the current callback (printf-style); for hosts and the
+// layers above libcodec (codec_audio_lm, codec_tts) so one callback sees all.
+void codec_log(enum codec_log_level level, const char * fmt, ...)
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((format(printf, 2, 3)))
+#endif
+    ;
+
 #ifdef __cplusplus
 }
 #endif

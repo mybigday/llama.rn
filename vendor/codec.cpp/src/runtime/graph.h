@@ -51,8 +51,8 @@ enum codec_graph_kind {
     CODEC_GRAPH_POCKET_MIMI_DECODE = 60,  // Pocket-TTS Mimi-variant: latent [32,T] → PCM 24 kHz
     CODEC_GRAPH_POCKET_MIMI_ENCODE = 61,  // Pocket-TTS Mimi-variant: PCM 24 kHz → latent [32,T]
 
-    CODEC_GRAPH_FLOW_LM_PREFILL = 62,  // Pocket-TTS FlowLM: text+voice prefix → KV cache
-    CODEC_GRAPH_FLOW_LM_STEP    = 63,  // Pocket-TTS FlowLM: one AR frame (transformer + LSD flow + EOS)
+    CODEC_GRAPH_FLOW_LM_INPROJ  = 62,  // Pocket-TTS FlowLM: input_linear(bos_emb | teacher latent)
+    CODEC_GRAPH_FLOW_LM_STEP    = 63,  // Pocket-TTS FlowLM: one AR frame (EOS + LSD flow + next input embd)
     CODEC_GRAPH_FLOW_LM_SPKPROJ = 64,  // Pocket-TTS FlowLM: mu [ldim,T] → speaker_proj rows
 
     CODEC_GRAPH_CHATTERBOX_S3G_SPEAKER = 65,

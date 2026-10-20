@@ -16,6 +16,7 @@
 
 #include "lm_internal.h"
 #include "../codec_internal.h"
+#include "../runtime/unicode_class.h"
 
 #include <ggml.h>
 
@@ -231,37 +232,28 @@ void bpe_merge(const BpeTokenizer & tk, std::vector<std::string> * syms) {
     }
 }
 
-bool is_word_char(unsigned char c) {
-    // Approximate the HF Whitespace pre-tokenizer \w (ASCII letters,
-    // digits, underscore).  The Chatterbox EN vocab is ASCII-only.
-    return std::isalnum(c) || c == '_';
-}
-
 // Encode a plain chunk (already free of added tokens) into token ids by
-// splitting on the Whitespace regex (\w+|[^\w\s]+) then BPE-merging each
-// piece; each character becomes a base symbol (byte-wise; ASCII here).
+// splitting on the HF Whitespace regex (\w+|[^\w\s]+, Unicode classes) then
+// BPE-merging each piece; each codepoint becomes a base symbol.
 void encode_chunk(const BpeTokenizer & tk, const std::string & chunk,
                   std::vector<int32_t> * out) {
+    // 0 = \s, 1 = \w, 2 = other.
+    std::vector<std::string> cps;
+    std::vector<int>         cls;
+    for (size_t pos = 0; pos < chunk.size();) {
+        const size_t start = pos;
+        const uint32_t cp = codec_utf8_next(chunk, &pos);
+        cps.push_back(chunk.substr(start, pos - start));
+        cls.push_back(codec_unicode_is_space(cp) ? 0 : codec_unicode_is_word(cp) ? 1 : 2);
+    }
     size_t i = 0;
-    const size_t n = chunk.size();
+    const size_t n = cps.size();
     while (i < n) {
-        unsigned char c = (unsigned char) chunk[i];
-        if (std::isspace(c)) { ++i; continue; }
+        if (cls[i] == 0) { ++i; continue; }
         size_t j = i;
-        bool word = is_word_char(c);
-        while (j < n) {
-            unsigned char cj = (unsigned char) chunk[j];
-            if (std::isspace(cj)) break;
-            if (is_word_char(cj) != word) break;
-            ++j;
-        }
-        std::string piece = chunk.substr(i, j - i);
+        while (j < n && cls[j] == cls[i]) ++j;
+        std::vector<std::string> syms(cps.begin() + i, cps.begin() + j);
         i = j;
-
-        // base symbols = single characters
-        std::vector<std::string> syms;
-        syms.reserve(piece.size());
-        for (char ch : piece) syms.emplace_back(1, ch);
         bpe_merge(tk, &syms);
         for (const auto & s : syms) {
             auto it = tk.tok_to_id.find(s);

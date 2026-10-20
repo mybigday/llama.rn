@@ -119,7 +119,7 @@ static ggml_tensor * codec_dac_W_conv1d(ggml_context * ctx_eval, const codec_mod
     }
     if (n0 == dout && n1 == din && n2 == dk) {
         if (ggml_is_quantized(src->type)) {
-            std::fprintf(stderr, "dac: %s is %s in the legacy (dout, din, dk) layout, which a quantized conv cannot "
+            codec_log(CODEC_LOG_LEVEL_ERROR, "dac: %s is %s in the legacy (dout, din, dk) layout, which a quantized conv cannot "
                          "use; reconvert (quantized conv kernels are stored flattened (dk*din, 1, dout))\n",
                          name.c_str(), ggml_type_name(src->type));
             return nullptr;

@@ -5,8 +5,12 @@
 // budget is in UTF-8 bytes, which tracks speaking time across scripts (a CJK
 // character is 3 bytes and takes about as long to say as 3 Latin letters).
 
-#include "tts_runner.h"
+#include "tts_segment.h"
 
+#include "codec.h"
+
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -118,7 +122,7 @@ void split_long(const std::string & s, size_t max_bytes, std::vector<std::string
         if (!cur.empty()) split_long(cur, max_bytes, out);
         return;
     }
-    std::fprintf(stderr, "segment: %zu bytes with no punctuation or space to split at; kept whole (budget %zu)\n",
+    codec_log(CODEC_LOG_LEVEL_WARN, "segment: %zu bytes with no punctuation or space to split at; kept whole (budget %zu)\n",
                  s.size(), max_bytes);
     out->push_back(s);
 }
@@ -173,6 +177,59 @@ std::vector<std::string> tts_split_text(const std::string & text, int32_t max_by
         flush();
     }
     return segments;
+}
+
+std::vector<float> tts_shape_segment(const std::vector<float> & pcm, int32_t sample_rate, bool trim, int32_t fade_ms) {
+    std::vector<float> w = pcm;
+    const int sr = sample_rate;
+    if (trim && (int) pcm.size() >= (int) (sr * 0.05)) {
+        const int hop = std::max(1, (int) (sr * 0.01));
+        const int n_frames = (int) pcm.size() / hop;
+        const float thresh = std::pow(10.0f, -45.0f / 20.0f);
+        int first = -1, last = -1;
+        for (int f = 0; f < n_frames; ++f) {
+            double e = 0.0;
+            for (int i = 0; i < hop; ++i) e += (double) pcm[(size_t) (f * hop + i)] * pcm[(size_t) (f * hop + i)];
+            if (std::sqrt(e / hop + 1e-12) > thresh) {
+                if (first < 0) first = f;
+                last = f;
+            }
+        }
+        if (first >= 0) {
+            const int keep = (int) (sr * 0.02);
+            const size_t start = (size_t) std::max(0, first * hop - keep);
+            const size_t end = std::min(pcm.size(), (size_t) ((last + 1) * hop + keep));
+            w.assign(pcm.begin() + (long) start, pcm.begin() + (long) end);
+        }
+    }
+    if (fade_ms > 0) {
+        const int fade = std::max(1, (int) (sr * (fade_ms / 1000.0)));
+        if ((int) w.size() > 2 * fade) {
+            for (int k = 0; k < fade; ++k) {
+                const float g = fade > 1 ? (float) k / (float) (fade - 1) : 1.0f;
+                w[(size_t) k] *= g;
+                w[w.size() - 1 - (size_t) k] *= g;
+            }
+        }
+    }
+    return w;
+}
+
+std::vector<float> resample_mono_f32(const std::vector<float> & in,
+                                     int32_t in_sr, int32_t out_sr) {
+    if (in.empty() || in_sr <= 0 || out_sr <= 0 || in_sr == out_sr) return in;
+    const int64_t n_in  = (int64_t) in.size();
+    const int64_t n_out = n_in * out_sr / in_sr;
+    std::vector<float> out((size_t) std::max<int64_t>(n_out, 1));
+    for (int64_t i = 0; i < (int64_t) out.size(); ++i) {
+        const double src = (double) i * in_sr / out_sr;
+        int64_t i0 = (int64_t) src;
+        const double f = src - (double) i0;
+        const float a0 = in[(size_t) std::min<int64_t>(i0,     n_in - 1)];
+        const float a1 = in[(size_t) std::min<int64_t>(i0 + 1, n_in - 1)];
+        out[(size_t) i] = (float) ((double) a0 * (1.0 - f) + (double) a1 * f);
+    }
+    return out;
 }
 
 }  // namespace codec_common

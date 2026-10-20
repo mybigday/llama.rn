@@ -24,6 +24,9 @@ std::string kitten_prepare_text(const std::string & text);
 // `max_chars` comes back as a single chunk.
 std::vector<std::string> kitten_split_for_synthesis(const std::string & text, int max_chars, int min_chars);
 
+// One chunk's part of join_chunks: edge silence trimmed, 8 ms fades.
+std::vector<float> kitten_shape_chunk(const std::vector<float> & wav, int sample_rate);
+
 // Trim each chunk's edge silence, fade 8 ms at the seams and insert `gap_s`
 // of silence between chunks (join_chunks).
 std::vector<float> kitten_join_chunks(const std::vector<std::vector<float>> & wavs, int sample_rate, float gap_s);

@@ -83,7 +83,7 @@ static ggml_tensor * codec_conv1d_impl(
     if (codec_conv1d_w_is_flat(w, x->ne[1])) {
         const int64_t K = codec_conv1d_kernel_size(w, x->ne[1]);
         if (K <= 0) {
-            std::fprintf(stderr, "codec_conv1d: flattened kernel '%s' [%lld, 1, %lld] does not fit %lld input channels\n",
+            codec_log(CODEC_LOG_LEVEL_ERROR, "codec_conv1d: flattened kernel '%s' [%lld, 1, %lld] does not fit %lld input channels\n",
                          w->name, (long long) w->ne[0], (long long) w->ne[2], (long long) x->ne[1]);
             return nullptr;
         }

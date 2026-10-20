@@ -113,7 +113,7 @@ ggml_tensor * codec_convtr1d(
     const bool ok = gemm ? (ci_major || float_w)
                          : (!ci_major && (w->type == GGML_TYPE_F32 || w->type == GGML_TYPE_F16));
     if (!ok) {
-        std::fprintf(stderr, "codec_convtr1d: kernel '%s' (%s, %s layout) is not supported for %s ConvTranspose1d\n",
+        codec_log(CODEC_LOG_LEVEL_ERROR, "codec_convtr1d: kernel '%s' (%s, %s layout) is not supported for %s ConvTranspose1d\n",
                      w->name, ggml_type_name(w->type), ci_major ? "C_in-major" : "(K, C_out, C_in)",
                      gemm ? "this" : "a dilated/batched");
         return nullptr;

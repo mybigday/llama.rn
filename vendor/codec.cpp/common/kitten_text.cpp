@@ -1,4 +1,5 @@
 #include "kitten_text.h"
+#include "tts_segment.h"
 
 #include <algorithm>
 #include <cctype>
@@ -213,6 +214,10 @@ std::vector<std::string> kitten_split_for_synthesis(const std::string & text, in
     return out;
 }
 
+std::vector<float> kitten_shape_chunk(const std::vector<float> & wav, int sample_rate) {
+    return tts_shape_segment(wav, sample_rate, /*trim=*/true, /*fade_ms=*/8);
+}
+
 std::vector<float> kitten_join_chunks(const std::vector<std::vector<float>> & wavs, int sample_rate, float gap_s) {
     std::vector<const std::vector<float> *> parts;
     for (const auto & w : wavs) {
@@ -223,15 +228,9 @@ std::vector<float> kitten_join_chunks(const std::vector<std::vector<float>> & wa
     const size_t gap = (size_t) (sample_rate * gap_s);
     const int fade = std::max(1, (int) (sample_rate * 0.008));
     std::vector<float> out;
+    (void) fade;
     for (size_t i = 0; i < parts.size(); ++i) {
-        std::vector<float> w = trim_silence(*parts[i], sample_rate);
-        if ((int) w.size() > 2 * fade) {
-            for (int k = 0; k < fade; ++k) {
-                const float g = fade > 1 ? (float) k / (float) (fade - 1) : 1.0f;
-                w[(size_t) k] *= g;
-                w[w.size() - 1 - (size_t) k] *= g;
-            }
-        }
+        const std::vector<float> w = kitten_shape_chunk(*parts[i], sample_rate);
         out.insert(out.end(), w.begin(), w.end());
         if (i + 1 != parts.size()) out.insert(out.end(), gap, 0.0f);
     }

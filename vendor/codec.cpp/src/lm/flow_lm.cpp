@@ -19,26 +19,18 @@
 // =====================================================================
 // codec_lm kind: flow_lm  (Kyutai Pocket-TTS)
 //
-// SELF-CONTAINED continuous-latent AR model — no external llama.cpp backbone.
-// The AR transformer, text LUT, LSD flow head (SimpleMLPAdaLN) and EOS head all
-// live in the codec GGUF under `lm.*`.  Sequence layout:
-//   [ text LUT embeds | (bos_before_voice) | voice rows | AR latent embeds ]
-// all fed through ONE causal transformer with a shared incremental KV cache.
+// Continuous-latent AR adaptor.  The FlowLM transformer + out_norm run in
+// llama.cpp as a stock `starcoder2` backbone (scripts/convert-backbone-to-
+// gguf.py; its token_embd is the text LUT).  This side owns what surrounds it:
+//   prefix rows  = [ bos_before_voice | speaker_proj(voice latents) ]
+//   step input   = input_linear( bos_emb (first frame) | prev latent )
+//   per step     = eos_logit = out_eos(h);  latent = LSD_decode(flow_net(h, ·), noise)
+// where h is the backbone's (out_norm'ed) hidden.  One cached graph per step
+// emits the latent, the EOS logit and the next step's input embedding.
 //
-// Per AR frame (codec_lm_flow_step), inside ONE cached graph:
-//   in = input_linear( bos_emb if BOS else prev_latent )       (ldim -> d_model)
-//   h  = transformer_step(in, KV cache @ pos kv_pos)           (6 layers, NORMAL rope)
-//   c  = out_norm(h_last)
-//   eos_logit = out_eos(c)
-//   latent = LSD_decode(flow_net(c, ·), noise)                 (num_steps unrolled)
-//
-// RoPE is INTERLEAVED (real=x[2i], imag=x[2i+1]) => ggml NORMAL rope, matching
-// the pocket_mimi transformer (verified at parity 1.0).
-//
-// The transformer LayerNorms (norm1/norm2/out_norm) are standard affine
-// LayerNorm (eps 1e-5).  The flow head uses eps-1e-6 LayerNorm (affine in_ln,
-// affine-free final) and an UNBIASED (ddof=1) RMSNorm inside the timestep
-// embedders — both replicated exactly here.
+// The flow head uses eps-1e-6 LayerNorm (affine in_ln, affine-free final) and
+// an UNBIASED (ddof=1) RMSNorm inside the timestep embedders — both
+// replicated exactly here.
 // =====================================================================
 
 namespace {
@@ -47,11 +39,7 @@ namespace {
 // the graph cache key hashes it byte-wise).  Keeps the non-copyable tokenizer
 // out of the build structs.
 struct flow_impl {
-    int32_t d_model;       // 1024
-    int32_t n_layers;      // 6
-    int32_t n_heads;       // 16
-    int32_t head_dim;      // 64
-    int32_t ffn_dim;       // 4096
+    int32_t d_model;       // 1024 (backbone hidden)
     int32_t ldim;          // 32
     int32_t flow_dim;      // 512
     int32_t flow_depth;    // 6
@@ -59,10 +47,8 @@ struct flow_impl {
     int32_t insert_bos_before_voice;
     int32_t lsd_decode_steps;
     int32_t frames_after_eos;
-    float   max_period;    // 10000
     float   temperature;   // 0.7
     float   eos_threshold; // -4.0
-    float   ln_eps;        // 1e-5 (transformer LN)
     float   flow_ln_eps;   // 1e-6 (flow head LN)
     float   flow_rms_eps;  // 1e-5 (time-embed RMSNorm)
 };
@@ -75,20 +61,11 @@ struct flow_model {
 };
 
 struct flow_state {
-    int32_t            kv_pos = 0;   // AR positions written to the KV cache so far
-    int32_t            frame  = 0;   // 0-based AR frame counter
-    bool               primed = false;
+    int32_t            frame = 0;      // AR frames generated so far
     std::mt19937       rng;
-
-    // Persistent per-layer transformer K/V cache (incremental decode).
-    ggml_context *             ctx_kv = nullptr;
-    ggml_backend_buffer_t      buf_kv = nullptr;
-    std::vector<ggml_tensor *> k_cache;   // [n_layers] (head_dim, n_heads, max_T)
-    std::vector<ggml_tensor *> v_cache;
-    int32_t                    max_T = 0;
+    std::vector<float> next_embd;      // [d_model] input embedding for the next backbone step
+    std::vector<float> teacher;        // [ldim] armed teacher latent (denormalized), empty = off
 };
-
-bool alloc_kv(flow_state * s, const flow_impl * I, codec_model * codec);
 
 ggml_tensor * lin(ggml_context * c, ggml_tensor * w, ggml_tensor * x, ggml_tensor * b) {
     ggml_tensor * y = codec_mul_mat(c, w, x);
@@ -116,70 +93,6 @@ ggml_tensor * rms_norm_unbiased(ggml_context * c, ggml_tensor * x, ggml_tensor *
     ggml_tensor * denom = ggml_sqrt(c, ggml_scale_bias(c, var, 1.0f, eps));            // sqrt(var+eps), (1,N)
     ggml_tensor * y    = ggml_div(c, x, denom);                     // x / sqrt(var+eps)
     return ggml_mul(c, y, ggml_reshape_2d(c, codec_graph_cast_f32(c, alpha), D, 1));
-}
-
-// One transformer layer, incremental KV step (T_new new tokens).  Causal,
-// interleaved NORMAL rope with position offset `pos0`, standard affine
-// LayerNorm, GELU FFN, no biases.  x_ct is (d_model, T_new).  Attends over
-// cache[0..bucket) + new tokens; scatters new K/V into cache rows [pos0..).
-ggml_tensor * flow_tf_layer(ggml_context * ctx, ggml_tensor * x_ct, const std::string & pfx,
-    const codec_model * model, const flow_impl & I, ggml_tensor * pos_new,
-    ggml_tensor * k_cache_l, ggml_tensor * v_cache_l, int32_t bucket, ggml_tensor * mask,
-    ggml_tensor * row_idx, ggml_tensor ** kset_out, ggml_tensor ** vset_out) {
-
-    auto W  = [&](const char * s) { return codec_graph_weight(ctx, model, pfx + s); };
-    auto WM = [&](const char * s) { return codec_graph_weight_mat(ctx, model, pfx + s); };
-    const int32_t H = I.n_heads, D = I.head_dim;
-    const int64_t Tn = x_ct->ne[1];
-
-    // ---- self-attention ----
-    ggml_tensor * h = codec_op_layer_norm_ct(ctx, x_ct, I.ln_eps, W(".inln.w"), W(".inln.b"));
-    ggml_tensor * q = codec_mul_mat(ctx, WM(".attn.q_proj.w"), h);   // (d_model, Tn)
-    ggml_tensor * k = codec_mul_mat(ctx, WM(".attn.k_proj.w"), h);
-    ggml_tensor * v = codec_mul_mat(ctx, WM(".attn.v_proj.w"), h);
-
-    // (d_model,Tn) -> (head_dim, H, Tn), rope over head_dim (NORMAL/interleaved).
-    ggml_tensor * q3 = ggml_reshape_3d(ctx, q, D, H, Tn);
-    ggml_tensor * k3 = ggml_reshape_3d(ctx, k, D, H, Tn);
-    ggml_tensor * v3 = ggml_reshape_3d(ctx, v, D, H, Tn);
-    q3 = ggml_rope_ext(ctx, q3, pos_new, nullptr, D, GGML_ROPE_TYPE_NORMAL, 0,
-                       I.max_period, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
-    k3 = ggml_rope_ext(ctx, k3, pos_new, nullptr, D, GGML_ROPE_TYPE_NORMAL, 0,
-                       I.max_period, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
-
-    // Scatter the new tokens' K/V into cache rows [pos0..pos0+Tn) via set_rows on
-    // a flat (head_dim*H, max_T) view.
-    {
-        const int64_t kw = (int64_t) D * H;
-        ggml_tensor * k2 = ggml_view_2d(ctx, k_cache_l, kw, k_cache_l->ne[2], k_cache_l->nb[2], 0);
-        ggml_tensor * v2 = ggml_view_2d(ctx, v_cache_l, kw, v_cache_l->ne[2], v_cache_l->nb[2], 0);
-        ggml_tensor * kk_rows = ggml_reshape_2d(ctx, ggml_cont(ctx, k3), kw, Tn);
-        ggml_tensor * vv_rows = ggml_reshape_2d(ctx, ggml_cont(ctx, v3), kw, Tn);
-        *kset_out = ggml_set_rows(ctx, k2, kk_rows, row_idx);
-        *vset_out = ggml_set_rows(ctx, v2, vv_rows, row_idx);
-    }
-
-    // Keys/values: bucket cache slots + the Tn new tokens.
-    ggml_tensor * k_old = ggml_view_3d(ctx, k_cache_l, D, H, bucket, k_cache_l->nb[1], k_cache_l->nb[2], 0);
-    ggml_tensor * v_old = ggml_view_3d(ctx, v_cache_l, D, H, bucket, v_cache_l->nb[1], v_cache_l->nb[2], 0);
-    ggml_tensor * k_all = ggml_concat(ctx, k_old, k3, 2);   // (D, H, bucket+Tn)
-    ggml_tensor * v_all = ggml_concat(ctx, v_old, v3, 2);
-
-    ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q3,    0, 2, 1, 3));   // (D, Tn, H)
-    ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k_all, 0, 2, 1, 3));   // (D, bucket+Tn, H)
-    ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);                          // (bucket+Tn, Tn, H)
-    // Fused scale + additive mask (bucket+Tn, Tn) + softmax.
-    scores = ggml_soft_max_ext(ctx, scores, mask, 1.0f / std::sqrt((float) D), 0.0f);
-    ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v_all, 1, 2, 0, 3));    // (bucket+Tn, D, H)
-    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, codec_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
-    attn = ggml_reshape_2d(ctx, attn, (int64_t) D * H, Tn);
-    x_ct = ggml_add(ctx, x_ct, codec_mul_mat(ctx, WM(".attn.o_proj.w"), attn));
-
-    // ---- FFN (GELU-erf, no bias) ----
-    ggml_tensor * f = codec_op_layer_norm_ct(ctx, x_ct, I.ln_eps, W(".paln.w"), W(".paln.b"));
-    f = ggml_gelu(ctx, codec_mul_mat(ctx, WM(".mlp.fc1.w"), f));
-    f = codec_mul_mat(ctx, WM(".mlp.fc2.w"), f);
-    return ggml_add(ctx, x_ct, f);
 }
 
 // TimestepEmbedder(scalar t) -> (flow_dim,): args = t*freqs; cat[cos,sin]; mlp;
@@ -239,81 +152,21 @@ ggml_tensor * flow_net(ggml_context * ctx, const codec_model * model, const flow
     return lin(ctx, WM("lm.flow.final.linear.w"), xf, W("lm.flow.final.linear.b"));   // (ldim,1)
 }
 
-// ---------------------------------------------------------------------
-// Prefill graph: text LUT embeds (+ optional voice rows) -> transformer ->
-// fill KV cache for positions [0..T).
-// ---------------------------------------------------------------------
-struct flow_prefill_build {
-    flow_impl imp;
-    int32_t   n_tok;
-    int32_t   n_voice;
-    int32_t   T;            // n_tok + (bos?1:0) + n_voice
-    int32_t   use_bos;      // insert_bos_before_voice && n_voice>0
-    ggml_tensor * k_cache[32];
-    ggml_tensor * v_cache[32];
-    const codec_model * model;
-};
-
-bool build_prefill(ggml_context * ctx, void * ud, ggml_tensor ** out) {
-    flow_prefill_build * p = static_cast<flow_prefill_build *>(ud);
-    const flow_impl & I = p->imp;
-    const codec_model * model = p->model;
-    const int32_t T = p->T;
-
-    // Text embeddings via get_rows on the LUT (n_tok tokens).
-    ggml_tensor * tok = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, p->n_tok);
-    ggml_set_name(tok, "flow.pf.tok"); ggml_set_input(tok);
-    ggml_tensor * embed_w = codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, "lm.text.embed.w"));  // (d_model, n_bins+1)
-    ggml_tensor * text_emb = ggml_get_rows(ctx, embed_w, tok);   // (d_model, n_tok)
-
-    ggml_tensor * seq = text_emb;
-    if (p->use_bos) {
-        ggml_tensor * bos = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, "lm.bos_before_voice")), I.d_model, 1);
-        seq = ggml_concat(ctx, seq, bos, 1);
-    }
-    if (p->n_voice > 0) {
-        ggml_tensor * voice = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.d_model, p->n_voice);
-        ggml_set_name(voice, "flow.pf.voice"); ggml_set_input(voice);
-        seq = ggml_concat(ctx, seq, voice, 1);   // (d_model, T)
-    }
-
-    // Positions 0..T-1 and cache row indices 0..T-1.
-    ggml_tensor * pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, T);
-    ggml_set_name(pos, "flow.pf.pos"); ggml_set_input(pos);
-    ggml_tensor * row_idx = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, T);
-    ggml_set_name(row_idx, "flow.pf.row"); ggml_set_input(row_idx);
-    // Causal additive mask (T, T): row_idx layout is [cache 0..T) then... here
-    // bucket==T and the new tokens are the whole prefix, so keys = cache[0..T)
-    // ++ new[0..T); we attend only over the new tokens with a causal mask, and
-    // the cache half is fully masked (-inf).  See build below.
-    ggml_tensor * mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2 * T, T);
-    ggml_set_name(mask, "flow.pf.mask"); ggml_set_input(mask);
-
-    ggml_tensor * x = seq;
-    for (int32_t l = 0; l < I.n_layers; ++l) {
-        ggml_tensor * kset = nullptr, * vset = nullptr;
-        x = flow_tf_layer(ctx, x, "lm.tf.l" + std::to_string(l), model, I, pos,
-                          p->k_cache[l], p->v_cache[l], /*bucket=*/T, mask, row_idx, &kset, &vset);
-        ggml_set_name(kset, ("flow.pf.kset." + std::to_string(l)).c_str()); ggml_set_output(kset);
-        ggml_set_name(vset, ("flow.pf.vset." + std::to_string(l)).c_str()); ggml_set_output(vset);
-    }
-    // Prefill produces no consumed output beyond the K/V scatter; root a scalar.
-    ggml_tensor * sink = ggml_sum(ctx, x);
-    ggml_set_name(sink, "flow.pf.sink"); ggml_set_output(sink);
-    *out = sink;
-    return true;
+// emb_std / emb_mean as (ldim, 1) F32: the FlowLM predicts normalized latents,
+// Mimi consumes  latent * emb_std + emb_mean.
+ggml_tensor * denorm(ggml_context * ctx, const codec_model * model, const flow_impl & I, ggml_tensor * x) {
+    ggml_tensor * sd = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, "lm.emb_std")), I.ldim, 1);
+    ggml_tensor * mu = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, "lm.emb_mean")), I.ldim, 1);
+    return ggml_add(ctx, ggml_mul(ctx, x, sd), mu);
 }
 
 // ---------------------------------------------------------------------
-// Per-step graph: one AR frame.
+// Per-step graph: backbone hidden h -> EOS logit + LSD latent + the next
+// step's input embedding input_linear(latent).
 // ---------------------------------------------------------------------
 struct flow_step_build {
     flow_impl imp;
-    int32_t   bucket;      // KV cache view length (round_up(kv_pos+1,64))
-    int32_t   is_bos;      // 1 => input = input_linear(bos_emb)
     int32_t   n_steps;     // LSD steps (unrolled)
-    ggml_tensor * k_cache[32];
-    ggml_tensor * v_cache[32];
     const codec_model * model;
 };
 
@@ -324,35 +177,9 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     auto W  = [&](const char * s) { return codec_graph_weight(ctx, model, s); };
     auto WM = [&](const char * s) { return codec_graph_weight_mat(ctx, model, s); };
 
-    // ---- input embedding: input_linear(seq) where seq = bos_emb (BOS) or latent.
-    ggml_tensor * seq;
-    if (p->is_bos) {
-        seq = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, W("lm.bos_emb")), I.ldim, 1);
-    } else {
-        seq = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, 1);
-        ggml_set_name(seq, "flow.st.latent_in"); ggml_set_input(seq);
-    }
-    ggml_tensor * in = codec_mul_mat(ctx, WM("lm.input_linear.w"), seq);   // (d_model,1)
+    ggml_tensor * c = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.d_model, 1);
+    ggml_set_name(c, "flow.st.h"); ggml_set_input(c);
 
-    // ---- transformer step over KV cache (1 new token at pos = kv_pos) ----
-    ggml_tensor * pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1);
-    ggml_set_name(pos, "flow.st.pos"); ggml_set_input(pos);
-    ggml_tensor * row_idx = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1);
-    ggml_set_name(row_idx, "flow.st.row"); ggml_set_input(row_idx);
-    ggml_tensor * mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, p->bucket + 1, 1);
-    ggml_set_name(mask, "flow.st.mask"); ggml_set_input(mask);
-
-    ggml_tensor * x = in;
-    for (int32_t l = 0; l < I.n_layers; ++l) {
-        ggml_tensor * kset = nullptr, * vset = nullptr;
-        x = flow_tf_layer(ctx, x, "lm.tf.l" + std::to_string(l), model, I, pos,
-                          p->k_cache[l], p->v_cache[l], p->bucket, mask, row_idx, &kset, &vset);
-        ggml_set_name(kset, ("flow.st.kset." + std::to_string(l)).c_str()); ggml_set_output(kset);
-        ggml_set_name(vset, ("flow.st.vset." + std::to_string(l)).c_str()); ggml_set_output(vset);
-    }
-
-    // ---- out_norm + EOS head ----
-    ggml_tensor * c = codec_op_layer_norm_ct(ctx, x, I.ln_eps, W("lm.out_norm.w"), W("lm.out_norm.b"));  // (d_model,1)
     ggml_tensor * eos = lin(ctx, WM("lm.out_eos.w"), c, W("lm.out_eos.b"));   // (1,1)
     ggml_set_name(eos, "flow.st.eos"); ggml_set_output(eos);
 
@@ -369,8 +196,37 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
         ggml_tensor * dir = flow_net(ctx, model, I, c, sval, tval, cur);
         cur = ggml_add(ctx, cur, ggml_scale(ctx, dir, 1.0f / (float) n));
     }
-    ggml_set_name(cur, "flow.st.latent"); ggml_set_output(cur);
-    *out = cur;
+    ggml_tensor * embd = codec_mul_mat(ctx, WM("lm.input_linear.w"), cur);   // (d_model,1)
+    ggml_set_name(embd, "flow.st.embd"); ggml_set_output(embd);
+    ggml_tensor * lat = denorm(ctx, model, I, cur);
+    ggml_set_name(lat, "flow.st.latent"); ggml_set_output(lat);
+    *out = lat;
+    return true;
+}
+
+// ---------------------------------------------------------------------
+// Input-embedding graph: input_linear(bos_emb) (is_bos) or
+// input_linear(normalize(latent)) for a teacher-forced latent.
+// ---------------------------------------------------------------------
+struct flow_inproj_build { flow_impl imp; int32_t is_bos; const codec_model * model; };
+
+bool build_inproj(ggml_context * ctx, void * ud, ggml_tensor ** out) {
+    flow_inproj_build * p = static_cast<flow_inproj_build *>(ud);
+    const flow_impl & I = p->imp;
+    const codec_model * model = p->model;
+    auto W = [&](const char * s) { return codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, s)); };
+    ggml_tensor * x;
+    if (p->is_bos) {
+        x = ggml_reshape_2d(ctx, W("lm.bos_emb"), I.ldim, 1);
+    } else {
+        ggml_tensor * lat = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, 1);
+        ggml_set_name(lat, "flow.ip.latent"); ggml_set_input(lat);
+        x = ggml_div(ctx, ggml_sub(ctx, lat, ggml_reshape_2d(ctx, W("lm.emb_mean"), I.ldim, 1)),
+                     ggml_reshape_2d(ctx, W("lm.emb_std"), I.ldim, 1));
+    }
+    ggml_tensor * embd = codec_mul_mat(ctx, codec_graph_weight_mat(ctx, model, "lm.input_linear.w"), x);
+    ggml_set_name(embd, "flow.ip.embd"); ggml_set_output(embd);
+    *out = embd;
     return true;
 }
 
@@ -402,10 +258,6 @@ bool init(codec_lm * lm) {
     if (!M) { lm->last_error = "oom"; return false; }
     flow_impl * I = &M->cfg;
     I->d_model    = codec_read_i32_kv(gf, "codec.lm.d_model", 1024);
-    I->n_layers   = codec_read_i32_kv(gf, "codec.lm.n_layers", 6);
-    I->n_heads    = codec_read_i32_kv(gf, "codec.lm.n_heads", 16);
-    I->head_dim   = codec_read_i32_kv(gf, "codec.lm.head_dim", I->d_model / (I->n_heads > 0 ? I->n_heads : 1));
-    I->ffn_dim    = codec_read_i32_kv(gf, "codec.lm.ffn_dim", 4 * I->d_model);
     I->ldim       = codec_read_i32_kv(gf, "codec.lm.ldim", 32);
     I->flow_dim   = codec_read_i32_kv(gf, "codec.lm.flow_dim", 512);
     I->flow_depth = codec_read_i32_kv(gf, "codec.lm.flow_depth", 6);
@@ -413,10 +265,8 @@ bool init(codec_lm * lm) {
     I->insert_bos_before_voice = codec_read_bool_kv(gf, "codec.lm.insert_bos_before_voice", false) ? 1 : 0;
     I->lsd_decode_steps = codec_read_i32_kv(gf, "codec.lm.lsd_decode_steps", 1);
     I->frames_after_eos = codec_read_i32_kv(gf, "codec.lm.frames_after_eos", -1);
-    I->max_period   = codec_read_f32_kv(gf, "codec.lm.max_period", 10000.0f);
     I->temperature  = codec_read_f32_kv(gf, "codec.lm.temperature", 0.7f);
     I->eos_threshold= codec_read_f32_kv(gf, "codec.lm.eos_threshold", -4.0f);
-    I->ln_eps       = 1e-5f;
     I->flow_ln_eps  = 1e-6f;
     I->flow_rms_eps = 1e-5f;
 
@@ -448,27 +298,6 @@ void free_lm(codec_lm * lm) {
     if (lm && lm->impl) { delete static_cast<flow_model *>(lm->impl); lm->impl = nullptr; }
 }
 
-bool alloc_kv(flow_state * s, const flow_impl * I, codec_model * codec) {
-    if (s->ctx_kv != nullptr) return true;
-    if (codec == nullptr || codec->backend == nullptr) return false;
-    s->max_T = 4096;
-    const size_t hdr = (size_t) I->n_layers * 2 * ggml_tensor_overhead() + ggml_tensor_overhead() * 8;
-    ggml_init_params ip = { hdr, nullptr, true };
-    s->ctx_kv = ggml_init(ip);
-    if (!s->ctx_kv) return false;
-    s->k_cache.assign((size_t) I->n_layers, nullptr);
-    s->v_cache.assign((size_t) I->n_layers, nullptr);
-    for (int32_t l = 0; l < I->n_layers; ++l) {
-        s->k_cache[(size_t) l] = ggml_new_tensor_3d(s->ctx_kv, GGML_TYPE_F32, I->head_dim, I->n_heads, s->max_T);
-        s->v_cache[(size_t) l] = ggml_new_tensor_3d(s->ctx_kv, GGML_TYPE_F32, I->head_dim, I->n_heads, s->max_T);
-        if (!s->k_cache[(size_t) l] || !s->v_cache[(size_t) l]) return false;
-    }
-    s->buf_kv = ggml_backend_alloc_ctx_tensors(s->ctx_kv, codec->backend);
-    if (s->buf_kv == nullptr) return false;
-    ggml_backend_buffer_clear(s->buf_kv, 0);
-    return true;
-}
-
 bool state_init(codec_lm_state * st) {
     flow_state * s = new (std::nothrow) flow_state();
     if (!s) return false;
@@ -478,19 +307,103 @@ bool state_init(codec_lm_state * st) {
 }
 void state_free(codec_lm_state * st) {
     if (st && st->impl) {
-        flow_state * s = static_cast<flow_state *>(st->impl);
-        if (s->buf_kv) ggml_backend_buffer_free(s->buf_kv);
-        if (s->ctx_kv) ggml_free(s->ctx_kv);
-        delete s;
+        delete static_cast<flow_state *>(st->impl);
         st->impl = nullptr;
     }
 }
 void state_reset(codec_lm_state * st) {
     flow_state * s = static_cast<flow_state *>(st->impl);
-    s->kv_pos = 0;
-    s->frame  = 0;
-    s->primed = false;
+    s->frame = 0;
+    s->next_embd.clear();
+    s->teacher.clear();
     s->rng.seed((uint32_t) (st->ctx && st->ctx->params.seed >= 0 ? st->ctx->params.seed : 0));
+}
+
+// input_linear(bos_emb) (latent == nullptr) or input_linear(normalize(latent)).
+bool run_inproj(codec_lm_state * st, const float * latent, float * out_embd) {
+    const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
+    flow_inproj_build b = {}; b.imp = I; b.is_bos = latent == nullptr ? 1 : 0; b.model = st->lm->codec;
+    codec_graph_eval_guard guard(st->ctx, false);
+    std::string err;
+    codec_graph_cache_entry * entry = nullptr;
+    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_INPROJ; key.hop = b.is_bos;
+    const int32_t nth = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
+    const bool ok = codec_graph_cache_get_or_build(st->ctx, key, build_inproj, &b, sizeof(b), &entry, &err) &&
+        codec_graph_prepare_io(st->ctx, entry, &err) &&
+        (latent == nullptr || codec_runtime_write_tensor(codec_graph_get_tensor(st->ctx, entry, "flow.ip.latent"),
+                                                         latent, (size_t) I.ldim * sizeof(float), &err)) &&
+        codec_graph_compute(st->ctx, entry, nth, &err) &&
+        codec_runtime_read_tensor(codec_graph_get_tensor(st->ctx, entry, "flow.ip.embd"),
+                                  out_embd, (size_t) I.d_model * sizeof(float), &err);
+    if (!ok) st->last_error = err;
+    return ok;
+}
+
+// One AR frame: h [d_model] -> out_latent [ldim] (denormalized, what the codec
+// decodes) + out_stop (raw EOS head decision; the frames-after-EOS tail is the
+// host's policy).  `noise` [ldim] ~ N(0, temperature), or NULL to sample here.
+enum codec_status step_generate(codec_lm_state * st, const float * h_in, float /*cfg_value*/,
+        int32_t n_timesteps, const float * noise, float * out_latent, int32_t * out_stop) {
+    const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
+    flow_state * s = static_cast<flow_state *>(st->impl);
+    const int32_t n_steps = n_timesteps > 0 ? n_timesteps : (I.lsd_decode_steps > 0 ? I.lsd_decode_steps : 1);
+
+    std::vector<float> zbuf;
+    const float * z = noise;
+    if (z == nullptr) {
+        zbuf.resize((size_t) I.ldim);
+        std::normal_distribution<float> nd(0.0f, std::sqrt(I.temperature));
+        for (int32_t d = 0; d < I.ldim; ++d) zbuf[(size_t) d] = nd(s->rng);
+        z = zbuf.data();
+    }
+
+    flow_step_build b = {}; b.imp = I; b.n_steps = n_steps; b.model = st->lm->codec;
+    codec_graph_eval_guard guard(st->ctx, /*persist=*/true);
+    std::string err;
+    codec_graph_cache_entry * entry = nullptr;
+    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_STEP; key.n_q = n_steps;
+    if (!codec_graph_cache_get_or_build(st->ctx, key, build_step, &b, sizeof(b), &entry, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    auto G = [&](const char * nm) { return codec_graph_get_tensor(st->ctx, entry, nm); };
+    const int32_t nth = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
+    float eos = 0.0f;
+    s->next_embd.resize((size_t) I.d_model);
+    const bool ok = codec_graph_prepare_io(st->ctx, entry, &err) &&
+        codec_runtime_write_tensor(G("flow.st.h"), h_in, (size_t) I.d_model * sizeof(float), &err) &&
+        codec_runtime_write_tensor(G("flow.st.noise"), z, (size_t) I.ldim * sizeof(float), &err) &&
+        codec_graph_compute(st->ctx, entry, nth, &err) &&
+        codec_runtime_read_tensor(G("flow.st.latent"), out_latent, (size_t) I.ldim * sizeof(float), &err) &&
+        codec_runtime_read_tensor(G("flow.st.eos"), &eos, sizeof(float), &err) &&
+        codec_runtime_read_tensor(G("flow.st.embd"), s->next_embd.data(), (size_t) I.d_model * sizeof(float), &err);
+    if (!ok) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    if (!s->teacher.empty()) {   // teacher-forced: the reference latent feeds the next step
+        const std::vector<float> t = std::move(s->teacher);
+        s->teacher.clear();
+        if (!run_inproj(st, t.data(), s->next_embd.data())) return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (out_stop) *out_stop = eos > I.eos_threshold ? 1 : 0;
+    s->frame += 1;
+    return CODEC_STATUS_SUCCESS;
+}
+
+// Input embedding for the next backbone step: input_linear(bos_emb) before the
+// first frame, then input_linear(last latent).
+enum codec_status step_feedback_embd(codec_lm_state * st, float * out_embd) {
+    const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
+    flow_state * s = static_cast<flow_state *>(st->impl);
+    if (s->frame == 0) {
+        return run_inproj(st, nullptr, out_embd) ? CODEC_STATUS_SUCCESS : CODEC_STATUS_INTERNAL_ERROR;
+    }
+    std::memcpy(out_embd, s->next_embd.data(), (size_t) I.d_model * sizeof(float));
+    return CODEC_STATUS_SUCCESS;
+}
+
+enum codec_status set_teacher_patch(codec_lm_state * st, const float * patch, int32_t n) {
+    const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
+    flow_state * s = static_cast<flow_state *>(st->impl);
+    if (patch == nullptr) { s->teacher.clear(); return CODEC_STATUS_SUCCESS; }
+    if (n != I.ldim) { st->last_error = "teacher latent must be [ldim]"; return CODEC_STATUS_INVALID_ARG; }
+    s->teacher.assign(patch, patch + n);
+    return CODEC_STATUS_SUCCESS;
 }
 
 }  // namespace
@@ -533,26 +446,8 @@ enum codec_status codec_lm_flow_tokenize(struct codec_lm * lm, const char * text
     return CODEC_STATUS_SUCCESS;
 }
 
-enum codec_status codec_lm_flow_denorm_latent(struct codec_lm * lm, const float * latent, float * out) {
-    if (lm == nullptr || lm->kind != CODEC_LM_KIND_FLOW_LM || latent == nullptr || out == nullptr) {
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    flow_impl * I = &static_cast<flow_model *>(lm->impl)->cfg;
-    ggml_tensor * std_t  = ggml_get_tensor(lm->codec->weights, "lm.emb_std");
-    ggml_tensor * mean_t = ggml_get_tensor(lm->codec->weights, "lm.emb_mean");
-    if (!std_t || !mean_t) { lm->last_error = "missing emb_std/emb_mean"; return CODEC_STATUS_INTERNAL_ERROR; }
-    // Read through the backend: on a GPU backend ->data is not a host pointer.
-    std::vector<float> es, em;
-    if (!codec_tensor_as_vec_f32(std_t, &es) || !codec_tensor_as_vec_f32(mean_t, &em) ||
-        (int32_t) es.size() < I->ldim || (int32_t) em.size() < I->ldim) {
-        lm->last_error = "emb_std/emb_mean read failed"; return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    for (int32_t d = 0; d < I->ldim; ++d) out[d] = latent[d] * es[(size_t) d] + em[(size_t) d];
-    return CODEC_STATUS_SUCCESS;
-}
-
 enum codec_status codec_lm_flow_speaker_rows(struct codec_lm * lm, const float * mu,
-        int32_t n_voice, float * out, int32_t out_cap_rows) {
+        int32_t n_voice, float * out, int32_t out_cap_rows, int32_t * n_out) {
     if (lm == nullptr || lm->kind != CODEC_LM_KIND_FLOW_LM || mu == nullptr || out == nullptr) {
         return CODEC_STATUS_INVALID_ARG;
     }
@@ -560,7 +455,17 @@ enum codec_status codec_lm_flow_speaker_rows(struct codec_lm * lm, const float *
     if (ggml_get_tensor(lm->codec->weights, "lm.speaker_proj.w") == nullptr) {
         lm->last_error = "model has no speaker_proj (no voice cloning)"; return CODEC_STATUS_NOT_SUPPORTED;
     }
-    if (n_voice <= 0 || out_cap_rows < n_voice) return CODEC_STATUS_INVALID_ARG;
+    const int32_t n_bos = I->insert_bos_before_voice ? 1 : 0;
+    if (n_voice <= 0 || out_cap_rows < n_bos + n_voice) return CODEC_STATUS_INVALID_ARG;
+    if (n_bos) {
+        ggml_tensor * bos = ggml_get_tensor(lm->codec->weights, "lm.bos_before_voice");
+        std::vector<float> row;
+        if (bos == nullptr || !codec_tensor_as_vec_f32(bos, &row) || (int32_t) row.size() != I->d_model) {
+            lm->last_error = "missing lm.bos_before_voice"; return CODEC_STATUS_INTERNAL_ERROR;
+        }
+        std::memcpy(out, row.data(), row.size() * sizeof(float));
+        out += I->d_model;
+    }
     // Uses a codec_context borrowed from the model for a one-off graph compute.
     // We build a transient context (same pattern as codec_lm_state's ctx).
     codec_context * ctx = new (std::nothrow) codec_context();
@@ -583,130 +488,11 @@ enum codec_status codec_lm_flow_speaker_rows(struct codec_lm * lm, const float *
         }
         if (!codec_runtime_read_tensor(codec_graph_get_tensor(ctx, entry, "flow.sp.rows"), out, (size_t) n_voice * I->d_model * sizeof(float), &err)) { rc = CODEC_STATUS_INTERNAL_ERROR; goto done; }
     }
+    if (n_out) *n_out = n_bos + n_voice;
 done:
     if (rc != CODEC_STATUS_SUCCESS) lm->last_error = err;
     codec_runtime_free(ctx); delete ctx;
     return rc;
-}
-
-enum codec_status codec_lm_flow_prefill(struct codec_lm_state * st, const int32_t * token_ids,
-        int32_t n_tok, const float * voice_rows, int32_t n_voice) {
-    if (st == nullptr || st->lm == nullptr || st->lm->kind != CODEC_LM_KIND_FLOW_LM ||
-        token_ids == nullptr || n_tok <= 0) {
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    flow_impl * I = &static_cast<flow_model *>(st->lm->impl)->cfg;
-    flow_state * s = static_cast<flow_state *>(st->impl);
-    if (voice_rows == nullptr) n_voice = 0;
-    const int32_t use_bos = (I->insert_bos_before_voice && n_voice > 0) ? 1 : 0;
-    const int32_t T = n_tok + use_bos + n_voice;
-
-    if (!alloc_kv(s, I, st->lm->codec)) { st->last_error = "KV cache alloc failed"; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (T > s->max_T) { st->last_error = "prefix longer than KV cache (max_T)"; return CODEC_STATUS_INVALID_ARG; }
-    s->kv_pos = 0; s->frame = 0;
-
-    flow_prefill_build b = {}; b.imp = *I; b.n_tok = n_tok; b.n_voice = n_voice; b.T = T;
-    b.use_bos = use_bos; b.model = st->lm->codec;
-    for (int32_t l = 0; l < I->n_layers; ++l) { b.k_cache[l] = s->k_cache[(size_t) l]; b.v_cache[l] = s->v_cache[(size_t) l]; }
-
-    codec_graph_eval_guard guard(st->ctx, false);
-    std::string err;
-    codec_graph_cache_entry * entry = nullptr;
-    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_PREFILL; key.n_frames = T; key.n_q = n_voice; key.hop = use_bos;
-    if (!codec_graph_cache_get_or_build(st->ctx, key, build_prefill, &b, sizeof(b), &entry, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    auto G = [&](const char * nm) { return codec_graph_get_tensor(st->ctx, entry, nm); };
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    if (!codec_runtime_write_tensor(G("flow.pf.tok"), token_ids, (size_t) n_tok * sizeof(int32_t), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (n_voice > 0) {
-        if (!codec_runtime_write_tensor(G("flow.pf.voice"), voice_rows, (size_t) n_voice * I->d_model * sizeof(float), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    }
-    std::vector<int32_t> pos((size_t) T), row((size_t) T);
-    for (int32_t i = 0; i < T; ++i) { pos[(size_t) i] = i; row[(size_t) i] = i; }
-    if (!codec_runtime_write_tensor(G("flow.pf.pos"), pos.data(), (size_t) T * sizeof(int32_t), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (!codec_runtime_write_tensor(G("flow.pf.row"), row.data(), (size_t) T * sizeof(int32_t), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    // Causal mask (2T, T): keys = cache[0..T) ++ new[0..T).  The cache half is
-    // stale (unfilled) so mask it fully; within the new half apply a causal
-    // mask (query i attends to new-key j<=i).
-    std::vector<float> mask((size_t) 2 * T * T, 0.0f);
-    for (int32_t qi = 0; qi < T; ++qi) {
-        float * row_m = mask.data() + (size_t) qi * 2 * T;
-        for (int32_t k = 0; k < T; ++k) row_m[k] = -INFINITY;          // cache half: all masked
-        for (int32_t k = 0; k < T; ++k) row_m[T + k] = (k <= qi) ? 0.0f : -INFINITY;  // new half: causal
-    }
-    if (!codec_runtime_write_tensor(G("flow.pf.mask"), mask.data(), mask.size() * sizeof(float), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    const int32_t nth = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nth, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    s->kv_pos = T; s->primed = true;
-    return CODEC_STATUS_SUCCESS;
-}
-
-enum codec_status codec_lm_flow_step(struct codec_lm_state * st, const float * noise,
-        float * out_latent, float * out_eos_logit, int32_t * out_is_eos) {
-    if (st == nullptr || st->lm == nullptr || st->lm->kind != CODEC_LM_KIND_FLOW_LM || out_latent == nullptr) {
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    flow_impl * I = &static_cast<flow_model *>(st->lm->impl)->cfg;
-    flow_state * s = static_cast<flow_state *>(st->impl);
-    if (!alloc_kv(s, I, st->lm->codec)) { st->last_error = "KV cache alloc failed"; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (s->kv_pos >= s->max_T) { st->last_error = "KV cache full"; return CODEC_STATUS_INVALID_STATE; }
-
-    const int32_t is_bos = (s->frame == 0) ? 1 : 0;   // first AR frame consumes BOS (NaN->bos_emb)
-    const int32_t kBucket = 64;
-    const int32_t bucket = ((s->kv_pos + 1 + kBucket - 1) / kBucket) * kBucket;
-    const int32_t n_steps = I->lsd_decode_steps > 0 ? I->lsd_decode_steps : 1;
-
-    flow_step_build b = {}; b.imp = *I; b.bucket = bucket; b.is_bos = is_bos; b.n_steps = n_steps; b.model = st->lm->codec;
-    for (int32_t l = 0; l < I->n_layers; ++l) { b.k_cache[l] = s->k_cache[(size_t) l]; b.v_cache[l] = s->v_cache[(size_t) l]; }
-
-    // Sample or use provided noise ~ N(0, temp) (std = sqrt(temp)).
-    std::vector<float> zbuf;
-    const float * z = noise;
-    if (z == nullptr) {
-        zbuf.resize((size_t) I->ldim);
-        const float sd = std::sqrt(I->temperature);
-        std::normal_distribution<float> nd(0.0f, sd);
-        for (int32_t d = 0; d < I->ldim; ++d) zbuf[(size_t) d] = nd(s->rng);
-        z = zbuf.data();
-    }
-
-    codec_graph_eval_guard guard(st->ctx, /*persist=*/true);
-    std::string err;
-    codec_graph_cache_entry * entry = nullptr;
-    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_STEP; key.n_frames = bucket; key.n_q = n_steps; key.hop = is_bos;
-    if (!codec_graph_cache_get_or_build(st->ctx, key, build_step, &b, sizeof(b), &entry, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    auto G = [&](const char * nm) { return codec_graph_get_tensor(st->ctx, entry, nm); };
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    // Inputs.
-    if (!is_bos) {
-        if (!codec_runtime_write_tensor(G("flow.st.latent_in"), out_latent, (size_t) I->ldim * sizeof(float), &err)) {
-            // out_latent must hold the PREVIOUS latent on entry for non-BOS frames.
-            st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
-        }
-    }
-    if (!codec_runtime_write_tensor(G("flow.st.noise"), z, (size_t) I->ldim * sizeof(float), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (!codec_runtime_write_tensor(G("flow.st.pos"), &s->kv_pos, sizeof(int32_t), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (!codec_runtime_write_tensor(G("flow.st.row"), &s->kv_pos, sizeof(int32_t), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    std::vector<float> mask((size_t) bucket + 1, 0.0f);
-    for (int32_t j = s->kv_pos; j < bucket; ++j) mask[(size_t) j] = -INFINITY;   // unfilled cache slots
-    if (!codec_runtime_write_tensor(G("flow.st.mask"), mask.data(), mask.size() * sizeof(float), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    const int32_t nth = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nth, &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-
-    if (!codec_runtime_read_tensor(G("flow.st.latent"), out_latent, (size_t) I->ldim * sizeof(float), &err)) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    float eos = 0.0f;
-    codec_runtime_read_tensor(G("flow.st.eos"), &eos, sizeof(float), &err);
-    if (out_eos_logit) *out_eos_logit = eos;
-    if (out_is_eos)    *out_is_eos = (eos > I->eos_threshold) ? 1 : 0;
-
-    s->kv_pos += 1;
-    s->frame  += 1;
-    s->primed = false;
-    return CODEC_STATUS_SUCCESS;
 }
 
 // ---------------------------------------------------------------------
@@ -728,9 +514,9 @@ const codec_lm_kind_vtable codec_lm_vtable_flow_lm = {
     /*.compose_audio_embd =*/ nullptr,
     /*.compose_next_embd  =*/ nullptr,
     /*.speaker_encode     =*/ nullptr,
-    /*.step_generate      =*/ nullptr,
-    /*.step_feedback_embd =*/ nullptr,
+    /*.step_generate      =*/ step_generate,
+    /*.step_feedback_embd =*/ step_feedback_embd,
     /*.text_prefill       =*/ nullptr,
     /*.set_min_len        =*/ nullptr,
-    /*.set_teacher_patch  =*/ nullptr,
+    /*.set_teacher_patch  =*/ set_teacher_patch,
 };

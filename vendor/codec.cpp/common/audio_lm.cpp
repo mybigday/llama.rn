@@ -476,6 +476,10 @@ struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx) {
     return ctx ? ctx->lm : nullptr;
 }
 
+struct codec_context * audio_lm_get_codec_context(audio_lm_context * ctx) {
+    return ctx ? ctx->codec_ctx : nullptr;
+}
+
 // =====================================================================
 // Prompt build
 //
@@ -1806,6 +1810,35 @@ bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
     return true;
 }
 
+bool audio_lm_encode_latent(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
+                            int32_t sample_rate, std::vector<float> * latent,
+                            int32_t * n_frames, int32_t * dim) {
+    if (ctx == nullptr || pcm == nullptr || latent == nullptr || n_frames == nullptr || dim == nullptr) return false;
+    std::vector<float> resampled;
+    const int32_t codec_sr = codec_model_sample_rate(ctx->model);
+    if (codec_sr > 0 && sample_rate != codec_sr) {
+        resampled = resample_linear_mono(std::vector<float>(pcm, pcm + n_samples), sample_rate, codec_sr);
+        pcm = resampled.data(); n_samples = (int32_t) resampled.size(); sample_rate = codec_sr;
+    }
+    codec_audio au = {};
+    au.data = pcm; au.n_samples = n_samples; au.sample_rate = sample_rate;
+    au.n_channels = 1; au.pcm_type = CODEC_PCM_TYPE_F32;
+    codec_token_buffer tb = {};
+    codec_latent_buffer lb = {};
+    if (codec_encode_latent(ctx->codec_ctx, &au, &tb, &lb, codec_encode_default_params()) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_get_last_error(ctx->codec_ctx);
+        ctx->last_error = std::string("audio_lm_encode_latent: ") + (raw ? raw : "?");
+        codec_token_buffer_free(&tb);
+        return false;
+    }
+    latent->assign(lb.data, lb.data + (size_t) lb.latent_dim * lb.n_frames);
+    *n_frames = lb.n_frames;
+    *dim      = lb.latent_dim;
+    codec_token_buffer_free(&tb);
+    codec_latent_buffer_free(&lb);
+    return true;
+}
+
 // Output frames the codes accumulated so far decode to: latent frames, or
 // code frames minus the delay-pattern tail.
 static int32_t audio_lm_max_delay(const audio_lm_context * ctx) {
@@ -1820,6 +1853,10 @@ static int32_t audio_lm_max_delay(const audio_lm_context * ctx) {
 
 int32_t audio_lm_codec_hop(const audio_lm_context * ctx) {
     return ctx != nullptr && ctx->model != nullptr ? codec_model_hop_size(ctx->model) : 0;
+}
+
+int32_t audio_lm_codec_latent_dim(const audio_lm_context * ctx) {
+    return ctx != nullptr && ctx->model != nullptr ? codec_model_latent_dim(ctx->model) : 0;
 }
 
 int32_t audio_lm_decodable_frames(const audio_lm_context * ctx) {

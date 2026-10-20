@@ -90,7 +90,7 @@ static ggml_tensor * codec_wt_W_linear(ggml_context * ctx_eval, const codec_mode
     // of a block-quantized tensor can't be transposed.
     if (src->ne[0] == out_dim && src->ne[1] == in_dim) {
         if (ggml_is_quantized(src->type)) {
-            std::fprintf(stderr, "wavtokenizer: %s is %s in transposed (out, in) layout; quantized weights need "
+            codec_log(CODEC_LOG_LEVEL_ERROR, "wavtokenizer: %s is %s in transposed (out, in) layout; quantized weights need "
                          "ne0 = in (reconvert with the current converter)\n", name.c_str(), ggml_type_name(src->type));
             return nullptr;
         }

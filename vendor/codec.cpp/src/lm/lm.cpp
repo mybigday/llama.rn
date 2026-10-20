@@ -173,9 +173,9 @@ static bool codec_lm_populate_info(codec_lm * lm) {
 
     int32_t hidden             = codec_read_i32_kv(gf, "codec.lm.hidden_dim", 0);
 
-    // FlowLM (Pocket-TTS): self-contained continuous-latent AR.  No codebooks,
-    // no external backbone; uses codec.lm.d_model / ldim.  Populate minimal info
-    // and skip the codebook + continuous_latent_cfm metadata paths below.
+    // FlowLM (Pocket-TTS): continuous-latent AR, one ldim latent per step.  No
+    // codebooks; hidden = codec.lm.d_model.  Populate minimal info and skip the
+    // codebook + continuous_latent_cfm metadata paths below.
     if (lm->kind == CODEC_LM_KIND_FLOW_LM) {
         const int32_t d_model    = codec_read_i32_kv(gf, "codec.lm.d_model", 0);
         const int32_t ldim       = codec_read_i32_kv(gf, "codec.lm.ldim", 0);

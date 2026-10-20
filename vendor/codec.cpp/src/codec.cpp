@@ -516,7 +516,7 @@ struct codec_model * codec_model_load_from_file_ext(
     {
         std::string spk_err;
         if (!codec_model_load_speakers(model, &spk_err)) {
-            std::fprintf(stderr, "codec_model_load: %s\n", spk_err.c_str());
+            codec_log(CODEC_LOG_LEVEL_ERROR, "codec_model_load: %s\n", spk_err.c_str());
             codec_model_free(model);
             return nullptr;
         }

@@ -51,7 +51,7 @@ codec_speaker * find_speaker(std::vector<codec_speaker> & list, const std::strin
 }
 
 void log_error(const char * fn, const std::string & msg) {
-    std::fprintf(stderr, "%s: %s\n", fn, msg.c_str());
+    codec_log(CODEC_LOG_LEVEL_ERROR, "%s: %s\n", fn, msg.c_str());
 }
 
 // Collects speakers from `gf` + tensors in `tensors`. `read` copies a tensor's

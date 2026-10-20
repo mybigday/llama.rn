@@ -198,10 +198,11 @@ bool audio_lm_list_speaker_file(audio_lm_context * ctx, const char * path,
 // Raw codec GGUF metadata value (stringified), or NULL when absent.
 const char * audio_lm_meta_str(const audio_lm_context * ctx, const char * key);
 
-// Borrowed handle to the underlying codec_lm (NULL when none loaded).
-// Lets a host reach model-specific helpers not wrapped by codec_common
-// (e.g. the Chatterbox T3 `codec_lm_chatterbox_*` prompt/tokenizer API).
+// Borrowed handle to the underlying codec_lm (NULL when none loaded); the
+// families reach their model-specific helpers (src/lm/lm_models.h) through it.
 struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx);
+// The codec context (encode / decode of the codec model itself).
+struct codec_context * audio_lm_get_codec_context(audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
 // Prompt build (one shot, before the AR loop)
@@ -467,6 +468,8 @@ int32_t audio_lm_decodable_frames(const audio_lm_context * ctx);
 // Samples per decoded frame.  A window of n frames decodes to about n * hop
 // samples aligned at its start; some codecs drop a few at the end (DAC: 8).
 int32_t audio_lm_codec_hop(const audio_lm_context * ctx);
+// Width of the codec's continuous latent (codec_decode_quantized_representation).
+int32_t audio_lm_codec_latent_dim(const audio_lm_context * ctx);
 
 // Decode host-collected latents straight through the codec, in the codec's
 // own `codec_decode_quantized_representation` layout (Soprano: frame-major
@@ -474,6 +477,13 @@ int32_t audio_lm_codec_hop(const audio_lm_context * ctx);
 // that have no codec_lm adaptor.
 bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
                              int32_t n_frames, int32_t dim, audio_lm_audio_output * out);
+
+// Encode mono F32 PCM (any rate; resampled linearly to the codec's) to its continuous
+// latent, channel-major [dim, n_frames] (latent[d*n_frames + t]) — the input
+// codec_lm_flow_speaker_rows takes for Pocket-TTS voice conditioning.
+bool audio_lm_encode_latent(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
+                            int32_t sample_rate, std::vector<float> * latent,
+                            int32_t * n_frames, int32_t * dim);
 
 // ═════════════════════════════════════════════════════════════════════
 // Host-driven AR (Phase B): prompt assembly + codebook step machine
