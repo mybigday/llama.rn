@@ -119,7 +119,7 @@ export const MODELS = {
   SOPRANO_1_1: {
     name: 'Soprano-1.1 80M (F16) + codec (FP32)',
     repo: 'BricksDisplay/Soprano-1.1-80M-GGUF',
-    filename: 'Soprano-1.1-80M.F16.gguf',
+    filename: 'Soprano-1.1-80M-soprano-tok.F16.gguf',
     mmproj: undefined,
     size: '160MB (model) + 121MB (vocoder)',
     vocoder: {
