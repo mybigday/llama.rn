@@ -1718,6 +1718,15 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         const float * xvec_ptr = (xvec.size() == (size_t)hidden) ? xvec.data() : nullptr;
         const int32_t xvec_dim = xvec_ptr ? hidden : 0;
 
+        // Without an x-vector the prefix takes its speaker row from the
+        // decode speaker (CustomVoice builtin voices). Set it every call so a
+        // previous call's voice does not stick; nullptr is the codec default.
+        if (!codec_common::audio_lm_set_decode_speaker(
+                audio_lm_ctx, pending_codec_voice.empty() ? nullptr : pending_codec_voice.c_str())) {
+            LOG_ERROR("getFormattedAudioCompletion: %s", codec_common::audio_lm_last_error(audio_lm_ctx));
+            return {};
+        }
+
         const int32_t cap_rows = (int32_t)role_toks.size() + 6 + 4;
         std::vector<float> prefix((size_t)cap_rows * hidden);
         int32_t n_rows = 0, consumed = 0;
