@@ -92,26 +92,28 @@ export const MODELS = {
   },
   OUTE_TTS_0_3: {
     name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (FP16)',
-    repo: 'OuteAI/OuteTTS-0.3-500M-GGUF',
+    repo: 'BricksDisplay/OuteTTS-0.3-500M-GGUF',
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 170MB (vocoder)',
+    size: '403MB (model) + 178MB (vocoder)',
+    // OuteAI's WavTokenizer (wavtokenizer-large-75token-interface) with the
+    // builtin voices baked for this backbone's tokenizer.
     vocoder: {
-      repo: 'BricksDisplay/codec.cpp-gguf',
-      filename: 'wavtokenizer-large-speech-75tokens.gguf',
-      size: '170MB',
+      repo: 'BricksDisplay/OuteTTS-0.3-500M-GGUF',
+      filename: 'codec-f16.gguf',
+      size: '178MB',
     },
   },
   OUTE_TTS_1_0: {
     name: 'OuteTTS 1.0 0.6B (Q4_K_M) + DAC (FP16)',
-    repo: 'OuteAI/OuteTTS-1.0-0.6B-GGUF',
+    repo: 'BricksDisplay/OuteTTS-1.0-0.6B-GGUF',
     filename: 'OuteTTS-1.0-0.6B-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 296MB (vocoder)',
+    size: '402MB (model) + 148MB (vocoder)',
     vocoder: {
-      repo: 'BricksDisplay/codec.cpp-gguf',
-      filename: 'ibm-research--DAC.speech.gguf',
-      size: '296MB',
+      repo: 'BricksDisplay/OuteTTS-1.0-0.6B-GGUF',
+      filename: 'codec-f16.gguf',
+      size: '148MB',
     },
   },
   SOPRANO_1_1: {
