@@ -525,7 +525,14 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       await context.clearCache(false)
 
       const speakerCfg = ttsParams?.speakerConfig
-      if (speakerCfg && typeof speakerCfg === 'object' && isVocoderReady) {
+      const caps = await context.getTTSCapabilities()
+      // Voice-clone models without a voice of their own (Qwen3-TTS Base)
+      // clone the bundled reference clip unless a voice is configured.
+      const cloneDefault = caps.needsVoice && !speakerCfg
+      if (
+        ((speakerCfg && typeof speakerCfg === 'object') || cloneDefault) &&
+        isVocoderReady
+      ) {
         const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
         spk = await context.createSpeaker({
           refAudio: pcm,
@@ -539,7 +546,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         (typeof speakerCfg === 'string' ? speakerCfg : undefined)
 
       const prompt = inputText.trim()
-      const caps = await context.getTTSCapabilities()
       const {
         prompt: formattedPrompt,
         grammar,

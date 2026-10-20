@@ -360,6 +360,7 @@ if (!NativeModules.RNLlama) {
         builtinVoices: [],
         canSpeakerFromAudio: false,
         canTakeInstruct: false,
+        needsVoice: false,
         samplingDefaults: {},
       })),
     )

@@ -104,6 +104,7 @@ struct llama_rn_tts_capabilities {
     std::vector<llama_rn_speaker_info> builtin_voices;
     bool can_speaker_from_audio = false;
     bool can_take_instruct = false;   // getFormattedAudioCompletion's `instruct` is used
+    bool needs_voice = false;         // a LlamaSpeaker is required (no builtin voice to fall back on)
     int sample_rate = 0;
     // Always empty: codec_audio_lm samples with the model's own settings.
     json sampling_defaults = json::object();

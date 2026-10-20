@@ -730,7 +730,8 @@ const ctx = await initLlama({ model: backbonePath, n_gpu_layers: 99 })
 await ctx.initVocoder({ path: codecGgufPath }) // + optional use_gpu, kv_overrides
 
 const caps = await ctx.getTTSCapabilities()
-// { type, family, promptKind, requiresPhonemes, defaultLanguage, builtinVoices, canSpeakerFromAudio, canTakeInstruct }
+// { type, family, promptKind, requiresPhonemes, defaultLanguage, builtinVoices, canSpeakerFromAudio,
+//   canTakeInstruct, needsVoice }
 
 // Arm the request
 await ctx.getFormattedAudioCompletion({
@@ -755,7 +756,7 @@ await ctx.releaseVocoder() // free the codec graphs when done
 
 ### Voice cloning
 
-Create a native speaker handle from a reference clip and pass it as `speaker`; codec.cpp derives the model's conditioning from it when the request runs:
+Create a native speaker handle from a reference clip and pass it as `speaker`; codec.cpp derives the model's conditioning from it when the request runs. Models without a voice of their own (`caps.needsVoice`, e.g. Qwen3-TTS Base) require one:
 
 ```ts
 const spk = await ctx.createSpeaker({

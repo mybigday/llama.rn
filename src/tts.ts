@@ -63,6 +63,11 @@ export interface TTSCapabilities {
    */
   canTakeInstruct: boolean
   /**
+   * True when the model has no voice of its own: pass a `LlamaSpeaker`
+   * (reference audio) as `speaker` (e.g. Qwen3-TTS Base).
+   */
+  needsVoice: boolean
+  /**
    * Always empty: a text-to-speech completion samples with the model's own
    * settings (codec.cpp).
    * @deprecated

@@ -2088,6 +2088,7 @@ namespace rnllama_jsi {
                         {"builtinVoices", speakerInfosToJson(cap.builtin_voices)},
                         {"canSpeakerFromAudio", cap.can_speaker_from_audio},
                         {"canTakeInstruct", cap.can_take_instruct},
+                        {"needsVoice", cap.needs_voice},
                         {"samplingDefaults", cap.sampling_defaults},
                     });
                     return [res](jsi::Runtime& rt) {
