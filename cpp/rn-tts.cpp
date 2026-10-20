@@ -3999,21 +3999,26 @@ std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context*
 
     struct codec_pcm_buffer pcm = {};
     const int n_frames = (int) (embeddings.size() / (size_t) embedding_dim);
-    // The accumulator is frame-major [T, dim] (one row per latent frame), but
-    // codec_decode_quantized_representation expects channel-major [dim, T]
-    // (data[d * n_frames + t]) — same convention as codec_common's
-    // audio_lm_decode_audio, which transposes before decoding.  Without this
-    // transpose the AudioVAE decodes a scrambled latent matrix: the output
-    // still *sounds* like fluent speech but says entirely wrong words.
-    std::vector<float> chan_major((size_t) embedding_dim * (size_t) n_frames);
-    for (int t = 0; t < n_frames; ++t) {
-        for (int d = 0; d < embedding_dim; ++d) {
-            chan_major[(size_t) d * n_frames + t] = embeddings[(size_t) t * embedding_dim + d];
+    // The accumulator is frame-major [T, dim] (one row per latent frame).  The
+    // AudioVAE expects channel-major [dim, T] (data[d * n_frames + t]) — same
+    // convention as codec_common's audio_lm_decode_audio, which transposes
+    // before decoding.  Without this transpose the AudioVAE decodes a
+    // scrambled latent matrix: the output still *sounds* like fluent speech
+    // but says entirely wrong words.  Soprano's decoder reads frame-major
+    // hidden states as they are (codec.cpp run_soprano).
+    const bool frame_major = profile_for_type(getTTSType(main_ctx)).prompt_kind == tts_prompt_kind::SOPRANO;
+    std::vector<float> chan_major;
+    if (!frame_major) {
+        chan_major.resize((size_t) embedding_dim * (size_t) n_frames);
+        for (int t = 0; t < n_frames; ++t) {
+            for (int d = 0; d < embedding_dim; ++d) {
+                chan_major[(size_t) d * n_frames + t] = embeddings[(size_t) t * embedding_dim + d];
+            }
         }
     }
     const enum codec_status status = codec_decode_quantized_representation(
         codec_ctx,
-        chan_major.data(),
+        frame_major ? embeddings.data() : chan_major.data(),
         embedding_dim,
         n_frames,
         &pcm,

@@ -1415,6 +1415,7 @@ completion_token_output llama_rn_context_completion::nextToken()
             : 0;
 
     bool tg = true;
+    bool hidden_frame_captured = false;
     while (n_past < embd.size())
     {
         llama_pos decode_to = (llama_pos) embd.size();
@@ -1633,12 +1634,17 @@ completion_token_output llama_rn_context_completion::nextToken()
                 has_next_token = false;
                 return result;
             }
-        } else if (parent_ctx->params.embedding && tg && n_past > (llama_pos)num_prompt_tokens) {
+        } else if (parent_ctx->params.embedding && n_past >= (llama_pos)num_prompt_tokens &&
+                   (tg || n_past == (llama_pos)num_prompt_tokens)) {
+            // Hidden-state TTS (Soprano): each frame is the hidden state that
+            // predicts the next token, from the prompt's last position on; the
+            // one that predicts EOS is dropped when EOS is sampled.
             const float *embedding = llama_get_embeddings_ith(parent_ctx->ctx, -1);
             const int dim = llama_model_n_embd(parent_ctx->model);
             if (embedding != nullptr && dim > 0) {
                 embedding_dim = dim;
                 embeddings.insert(embeddings.end(), embedding, embedding + dim);
+                hidden_frame_captured = true;
             }
         }
 
@@ -1748,6 +1754,9 @@ completion_token_output llama_rn_context_completion::nextToken()
             parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
 
         if (llama_vocab_is_eog(vocab, new_token_id)) {
+            if (hidden_frame_captured) {
+                embeddings.resize(embeddings.size() - (size_t) embedding_dim);
+            }
             has_next_token = false;
             stopped_eos = true;
             LOG_VERBOSE("EOS: %s", common_token_to_piece(parent_ctx->ctx, new_token_id).c_str());
