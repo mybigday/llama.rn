@@ -15,6 +15,8 @@
 //   --save-speaker PATH    write the registry speaker to a speaker file
 //   --kv-override K=T:V    codec GGUF metadata override (repeatable)
 //   --instruct TEXT        how to speak (models with can_take_instruct)
+//   --then TEXT            generate TEXT too, then decode both (the first one
+//                          last, from its saved result) into OUT and OUT.then.wav
 //
 // Backbone: --ngl N, --cache-type T, --fa / --no-fa, --n-parallel N; --codec-gpu runs the
 // codec on the GPU.  Sampling is the model's own (codec_audio_lm); --seed N
@@ -105,6 +107,7 @@ int main(int argc, char ** argv) {
     std::string clone_audio_path;
     std::string ref_text;
     std::string instruct;
+    std::string then_text;
     std::string speaker_file;
     std::string save_speaker;
     std::vector<std::string> kv_overrides;
@@ -128,6 +131,7 @@ int main(int argc, char ** argv) {
         else if (is("--clone-audio")  && i + 1 < argc) clone_audio_path  = argv[++i];
         else if (is("--ref-text")     && i + 1 < argc) ref_text          = argv[++i];
         else if (is("--instruct")     && i + 1 < argc) instruct          = argv[++i];
+        else if (is("--then")         && i + 1 < argc) then_text         = argv[++i];
         else if (is("--speaker-file") && i + 1 < argc) speaker_file      = argv[++i];
         else if (is("--save-speaker") && i + 1 < argc) save_speaker      = argv[++i];
         else if (is("--kv-override")  && i + 1 < argc) kv_overrides.push_back(argv[++i]);
@@ -218,38 +222,62 @@ int main(int argc, char ** argv) {
     }
     json speaker = voice.empty() ? json(nullptr) : json::object({{"codec_voice", voice}});
 
-    // The same entry points the JS layer calls.
-    try {
-        const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, text, speaker_id, instruct);
-        std::printf("[probe] flow=%s embedding=%d\n", formatted.flow.c_str(), (int) formatted.embedding);
-    } catch (const std::exception & e) {
-        std::fprintf(stderr, "[probe] getFormattedAudioCompletion failed: %s\n", e.what());
-        return 6;
-    }
-    ctx.completion->rewind();
-    ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
-    if (seed > 0) ctx.params.sampling.seed = seed;
-    if (!ctx.completion->initSampling()) {
-        std::fprintf(stderr, "initSampling failed\n");
-        return 6;
-    }
-    ctx.completion->beginCompletion();
-    const auto t3 = std::chrono::steady_clock::now();
-    try {
-        ctx.completion->loadPrompt({});
-        while (ctx.completion->has_next_token) (void) ctx.completion->doCompletion();
-        ctx.completion->endCompletion();
-    } catch (const std::exception & e) {
-        std::fprintf(stderr, "[probe] generation failed: %s\n", e.what());
-        return 7;
-    }
-    const auto t4 = std::chrono::steady_clock::now();
+    // The same entry points the JS layer calls: arm, run the completion, keep
+    // the result's decoder input (audio_tokens, or embeddings for latents).
+    struct generation {
+        std::vector<llama_token> tokens;
+        std::vector<float> latents;
+        int latent_dim = 0;
+    };
+    auto synthesize = [&](const std::string & t, generation * g) {
+        try {
+            const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct);
+            std::printf("[probe] flow=%s\n", formatted.flow.c_str());
+            ctx.completion->rewind();
+            ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
+            if (seed > 0) ctx.params.sampling.seed = seed;
+            if (!ctx.completion->initSampling()) {
+                std::fprintf(stderr, "initSampling failed\n");
+                return false;
+            }
+            ctx.completion->beginCompletion();
+            const auto t3 = std::chrono::steady_clock::now();
+            ctx.completion->loadPrompt({});
+            while (ctx.completion->has_next_token) (void) ctx.completion->doCompletion();
+            ctx.completion->endCompletion();
+            const auto t4 = std::chrono::steady_clock::now();
+            g->tokens = ctx.tts_wrapper->audio_tokens;
+            g->latents = ctx.completion->embeddings;
+            g->latent_dim = ctx.completion->embedding_dim;
+            std::printf("\n[probe] === GENERATION ===\n");
+            std::printf("  frames                : %d\n", ctx.tts_wrapper->n_frames);
+            std::printf("  decoder input         : %s (%zu values)\n", g->latents.empty() ? "codes" : "latents",
+                        g->latents.empty() ? g->tokens.size() : g->latents.size());
+            std::printf("  STOP REASON           : %s\n", ctx.tts_wrapper->stop_reason.c_str());
+            std::printf("  text head             : %s\n", ctx.completion->generated_text.substr(0, 120).c_str());
+            std::printf("  total generation time : %.2fs\n", std::chrono::duration<double>(t4 - t3).count());
+            return true;
+        } catch (const std::exception & e) {
+            std::fprintf(stderr, "[probe] generation failed: %s\n", e.what());
+            return false;
+        }
+    };
+    auto decode = [&](const generation & g, std::vector<float> * pcm) {
+        try {
+            *pcm = g.latents.empty() ? ctx.tts_wrapper->decodeAudioTokens(&ctx, g.tokens)
+                                     : ctx.tts_wrapper->decodeAudioEmbeddings(&ctx, g.latents, g.latent_dim);
+            return true;
+        } catch (const std::exception & e) {
+            std::fprintf(stderr, "[probe] decode failed: %s\n", e.what());
+            return false;
+        }
+    };
 
-    std::printf("\n[probe] === GENERATION ===\n");
-    std::printf("  frames                : %zu\n", ctx.tts_wrapper->audio_tokens.size());
-    std::printf("  STOP REASON           : %s\n", ctx.tts_wrapper->stop_reason.c_str());
-    std::printf("  text head             : %s\n", ctx.completion->generated_text.substr(0, 120).c_str());
-    std::printf("  total generation time : %.2fs\n", std::chrono::duration<double>(t4 - t3).count());
+    generation first;
+    if (!synthesize(text, &first)) return 7;
+    // --then: a second generation runs before the first one is decoded.
+    generation second;
+    if (!then_text.empty() && !synthesize(then_text, &second)) return 7;
 
     if (!save_speaker.empty() && speaker_id >= 0) {
         try {
@@ -261,13 +289,15 @@ int main(int argc, char ** argv) {
     }
 
     if (out_wav.empty()) return 0;
-    std::vector<float> pcm;
-    try {
-        pcm = ctx.tts_wrapper->decodeAudioTokens(&ctx, ctx.tts_wrapper->audio_tokens);
-    } catch (const std::exception & e) {
-        std::fprintf(stderr, "[probe] decode failed: %s\n", e.what());
-        return 8;
+    if (!then_text.empty()) {
+        std::vector<float> pcm2;
+        if (!decode(second, &pcm2)) return 8;
+        const std::string path2 = out_wav + ".then.wav";
+        write_wav_mono16(path2, pcm2, ctx.tts_wrapper->getAudioSampleRate());
+        std::printf("[probe] --then audio: %s (%zu samples)\n", path2.c_str(), pcm2.size());
     }
+    std::vector<float> pcm;
+    if (!decode(first, &pcm)) return 8;
 
     const int sr = ctx.tts_wrapper->getAudioSampleRate();
     double sumsq = 0.0; bool has_nan = false; float peak = 0.0f;

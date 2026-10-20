@@ -296,6 +296,11 @@ llama_rn_context_tts::~llama_rn_context_tts() {
 
 void llama_rn_context_tts::reset() {
     pending_speaker_id = -1;
+    // The completion result has taken the last generation's data.
+    audio_tokens.clear();
+    audio_latents.clear();
+    audio_latent_dim = 0;
+    n_frames = 0;
 }
 
 // ── Capabilities ──────────────────────────────────────────────────────
@@ -459,8 +464,10 @@ int llama_rn_context_tts::beginGeneration(llama_rn_context* main_ctx) {
     if (!armed) throw std::runtime_error("TTS: no request; call getFormattedAudioCompletion first");
     // One completion per request: the context runs text completions again after it.
     armed = false;
-    generated_pcm.clear();
     audio_tokens.clear();
+    audio_latents.clear();
+    audio_latent_dim = 0;
+    n_frames = 0;
     stop_reason.clear();
 
     armed_voice v = armed_v;
@@ -632,8 +639,8 @@ llama_rn_context_tts::step_result llama_rn_context_tts::step(llama_rn_context* m
     if (v.is_audio) {
         ++seg_frames;
         r.audio = true;
-        r.tok = tok >= 0 ? tok : (llama_token) audio_tokens.size();
-        audio_tokens.push_back(r.tok);
+        r.tok = tok >= 0 ? tok : (llama_token) n_frames;
+        ++n_frames;
     }
     if (v.action == CODEC_AUDIO_LM_STOP) {
         stop_reason = codec_audio_lm_stop_reason(alm);
@@ -651,40 +658,24 @@ llama_rn_context_tts::step_result llama_rn_context_tts::step(llama_rn_context* m
     return r;
 }
 
-void llama_rn_context_tts::finishSegment(llama_rn_context* main_ctx, bool last) {
+void llama_rn_context_tts::finishSegment() {
     seg_open = false;
-    codec_pcm_buffer buf{};
-    {
-        codec_affinity_scope affinity(main_ctx);
-        if (!codec_audio_lm_decode(alm, &buf)) throw std::runtime_error(alm_error(alm, "TTS decode"));
+    codec_audio_lm_generation gen{};
+    if (!codec_audio_lm_get_generation(alm, &gen)) throw std::runtime_error(alm_error(alm, "TTS generation"));
+    if (gen.n_frames <= 0) return;
+    const size_t n = (size_t) gen.n_frames * (size_t) gen.width;
+    if (gen.kind == CODEC_AUDIO_LM_DATA_LATENTS) {
+        audio_latent_dim = gen.width;
+        audio_latents.insert(audio_latents.end(), gen.latents, gen.latents + n);
+    } else {
+        code_width = gen.width;
+        audio_tokens.insert(audio_tokens.end(), gen.codes, gen.codes + n);
     }
-    const int32_t n_ch = std::max(1, buf.n_channels);
-    if (n_ch > 1) {
-        for (int32_t i = 0; i < buf.n_samples; ++i) {
-            float acc = 0.0f;
-            for (int32_t ch = 0; ch < n_ch; ++ch) acc += buf.data[(size_t) i * n_ch + ch];
-            buf.data[i] = acc / (float) n_ch;
-        }
-        buf.n_channels = 1;
-    }
-    int32_t gap = 0;
-    const int32_t n = (int32_t) segments.size();
-    if (n > 1) {
-        codec_affinity_scope affinity(main_ctx);
-        gap = codec_audio_lm_tts_join(alm, &buf, (int32_t) seg, last ? (int32_t) seg + 1 : n);
-    }
-    if (gap >= 0) {
-        generated_pcm.insert(generated_pcm.end(), buf.data, buf.data + buf.n_samples);
-        generated_pcm.insert(generated_pcm.end(), (size_t) gap, 0.0f);
-    }
-    codec_pcm_buffer_free(&buf);
-    if (gap < 0) throw std::runtime_error(alm_error(alm, "TTS join"));
 }
 
 int llama_rn_context_tts::nextSegment(llama_rn_context* main_ctx) {
-    const bool last = seg + 1 >= segments.size();
-    finishSegment(main_ctx, last);
-    if (last) return -1;
+    finishSegment();
+    if (seg + 1 >= segments.size()) return -1;
     ++seg;
     stop_reason.clear();
     return beginSegment(main_ctx);
@@ -702,7 +693,7 @@ void llama_rn_context_tts::endGeneration(llama_rn_context* main_ctx) {
     // The KV cache holds TTS rows; text completions start over.
     llama_memory_clear(llama_get_memory(main_ctx->ctx), true);
     if (stop_reason.empty()) stop_reason = "interrupted";
-    if (seg_open) finishSegment(main_ctx, true);
+    if (seg_open) finishSegment();
 }
 
 llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(llama_rn_context* main_ctx,
@@ -724,8 +715,8 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(llama_rn_co
 
     llama_rn_audio_codes_result res;
     res.codes.assign(audio_tokens.begin(), audio_tokens.end());
-    res.n_codebook = 1;
-    res.n_frames = (int) audio_tokens.size();
+    res.n_codebook = code_width;
+    res.n_frames = n_frames;
     res.aborted = stop_reason == "interrupted";
     res.stopped_on_eos = completion->stopped_eos;
     return res;
@@ -816,22 +807,50 @@ std::vector<llama_rn_speaker_info> llama_rn_context_tts::listSpeakers(const std:
 
 // ── Audio ─────────────────────────────────────────────────────────────
 
+std::vector<float> llama_rn_context_tts::decodeGeneration(const codec_audio_lm_generation &gen, const char * what) {
+    codec_pcm_buffer buf{};
+    if (!codec_audio_lm_decode_generation(alm, &gen, &buf)) throw std::runtime_error(alm_error(alm, what));
+    const int32_t n_ch = std::max(1, buf.n_channels);
+    std::vector<float> pcm((size_t) buf.n_samples);
+    for (int32_t i = 0; i < buf.n_samples; ++i) {
+        float acc = 0.0f;
+        for (int32_t ch = 0; ch < n_ch; ++ch) acc += buf.data[(size_t) i * n_ch + ch];
+        pcm[(size_t) i] = acc / (float) n_ch;
+    }
+    codec_pcm_buffer_free(&buf);
+    return pcm;
+}
+
 std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx,
                                                            const std::vector<llama_token> &tokens) {
-    (void) main_ctx;
-    if (tokens.empty() || generated_pcm.empty()) throw std::runtime_error("decodeAudioTokens: no generated audio");
-    return generated_pcm;
+    if (tokens.empty()) throw std::runtime_error("decodeAudioTokens: no audio tokens");
+    if (code_width <= 0) throw std::runtime_error("decodeAudioTokens: this model's codes are unknown until it generates");
+    if (tokens.size() % (size_t) code_width != 0) {
+        throw std::runtime_error("decodeAudioTokens: " + std::to_string(tokens.size()) + " codes are not whole frames of " +
+                                 std::to_string(code_width));
+    }
+    codec_audio_lm_generation gen{};
+    gen.kind     = CODEC_AUDIO_LM_DATA_CODES;
+    gen.n_frames = (int32_t) (tokens.size() / (size_t) code_width);
+    gen.width    = code_width;
+    gen.codes    = tokens.data();
+    codec_affinity_scope affinity(main_ctx);
+    return decodeGeneration(gen, "decodeAudioTokens");
 }
 
 std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context* main_ctx,
                                                                const std::vector<float> &embeddings,
                                                                int embedding_dim) {
-    (void) main_ctx;
-    (void) embedding_dim;
-    if (embeddings.empty() || generated_pcm.empty()) {
-        throw std::runtime_error("decodeAudioEmbeddings: no generated audio");
+    if (embeddings.empty() || embedding_dim <= 0 || embeddings.size() % (size_t) embedding_dim != 0) {
+        throw std::runtime_error("decodeAudioEmbeddings: expected whole frames of embedding_dim");
     }
-    return generated_pcm;
+    codec_audio_lm_generation gen{};
+    gen.kind     = CODEC_AUDIO_LM_DATA_LATENTS;
+    gen.n_frames = (int32_t) (embeddings.size() / (size_t) embedding_dim);
+    gen.width    = embedding_dim;
+    gen.latents  = embeddings.data();
+    codec_affinity_scope affinity(main_ctx);
+    return decodeGeneration(gen, "decodeAudioEmbeddings");
 }
 
 int llama_rn_context_tts::getAudioSampleRate() const {

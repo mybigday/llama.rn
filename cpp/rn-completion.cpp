@@ -707,11 +707,16 @@ void llama_rn_context_completion::endCompletion() {
         embd.resize(n_past);
     }
     if (isAudioGeneration()) {
-        // Decodes the audio so far and clears the KV cache, which embd no
-        // longer describes.
-        parent_ctx->tts_wrapper->endGeneration(parent_ctx);
+        // Keeps the decoder input so far and clears the KV cache, which embd
+        // no longer describes.  Latents come back as the result's embeddings.
+        llama_rn_context_tts * tts = parent_ctx->tts_wrapper;
+        tts->endGeneration(parent_ctx);
         embd.clear();
         n_past = 0;
+        if (!tts->audio_latents.empty()) {
+            embeddings = tts->audio_latents;
+            embedding_dim = tts->audio_latent_dim;
+        }
     }
     is_predicting = false;
 }

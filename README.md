@@ -717,7 +717,7 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 
 "Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
 
-codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. `getFormattedAudioCompletion()` arms a request, and the next `completion()` runs it through the regular completion loop: that completion ignores the prompt, grammar and sampling params it is given (the model's own apply), `n_predict` caps the audio frames and `seed` seeds the sampling. Long text is generated sentence by sentence and joined.
+codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. `getFormattedAudioCompletion()` arms a request, and the next `completion()` runs it through the regular completion loop: that completion ignores the prompt, grammar and sampling params it is given (the model's own apply), `n_predict` caps the audio frames and `seed` seeds the sampling. Its result carries the decoder input — `audio_tokens` (codec codes), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — which decodes to PCM at any later time, in any order.
 
 ### Usage
 
@@ -741,10 +741,14 @@ await ctx.getFormattedAudioCompletion({
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
 
-// Run it, then take the audio (PCM float samples)
-const result = await ctx.completion({ prompt: '' }) // result.audio_tokens: one entry per audio frame
+// Run it, then decode its result to PCM float samples (now or later)
+const result = await ctx.completion({ prompt: '' })
 const sampleRate = await ctx.getAudioSampleRate()
-const pcm = new Float32Array(await ctx.decodeAudioTokens(result.audio_tokens ?? []))
+const pcm = new Float32Array(
+  result.embeddings?.length
+    ? await ctx.decodeAudioEmbeddings(result.embeddings, result.embedding_dim)
+    : await ctx.decodeAudioTokens(result.audio_tokens ?? []),
+)
 
 await ctx.releaseVocoder() // free the codec graphs when done
 ```
@@ -764,7 +768,7 @@ await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
 await spk.release()         // free the native speaker when done
 ```
 
-For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that.
+For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Decoding uses the voice of the latest `getFormattedAudioCompletion`, so decode a result before arming another voice when the decoder depends on it. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that.
 
 The decoder conditioning can be saved to a speaker file and reloaded without the reference audio (a file speaker conditions the decoder only, not the LM):
 

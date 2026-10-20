@@ -13,6 +13,7 @@
 using json = nlohmann::ordered_json;
 
 struct codec_audio_lm;
+struct codec_audio_lm_generation;
 struct common_sampler;
 struct common_params_sampling;
 
@@ -114,11 +115,15 @@ struct llama_rn_tts_capabilities {
 struct llama_rn_context_tts {
     ::codec_audio_lm * alm = nullptr;
 
-    // The last generation: its PCM (decoded and joined across segments) and
-    // one entry per audio frame for the completion result's `audio_tokens`
-    // (the sampled backbone token, or the frame index for codec-head models).
-    std::vector<float> generated_pcm;
+    // The last generation's decoder input (codec_audio_lm_get_generation,
+    // segments concatenated): codec codes, which the completion result returns
+    // as `audio_tokens` (frame-major, code_width per frame), or latents, which
+    // it returns as `embeddings` / `embedding_dim`.  decodeAudioTokens /
+    // decodeAudioEmbeddings decode such data at any later time.
     std::vector<llama_token> audio_tokens;
+    std::vector<float> audio_latents;
+    int audio_latent_dim = 0;
+    int n_frames = 0;               // audio frames of the last generation
     std::string stop_reason;
 
     // Speaker id from the completion params (JSIParams); -1 = none.
@@ -135,7 +140,8 @@ struct llama_rn_context_tts {
                          int n_threads = 0);
     ~llama_rn_context_tts();
 
-    // Per-completion state (rewind); the armed request survives.
+    // Per-completion state (rewind): the speaker id and the last generation's
+    // data, which its completion result holds; the armed request survives.
     void reset();
 
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
@@ -172,11 +178,11 @@ struct llama_rn_context_tts {
     // One step: sample with `smpl` when the model asks, observe, decode what
     // it feeds at `n_past`.
     step_result step(llama_rn_context* main_ctx, common_sampler * smpl, int n_past);
-    // After a STOP: keeps the segment's audio; returns the KV position after
-    // the next segment's prompt, or -1 when it was the last.
+    // After a STOP: keeps the segment's decoder input; returns the KV position
+    // after the next segment's prompt, or -1 when it was the last.
     int nextSegment(llama_rn_context* main_ctx);
-    // Keeps the audio generated so far (generated_pcm) and restores the
-    // context.  Safe to call when not generating.
+    // Keeps the decoder input generated so far and restores the context.
+    // Safe to call when not generating.
     void endGeneration(llama_rn_context* main_ctx);
 
     // DEPRECATED: arms `opts.prompt` and runs a completion.
@@ -196,9 +202,8 @@ struct llama_rn_context_tts {
     void saveSpeaker(int id, const std::string &path, const std::string &name);
     std::vector<llama_rn_speaker_info> listSpeakers(const std::string &path);
 
-    // The last generation's audio.  The arguments are the completion result's
-    // `audio_tokens` / `embeddings` and only checked for presence: the audio
-    // is what codec_audio_lm decoded.
+    // PCM of a generation's codes (`audio_tokens`) or latents (`embeddings`),
+    // with the current decoder speaker.  Throws on failure.
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
     std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings,
                                              int embedding_dim);
@@ -216,8 +221,10 @@ private:
     void applyVoice(const armed_voice &v);
     // Prompt of segment `seg` (codec_audio_lm), decoded from position 0.
     int beginSegment(llama_rn_context* main_ctx);
-    // Decodes the current segment and appends it, joined, to generated_pcm.
-    void finishSegment(llama_rn_context* main_ctx, bool last);
+    // Appends the current segment's decoder input to audio_tokens / audio_latents.
+    void finishSegment();
+    std::vector<float> decodeGeneration(const codec_audio_lm_generation &gen, const char * what);
+    int code_width = 0;             // codebooks per frame of this model's codes (0: none seen yet)
 
     bool armed = false;
     std::string armed_text;

@@ -1220,9 +1220,10 @@ export class LlamaContext {
    *
    * codec.cpp builds the model's prompt and sampling, so that completion
    * ignores the prompt, grammar and sampling params it is given; `n_predict`
-   * caps the audio frames and `seed` seeds the sampling. Its
-   * `result.audio_tokens` has one entry per audio frame; `decodeAudioTokens`
-   * then returns the audio.
+   * caps the audio frames and `seed` seeds the sampling. Its result carries
+   * the decoder input: `audio_tokens` (codec codes), or `embeddings` +
+   * `embedding_dim` (latents, e.g. Soprano / BlueMagpie). Decode them with
+   * `decodeAudioTokens` / `decodeAudioEmbeddings` at any later time.
    *
    * - `prompt` — text to speak. Phonemized if `phonemizer` is supplied.
    * - `speaker` — a builtin voice name of the codec (`builtinVoices`), a
@@ -1354,8 +1355,9 @@ export class LlamaContext {
   }
 
   /**
-   * Audio (PCM at `getAudioSampleRate()`) of the last text-to-speech
-   * completion. `tokens` is that completion's `audio_tokens`.
+   * PCM (at `getAudioSampleRate()`) of a text-to-speech completion's
+   * `audio_tokens`, with the current voice. Any earlier completion's tokens
+   * decode, in any order.
    */
   async decodeAudioTokens(
     tokens: number[] | Int32Array,
@@ -1456,7 +1458,10 @@ export class LlamaContext {
     return await llamaListSpeakers(this.id, path)
   }
 
-  /** Same as `decodeAudioTokens`: the audio of the last text-to-speech completion. */
+  /**
+   * PCM of a text-to-speech completion's `embeddings` / `embedding_dim`
+   * (latent models), like `decodeAudioTokens`.
+   */
   async decodeAudioEmbeddings(
     embeddings: number[] | Float32Array,
     embeddingDim: number,

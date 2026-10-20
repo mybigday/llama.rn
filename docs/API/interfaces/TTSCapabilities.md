@@ -27,7 +27,7 @@ Pass a voice's `name` as `speaker` to `getFormattedAudioCompletion`.
 
 #### Defined in
 
-[tts.ts:53](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L53)
+[tts.ts:53](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L53)
 
 ___
 
@@ -40,7 +40,7 @@ True when a `LlamaSpeaker`'s reference audio also conditions the decoder
 
 #### Defined in
 
-[tts.ts:58](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L58)
+[tts.ts:58](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L58)
 
 ___
 
@@ -54,7 +54,7 @@ cheerfully") in `getFormattedAudioCompletion` — Qwen3-TTS CustomVoice
 
 #### Defined in
 
-[tts.ts:64](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L64)
+[tts.ts:64](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L64)
 
 ___
 
@@ -66,7 +66,7 @@ Suggested language for the phonemizer hook ("en-us" today).
 
 #### Defined in
 
-[tts.ts:48](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L48)
+[tts.ts:48](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L48)
 
 ___
 
@@ -76,7 +76,7 @@ ___
 
 #### Defined in
 
-[tts.ts:33](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L33)
+[tts.ts:33](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L33)
 
 ___
 
@@ -88,7 +88,7 @@ Prompt assembly family — drives default-voice selection on the JS side.
 
 #### Defined in
 
-[tts.ts:17](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L17)
+[tts.ts:17](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L17)
 
 ___
 
@@ -100,7 +100,7 @@ True when the model was trained on phonemes — caller should provide a phonemiz
 
 #### Defined in
 
-[tts.ts:46](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L46)
+[tts.ts:46](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L46)
 
 ___
 
@@ -125,7 +125,7 @@ settings (codec.cpp).
 
 #### Defined in
 
-[tts.ts:70](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L70)
+[tts.ts:70](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L70)
 
 ___
 
@@ -137,4 +137,4 @@ Numeric tts_type enum value (matches cpp/rn-tts.h).
 
 #### Defined in
 
-[tts.ts:15](https://github.com/mybigday/llama.rn/blob/7e7becfb/src/tts.ts#L15)
+[tts.ts:15](https://github.com/mybigday/llama.rn/blob/4cdebf7c/src/tts.ts#L15)

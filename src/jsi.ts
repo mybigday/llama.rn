@@ -137,9 +137,10 @@ declare global {
     prompt: string
     grammar?: string
     embedding: boolean
-    // Always 'tokens': the next `completion()` runs the request and returns
-    // one `audio_tokens` entry per audio frame; `decodeAudioTokens` returns
-    // the audio.  'continuous_embd' is no longer produced.
+    // Always 'tokens': the next `completion()` runs the request.  Its result
+    // carries `audio_tokens` (codes, for decodeAudioTokens) or `embeddings`
+    // (latents, for decodeAudioEmbeddings); 'continuous_embd' is no longer
+    // produced.
     flow: 'tokens' | 'continuous_embd' | ''
   }>
   var llamaGetTTSCapabilities: (contextId: number) => Promise<TTSCapabilities>
