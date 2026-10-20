@@ -957,9 +957,9 @@ static std::string build_outetts_v1_dynamic_grammar(const std::vector<std::strin
 
 static std::string build_soprano_dynamic_grammar() {
     return R"(root ::= CODE* STOP?
-CODE ::= "[" SOPRANO_ID "]"
+CODE ::= "[" SOPRANO-ID "]"
 STOP ::= "[STOP]"
-SOPRANO_ID ::= [0-9] | [1-9] [0-9] | [1-9] [0-9] [0-9] | [1-7] [0-9] [0-9] [0-9]
+SOPRANO-ID ::= [0-9] | [1-9] [0-9] | [1-9] [0-9] [0-9] | [1-7] [0-9] [0-9] [0-9]
 )";
 }
 
@@ -969,8 +969,8 @@ SOPRANO_ID ::= [0-9] | [1-9] [0-9] | [1-9] [0-9] [0-9] | [1-7] [0-9] [0-9] [0-9]
 static std::string build_neutts_dynamic_grammar() {
     return R"(root ::= speechToken+ end
 end ::= "<|SPEECH_GENERATION_END|>"
-speechToken ::= "<|speech_" SPEECH_ID "|>"
-SPEECH_ID ::= [0-9]
+speechToken ::= "<|speech_" SPEECH-ID "|>"
+SPEECH-ID ::= ( [0-9]
         | [1-9] [0-9]
         | [1-9] [0-9] [0-9]
         | [1-9] [0-9] [0-9] [0-9]
@@ -978,7 +978,7 @@ SPEECH_ID ::= [0-9]
         | "6" [0-4] [0-9] [0-9] [0-9]
         | "65" [0-4] [0-9] [0-9]
         | "655" [0-2] [0-9]
-        | "6553" [0-5]
+        | "6553" [0-5] )
 )";
 }
 
