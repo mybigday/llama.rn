@@ -443,7 +443,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const isChatterboxT3 =
         /chatterbox/.test(ttsPath.toLowerCase()) &&
         !/turbo/.test(ttsPath.toLowerCase())
-      // The published CSM codec lacks the audio-end code codec.cpp reads.
+      // The published CSM codec lacks the audio-end code codec.cpp stops on.
       const isCsm = /csm/.test(ttsPath.toLowerCase())
       const ttsParams = {
         ...params,
@@ -488,7 +488,14 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           ...(isCosyVoice
             ? { kv_overrides: ['cosyvoice.flow.n_timesteps=int:6'] }
             : {}),
-          ...(isCsm ? { kv_overrides: ['codec.lm.eos_code_c0=int:0'] } : {}),
+          ...(isCsm
+            ? {
+                kv_overrides: [
+                  'codec.lm.eos_code_c0=int:0',
+                  'codec.lm.eos_min_step=int:1',
+                ],
+              }
+            : {}),
         })
         setIsVocoderReady(true)
         if (isCosyVoice && !inputText.trim()) {
