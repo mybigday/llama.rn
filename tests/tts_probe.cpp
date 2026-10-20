@@ -14,6 +14,7 @@
 //   --speaker-file PATH    registry speaker loaded from a speaker file
 //   --save-speaker PATH    write the registry speaker to a speaker file
 //   --kv-override K=T:V    codec GGUF metadata override (repeatable)
+//   --instruct TEXT        how to speak (models with can_take_instruct)
 //
 // Backbone: --ngl N, --cache-type T, --fa / --no-fa, --n-parallel N; --codec-gpu runs the
 // codec on the GPU.  Sampling is the model's own (codec_audio_lm); --seed N
@@ -103,6 +104,7 @@ int main(int argc, char ** argv) {
     std::string voice;
     std::string clone_audio_path;
     std::string ref_text;
+    std::string instruct;
     std::string speaker_file;
     std::string save_speaker;
     std::vector<std::string> kv_overrides;
@@ -125,6 +127,7 @@ int main(int argc, char ** argv) {
         else if (is("--voice")        && i + 1 < argc) voice             = argv[++i];
         else if (is("--clone-audio")  && i + 1 < argc) clone_audio_path  = argv[++i];
         else if (is("--ref-text")     && i + 1 < argc) ref_text          = argv[++i];
+        else if (is("--instruct")     && i + 1 < argc) instruct          = argv[++i];
         else if (is("--speaker-file") && i + 1 < argc) speaker_file      = argv[++i];
         else if (is("--save-speaker") && i + 1 < argc) save_speaker      = argv[++i];
         else if (is("--kv-override")  && i + 1 < argc) kv_overrides.push_back(argv[++i]);
@@ -183,9 +186,9 @@ int main(int argc, char ** argv) {
     {
         const auto cap = ctx.tts_wrapper->getTTSCapabilities(&ctx);
         std::printf("[probe] tts type=%d prompt_kind=%s family=%s requires_phonemes=%d "
-                    "can_speaker_from_audio=%d takes_instruct=%d sample_rate=%d\n",
+                    "can_speaker_from_audio=%d can_take_instruct=%d sample_rate=%d\n",
                     cap.type, cap.prompt_kind.c_str(), cap.family.c_str(), (int) cap.requires_phonemes,
-                    (int) cap.can_speaker_from_audio, (int) cap.takes_instruct, cap.sample_rate);
+                    (int) cap.can_speaker_from_audio, (int) cap.can_take_instruct, cap.sample_rate);
         for (const auto & v : cap.builtin_voices) {
             std::printf("[probe]   voice %s%s%s%s\n", v.name.c_str(), v.is_default ? " (default)" : "",
                         v.ref_text.empty() ? "" : " ref_text=", v.ref_text.c_str());
@@ -217,7 +220,7 @@ int main(int argc, char ** argv) {
 
     // The same entry points the JS layer calls.
     try {
-        const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, text, speaker_id);
+        const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, text, speaker_id, instruct);
         std::printf("[probe] flow=%s embedding=%d\n", formatted.flow.c_str(), (int) formatted.embedding);
     } catch (const std::exception & e) {
         std::fprintf(stderr, "[probe] getFormattedAudioCompletion failed: %s\n", e.what());

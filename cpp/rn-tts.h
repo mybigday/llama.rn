@@ -102,7 +102,7 @@ struct llama_rn_tts_capabilities {
     std::string default_language = "en-us";
     std::vector<llama_rn_speaker_info> builtin_voices;
     bool can_speaker_from_audio = false;
-    bool takes_instruct = false;
+    bool can_take_instruct = false;   // getFormattedAudioCompletion's `instruct` is used
     int sample_rate = 0;
     // Always empty: codec_audio_lm samples with the model's own settings.
     json sampling_defaults = json::object();
@@ -145,9 +145,11 @@ struct llama_rn_context_tts {
 
     // Arms a request: `text`, plus the voice from `speakerId` (registry), else
     // `speaker.codec_voice` (builtin voice name), else the model's default.
-    // The voice is applied here so an unknown voice fails early.
+    // The voice is applied here so an unknown voice fails early.  `instruct`
+    // describes how to speak, for models that take one (can_take_instruct).
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker,
-                                                                 const std::string &text_to_speak, int speakerId = -1);
+                                                                 const std::string &text_to_speak, int speakerId = -1,
+                                                                 const std::string &instruct = "");
     bool isArmed() const { return armed; }
 
     // ── Generation, inside the completion flow ───────────────────────────
@@ -219,6 +221,7 @@ private:
 
     bool armed = false;
     std::string armed_text;
+    std::string armed_instruct;
     armed_voice armed_v;
     bool voice_applied = false;
     armed_voice applied_v;

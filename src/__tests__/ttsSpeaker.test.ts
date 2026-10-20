@@ -60,6 +60,7 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
     null,
     'hello',
     spk.id,
+    undefined,
   )
 
   // Return value must not carry any speakerEmb* fields
@@ -84,6 +85,8 @@ it('getFormattedAudioCompletion forwards a structured speaker payload as-is (not
     ctx.id,
     payload,
     'hello',
+    -1,
+    undefined,
   )
 })
 
@@ -113,6 +116,26 @@ it('getFormattedAudioCompletion resolves a NeuTTS default to the language defaul
     ctx.id,
     { codec_voice: 'greta' },
     'hallo',
+    -1,
+    undefined,
+  )
+})
+
+it('getFormattedAudioCompletion forwards instruct', async () => {
+  mockGetFormattedAudioCompletion.mockClear()
+
+  await ctx.getFormattedAudioCompletion({
+    prompt: 'hello',
+    speaker: { codec_voice: 'ryan' },
+    instruct: 'Speak cheerfully',
+  })
+
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    { codec_voice: 'ryan' },
+    'hello',
+    -1,
+    'Speak cheerfully',
   )
 })
 

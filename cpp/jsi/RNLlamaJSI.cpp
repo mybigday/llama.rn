@@ -2042,13 +2042,17 @@ namespace rnllama_jsi {
                 int speakerId = (count >= 4 && arguments[3].isNumber())
                     ? (int)arguments[3].asNumber()
                     : -1;
+                // Optional 5th arg: how to speak, for models that take an instruct.
+                std::string instruct = (count >= 5 && arguments[4].isString())
+                    ? arguments[4].asString(runtime).utf8(runtime)
+                    : "";
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId, instruct]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId, instruct);
                         json res = json::object({{"prompt", audio_result.prompt}});
                         if (!audio_result.grammar.empty()) {
                             res["grammar"] = audio_result.grammar;
@@ -2083,6 +2087,7 @@ namespace rnllama_jsi {
                         {"defaultLanguage", cap.default_language},
                         {"builtinVoices", speakerInfosToJson(cap.builtin_voices)},
                         {"canSpeakerFromAudio", cap.can_speaker_from_audio},
+                        {"canTakeInstruct", cap.can_take_instruct},
                         {"samplingDefaults", cap.sampling_defaults},
                     });
                     return [res](jsi::Runtime& rt) {

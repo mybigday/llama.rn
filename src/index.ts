@@ -1233,6 +1233,8 @@ export class LlamaContext {
    *   through it. Models that need phonemes (NeuTTS) get off-distribution
    *   text otherwise — caller's call.
    * - `language` — phonemizer hook hint; defaults to capabilities.defaultLanguage.
+   * - `instruct` — how to speak (e.g. "Speak cheerfully"), for models with
+   *   `canTakeInstruct`; others reject it.
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
@@ -1242,6 +1244,7 @@ export class LlamaContext {
       language: string,
     ) => string | Promise<string>
     language?: string
+    instruct?: string
   }): Promise<{
     prompt: string
     grammar?: string
@@ -1271,6 +1274,7 @@ export class LlamaContext {
         null,
         inputText,
         options.speaker.id,
+        options.instruct,
       )
     }
 
@@ -1340,7 +1344,13 @@ export class LlamaContext {
       )
     }
 
-    return llamaGetFormattedAudioCompletion(this.id, payload, inputText)
+    return llamaGetFormattedAudioCompletion(
+      this.id,
+      payload,
+      inputText,
+      -1,
+      options.instruct,
+    )
   }
 
   /**

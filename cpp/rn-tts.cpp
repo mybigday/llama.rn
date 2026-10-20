@@ -306,7 +306,7 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
     codec_audio_lm_get_caps(alm, &c);
     cap.requires_phonemes      = c.text_needs_phonemes;
     cap.can_speaker_from_audio = c.takes_ref_audio;
-    cap.takes_instruct         = c.takes_instruct;
+    cap.can_take_instruct      = c.takes_instruct;
     cap.sample_rate            = c.sample_rate;
 
     const int32_t n = codec_audio_lm_list_voices(alm, nullptr);
@@ -421,9 +421,15 @@ void llama_rn_context_tts::applyVoice(const armed_voice &v) {
 }
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
-        llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId) {
+        llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId,
+        const std::string &instruct) {
     const std::string why = checkBackbone(main_ctx);
     if (!why.empty()) throw std::runtime_error("TTS: " + why);
+    if (!instruct.empty()) {
+        codec_audio_lm_caps c{};
+        codec_audio_lm_get_caps(alm, &c);
+        if (!c.takes_instruct) throw std::runtime_error("TTS: this model takes no instruct");
+    }
 
     armed_voice v;
     v.speaker_id = speakerId;
@@ -438,6 +444,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     }
     armed = true;
     armed_text = text_to_speak;
+    armed_instruct = instruct;
     armed_v = v;
 
     // The generation turns hidden states on itself where the model needs them.
@@ -483,6 +490,7 @@ int llama_rn_context_tts::beginSegment(llama_rn_context* main_ctx) {
 
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
     req.text = segments[seg].c_str();
+    req.instruct = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
     // The completion's seed, when it sets one; the rest of the sampling is the model's.
     if (saved_sampling && saved_sampling->seed != LLAMA_DEFAULT_SEED) req.seed = saved_sampling->seed;
     if (no_guidance) req.lm_guidance = 0.0f;

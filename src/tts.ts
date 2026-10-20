@@ -57,6 +57,12 @@ export interface TTSCapabilities {
    */
   canSpeakerFromAudio: boolean
   /**
+   * True when the model takes an `instruct` (how to speak, e.g. "Speak
+   * cheerfully") in `getFormattedAudioCompletion` — Qwen3-TTS CustomVoice
+   * 1.7B, CosyVoice.
+   */
+  canTakeInstruct: boolean
+  /**
    * Always empty: a text-to-speech completion samples with the model's own
    * settings (codec.cpp).
    * @deprecated

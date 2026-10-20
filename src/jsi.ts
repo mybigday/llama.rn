@@ -132,6 +132,7 @@ declare global {
     speaker: Record<string, any> | null,
     text: string,
     speakerId?: number,
+    instruct?: string,
   ) => Promise<{
     prompt: string
     grammar?: string

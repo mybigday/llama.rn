@@ -359,6 +359,7 @@ if (!NativeModules.RNLlama) {
         defaultLanguage: 'en-us',
         builtinVoices: [],
         canSpeakerFromAudio: false,
+        canTakeInstruct: false,
         samplingDefaults: {},
       })),
     )

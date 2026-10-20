@@ -730,12 +730,13 @@ const ctx = await initLlama({ model: backbonePath, n_gpu_layers: 99 })
 await ctx.initVocoder({ path: codecGgufPath }) // + optional use_gpu, kv_overrides
 
 const caps = await ctx.getTTSCapabilities()
-// { type, family, promptKind, requiresPhonemes, defaultLanguage, builtinVoices, canSpeakerFromAudio }
+// { type, family, promptKind, requiresPhonemes, defaultLanguage, builtinVoices, canSpeakerFromAudio, canTakeInstruct }
 
 // Arm the request
 await ctx.getFormattedAudioCompletion({
   prompt: 'Hello world',
   speaker: 'ryan', // a builtin voice (caps.builtinVoices), a LlamaSpeaker (voice clone), or omit for the default
+  instruct: caps.canTakeInstruct ? 'Speak cheerfully.' : undefined, // how to speak, for models that take it
   // supply a phonemizer only for models that need it (caps.requiresPhonemes)
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
@@ -787,7 +788,7 @@ await ctx.initVocoder({
 ### Model notes
 
 - **OuteTTS / NeuTTS**: the codec GGUFs in the `BricksDisplay/OuteTTS-*-GGUF` / `NeuTTS-*-GGUF` repos carry the builtin voices as the reference prompt (`caps.builtinVoices`); OuteTTS codecs without them are not supported. Use a codec GGUF only with its own repo's backbone: OuteTTS voices are stored as that backbone's token ids. OuteTTS 0.2 / 0.3 decode with OuteAI's WavTokenizer (the codec in those repos), not `wavtokenizer-large-speech-75tokens`. NeuTTS voice transcripts are espeak phonemes with stress marks, so phonemize the input the same way.
-- **Qwen3-TTS CustomVoice**: the codec GGUFs in the `BricksDisplay/Qwen3-TTS-12Hz-*-CustomVoice-GGUF` repos carry the builtin voices (`caps.builtinVoices`, default `vivian`); pick one with `getFormattedAudioCompletion({ prompt, speaker: 'ryan' })`. A `LlamaSpeaker` wins over the builtin voice. The 1.7B instruct prompt is not exposed yet.
+- **Qwen3-TTS CustomVoice**: the codec GGUFs in the `BricksDisplay/Qwen3-TTS-12Hz-*-CustomVoice-GGUF` repos carry the builtin voices (`caps.builtinVoices`, default `vivian`); pick one with `getFormattedAudioCompletion({ prompt, speaker: 'ryan' })`. A `LlamaSpeaker` wins over the builtin voice. The 1.7B takes an `instruct` (how to speak, e.g. `'Speak slowly in a sad, quiet whisper.'`); `caps.canTakeInstruct` says whether a model does.
 - **Soprano**: `Soprano-1.1-80M-soprano-tok.*.gguf` declares the `soprano` pre-tokenizer, which llama.rn patches into llama.cpp and which matches the upstream tokenizer; the plain `Soprano-1.1-80M.*.gguf` files keep the `gpt-2` pre-tokenizer for older llama.rn releases.
 - **CSM**: the published `BricksDisplay/CSM-1B-GGUF` codec lacks the audio-end metadata; pass `kv_overrides: ['codec.lm.eos_code_c0=int:0', 'codec.lm.eos_min_step=int:1']` to `initVocoder`, or it runs to the frame cap.
 - **Chatterbox (T3)** decodes a guidance pair: create the context with `n_parallel` >= 2, otherwise it generates without guidance (a warning is logged). Turbo needs one sequence.
