@@ -26,7 +26,10 @@ namespace rnllama_jsi {
     // now reads as "absent" (same as JSON.stringify) instead of "present but
     // wrong type".
     void parseCommonParams(const json& params, common_params& cparams);
-    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx);
+    // `logit_bias_table`: logit_bias given as a Float32Array (n_vocab biases,
+    // read by the caller since toJson leaves typed arrays out), or null.
+    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx,
+                               const std::vector<float>* logit_bias_table = nullptr);
 
     // `[{ path, scaled? }]` as sent by applyLoraAdapters / lora_list.
     // Entries that are not objects or have an empty path are skipped.

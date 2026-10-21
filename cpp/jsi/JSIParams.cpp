@@ -422,7 +422,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 
     // ---- completion params ------------------------------------------------
 
-    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx) {
+    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx,
+                               const std::vector<float>* logit_bias_table) {
         if (!ctx) return;
 
         ctx->params.prompt = getPropertyAsString(params, "prompt");
@@ -581,7 +582,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             }
         }
 
-        // Logit bias: [[token, bias | false], ...]
+        // Logit bias: [[token, bias | false], ...], or a Float32Array of one
+        // bias per vocabulary token (0: none, -Infinity: never).
         sparams.logit_bias.clear();
         const llama_model * model = llama_get_model(ctx->ctx);
         const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -591,7 +593,17 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             sparams.logit_bias.push_back({ llama_vocab_eos(vocab), -INFINITY });
         }
 
-        if (const json* logitBias = findProperty(params, "logit_bias"); logitBias && logitBias->is_array()) {
+        if (logit_bias_table != nullptr) {
+            if ((int) logit_bias_table->size() != n_vocab) {
+                throw std::runtime_error("logit_bias: a Float32Array needs one entry per vocabulary token (" +
+                                         std::to_string(n_vocab) + "), got " +
+                                         std::to_string(logit_bias_table->size()));
+            }
+            for (int t = 0; t < n_vocab; ++t) {
+                const float b = (*logit_bias_table)[(size_t) t];
+                if (b != 0.0f) sparams.logit_bias.push_back({ t, b });
+            }
+        } else if (const json* logitBias = findProperty(params, "logit_bias"); logitBias && logitBias->is_array()) {
             for (const auto& el : *logitBias) {
                 if (!el.is_array() || el.size() != 2 || !el[0].is_number()) {
                     continue;
@@ -606,22 +618,6 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
                 } else if (val.is_boolean() && !val.get<bool>()) {
                     sparams.logit_bias.push_back({ tok, -INFINITY });
                 }
-            }
-        }
-
-        // Allowed tokens: [[begin, end), ...]; every other token is ruled out.
-        if (const json* allowed = findProperty(params, "allowed_tokens"); allowed && allowed->is_array() && !allowed->empty()) {
-            std::vector<char> ok((size_t) n_vocab, 0);
-            for (const auto& r : *allowed) {
-                if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number()) {
-                    throw std::runtime_error("allowed_tokens: expected [begin, end] pairs");
-                }
-                const int b = std::max(0, r[0].get<int>());
-                const int e = std::min(n_vocab, r[1].get<int>());
-                for (int t = b; t < e; ++t) ok[(size_t) t] = 1;
-            }
-            for (int t = 0; t < n_vocab; ++t) {
-                if (!ok[(size_t) t]) sparams.logit_bias.push_back({ t, -INFINITY });
             }
         }
 

@@ -46,8 +46,9 @@ enum tts_type {
 // getFormattedAudioCompletion() result: everything the completion that runs
 // the request needs.  `completion_params` holds completion() parameters
 // (snake_case, as JS passes them): the model's backbone sampling, grammar,
-// allowed tokens, minimum length, frame budget and whether hidden states are
-// needed.  Nothing is applied behind the caller's back; completion() runs with
+// frame budget and whether hidden states are needed.  `logit_bias` (one bias
+// per vocabulary token, the Float32Array form of completion()'s logit_bias)
+// rules out the tokens the model never samples.  Nothing is applied behind the caller's back; completion() runs with
 // exactly the parameters it is given.
 struct llama_rn_audio_completion_result {
     std::string prompt;
@@ -55,6 +56,7 @@ struct llama_rn_audio_completion_result {
     bool embedding = false;
     std::string flow;
     json completion_params = json::object();
+    std::vector<float> logit_bias;   // n_vocab entries, or empty
 };
 
 // A codec voice (codec_speaker.h).  Created and loaded voices are freed with

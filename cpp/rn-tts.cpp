@@ -434,13 +434,19 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         : std::string(sp.dry_multiplier > 0.0f ? "penalties;dry;top_k;min_p;top_p;temperature"
                                                : "penalties;top_k;min_p;top_p;temperature");
     // The grammar and the allowed ranges say the same; the grammar wins.
+    // The ranges become a logit bias table: -Infinity outside them.
     const std::string grammar = c.grammar ? c.grammar : "";
+    std::vector<float> bias;
     if (!grammar.empty()) {
         p["grammar"] = grammar;
     } else if (c.n_allowed > 0) {
-        json ranges = json::array();
-        for (int32_t i = 0; i < c.n_allowed; ++i) ranges.push_back({c.allowed[i].begin, c.allowed[i].end});
-        p["allowed_tokens"] = ranges;
+        const int32_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(main_ctx->model));
+        bias.assign((size_t) n_vocab, -INFINITY);
+        for (int32_t i = 0; i < c.n_allowed; ++i) {
+            for (int32_t t = std::max(0, c.allowed[i].begin); t < std::min(n_vocab, c.allowed[i].end); ++t) {
+                bias[(size_t) t] = 0.0f;
+            }
+        }
     }
 
     llama_rn_audio_completion_result res;
@@ -449,6 +455,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     res.embedding = p["embedding"].get<bool>();
     res.flow = "tokens";
     res.completion_params = std::move(p);
+    res.logit_bias = std::move(bias);
     return res;
 }
 

@@ -1112,6 +1112,10 @@ namespace rnllama_jsi {
                 if (!params.is_object()) {
                     throw jsi::JSError(runtime, "llamaCompletion: params must be an object");
                 }
+                // logit_bias as a Float32Array (toJson leaves typed arrays out).
+                std::vector<float> logitBiasTable;
+                const bool hasLogitBiasTable = readFloat32Array(
+                    runtime, arguments[1].asObject(runtime).getProperty(runtime, "logit_bias"), logitBiasTable);
                 std::shared_ptr<jsi::Function> onToken;
 
                 if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
@@ -1130,7 +1134,7 @@ namespace rnllama_jsi {
                 ContextClaim claim(ctx);
                 ctx->completion->rewind();
 
-                parseCompletionParams(params, ctx);
+                parseCompletionParams(params, ctx, hasLogitBiasTable ? &logitBiasTable : nullptr);
 
                 std::vector<std::string> mediaPaths;
                 // media_paths: string | string[]
@@ -1362,6 +1366,10 @@ namespace rnllama_jsi {
                 if (!params.is_object()) {
                     throw jsi::JSError(runtime, "llamaQueueCompletion: params must be an object");
                 }
+                // logit_bias as a Float32Array (toJson leaves typed arrays out).
+                std::vector<float> logitBiasTable;
+                const bool hasLogitBiasTable = readFloat32Array(
+                    runtime, arguments[1].asObject(runtime).getProperty(runtime, "logit_bias"), logitBiasTable);
 
                 auto onToken = makeJsiFunction(runtime, arguments[2], callInvoker);
                 auto onComplete = makeJsiFunction(runtime, arguments[3], callInvoker);
@@ -1371,7 +1379,7 @@ namespace rnllama_jsi {
                     throw jsi::JSError(runtime, "This model only answers decisions, see decide()");
                 }
                 auto originalParams = ctxPtr->params;
-                parseCompletionParams(params, ctxPtr);
+                parseCompletionParams(params, ctxPtr, hasLogitBiasTable ? &logitBiasTable : nullptr);
                 common_params cparams = ctxPtr->params;
                 ctxPtr->params = originalParams;
 
@@ -2062,8 +2070,14 @@ namespace rnllama_jsi {
                         res["embedding"] = audio_result.embedding;
                         res["flow"] = audio_result.flow;
                         res["completionParams"] = audio_result.completion_params;
-                        return [res](jsi::Runtime& rt) {
-                            return fromJson(rt, res);
+                        std::vector<float> logitBias = std::move(audio_result.logit_bias);
+                        return [res, logitBias](jsi::Runtime& rt) {
+                            jsi::Value out = fromJson(rt, res);
+                            if (!logitBias.empty()) {
+                                out.getObject(rt).getPropertyAsObject(rt, "completionParams")
+                                    .setProperty(rt, "logit_bias", makeFloat32Array(rt, logitBias));
+                            }
+                            return out;
                         };
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());

@@ -11,13 +11,13 @@ nothing is applied implicitly.
 
 ### Properties
 
-- [allowed\_tokens](TTSCompletionParams.md#allowed_tokens)
 - [dry\_allowed\_length](TTSCompletionParams.md#dry_allowed_length)
 - [dry\_base](TTSCompletionParams.md#dry_base)
 - [dry\_multiplier](TTSCompletionParams.md#dry_multiplier)
 - [dry\_penalty\_last\_n](TTSCompletionParams.md#dry_penalty_last_n)
 - [embedding](TTSCompletionParams.md#embedding)
 - [grammar](TTSCompletionParams.md#grammar)
+- [logit\_bias](TTSCompletionParams.md#logit_bias)
 - [min\_p](TTSCompletionParams.md#min_p)
 - [n\_predict](TTSCompletionParams.md#n_predict)
 - [penalize\_prompt](TTSCompletionParams.md#penalize_prompt)
@@ -34,23 +34,13 @@ nothing is applied implicitly.
 
 ## Properties
 
-### allowed\_tokens
-
-• `Optional` **allowed\_tokens**: [`number`, `number`][]
-
-#### Defined in
-
-[tts.ts:143](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L143)
-
-___
-
 ### dry\_allowed\_length
 
 • **dry\_allowed\_length**: `number`
 
 #### Defined in
 
-[tts.ts:138](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L138)
+[tts.ts:138](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L138)
 
 ___
 
@@ -60,7 +50,7 @@ ___
 
 #### Defined in
 
-[tts.ts:137](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L137)
+[tts.ts:137](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L137)
 
 ___
 
@@ -70,7 +60,7 @@ ___
 
 #### Defined in
 
-[tts.ts:136](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L136)
+[tts.ts:136](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L136)
 
 ___
 
@@ -80,7 +70,7 @@ ___
 
 #### Defined in
 
-[tts.ts:139](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L139)
+[tts.ts:139](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L139)
 
 ___
 
@@ -92,7 +82,7 @@ The model reads the backbone's hidden states (the context returns them).
 
 #### Defined in
 
-[tts.ts:123](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L123)
+[tts.ts:123](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L123)
 
 ___
 
@@ -102,7 +92,19 @@ ___
 
 #### Defined in
 
-[tts.ts:142](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L142)
+[tts.ts:142](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L142)
+
+___
+
+### logit\_bias
+
+• `Optional` **logit\_bias**: `Float32Array`
+
+One bias per vocabulary token (`-Infinity` for tokens the model never samples), when the model restricts tokens without a grammar.
+
+#### Defined in
+
+[tts.ts:144](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L144)
 
 ___
 
@@ -112,7 +114,7 @@ ___
 
 #### Defined in
 
-[tts.ts:130](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L130)
+[tts.ts:130](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L130)
 
 ___
 
@@ -124,7 +126,7 @@ Step budget: the model's frame limit, or `-1`.
 
 #### Defined in
 
-[tts.ts:125](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L125)
+[tts.ts:125](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L125)
 
 ___
 
@@ -134,7 +136,7 @@ ___
 
 #### Defined in
 
-[tts.ts:135](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L135)
+[tts.ts:135](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L135)
 
 ___
 
@@ -144,7 +146,7 @@ ___
 
 #### Defined in
 
-[tts.ts:133](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L133)
+[tts.ts:133](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L133)
 
 ___
 
@@ -154,7 +156,7 @@ ___
 
 #### Defined in
 
-[tts.ts:131](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L131)
+[tts.ts:131](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L131)
 
 ___
 
@@ -164,7 +166,7 @@ ___
 
 #### Defined in
 
-[tts.ts:134](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L134)
+[tts.ts:134](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L134)
 
 ___
 
@@ -174,7 +176,7 @@ ___
 
 #### Defined in
 
-[tts.ts:132](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L132)
+[tts.ts:132](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L132)
 
 ___
 
@@ -186,7 +188,7 @@ The armed text; `completion()` must be given this prompt.
 
 #### Defined in
 
-[tts.ts:121](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L121)
+[tts.ts:121](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L121)
 
 ___
 
@@ -198,7 +200,7 @@ Sampler order (llama.cpp `--samplers` names).
 
 #### Defined in
 
-[tts.ts:141](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L141)
+[tts.ts:141](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L141)
 
 ___
 
@@ -208,7 +210,7 @@ ___
 
 #### Defined in
 
-[tts.ts:126](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L126)
+[tts.ts:126](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L126)
 
 ___
 
@@ -218,7 +220,7 @@ ___
 
 #### Defined in
 
-[tts.ts:127](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L127)
+[tts.ts:127](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L127)
 
 ___
 
@@ -228,7 +230,7 @@ ___
 
 #### Defined in
 
-[tts.ts:128](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L128)
+[tts.ts:128](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L128)
 
 ___
 
@@ -238,4 +240,4 @@ ___
 
 #### Defined in
 
-[tts.ts:129](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L129)
+[tts.ts:129](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L129)

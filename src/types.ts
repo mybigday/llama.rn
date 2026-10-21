@@ -396,13 +396,11 @@ export type NativeCompletionParams = {
    * For example, use `"logit_bias": [[15043,1.0]]` to increase the likelihood of the token 'Hello', or `"logit_bias": [[15043,-1.0]]` to decrease its likelihood.
    * Setting the value to false, `"logit_bias": [[15043,false]]` ensures that the token `Hello` is never produced. The tokens can also be represented as strings,
    * e.g.`[["Hello, World!",-0.5]]` will reduce the likelihood of all the individual tokens that represent the string `Hello, World!`, just like the `presence_penalty` does.
+   *
+   * Or a `Float32Array` of exactly `n_vocab` entries, one bias per token id (`0`: none, `-Infinity`: never sampled), read straight from its buffer — the form for large tables.
    * Default: `[]`
    */
-  logit_bias?: Array<Array<number>>
-  /**
-   * Restrict sampling to these token id ranges, `[begin, end)` each; every other token is ruled out. Default: none (all tokens).
-   */
-  allowed_tokens?: Array<[number, number]>
+  logit_bias?: Array<Array<number>> | Float32Array
   /**
    * The prompt's tokens count for the repetition penalties. Default: `false`
    */

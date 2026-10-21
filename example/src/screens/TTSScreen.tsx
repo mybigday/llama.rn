@@ -547,7 +547,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
               .replace(/oʊ/g, 'əʊ')
               .replace(/ˈ\b/g, ''),
         })
-      console.log('TTS completionParams:', JSON.stringify(ttsCompletion))
+      const { logit_bias: ttsLogitBias, ...ttsSampling } = ttsCompletion
+      console.log(
+        'TTS completionParams:',
+        JSON.stringify(ttsSampling),
+        ttsLogitBias ? `logit_bias: Float32Array(${ttsLogitBias.length})` : '',
+      )
 
       // The completion's result carries the decoder input: `audio_tokens`
       // (codec codes) or `embeddings` (latents, e.g. Soprano / BlueMagpie).

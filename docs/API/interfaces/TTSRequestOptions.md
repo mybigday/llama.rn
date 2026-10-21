@@ -34,7 +34,7 @@ Guidance of a flow / diffusion decoder.
 
 #### Defined in
 
-[tts.ts:106](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L106)
+[tts.ts:106](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L106)
 
 ___
 
@@ -46,7 +46,7 @@ Steps of a flow / diffusion decoder.
 
 #### Defined in
 
-[tts.ts:108](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L108)
+[tts.ts:108](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L108)
 
 ___
 
@@ -58,7 +58,7 @@ Classifier-free guidance weight of the backbone pair; `0` turns it off (one sequ
 
 #### Defined in
 
-[tts.ts:104](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L104)
+[tts.ts:104](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L104)
 
 ___
 
@@ -70,7 +70,7 @@ Longest generation, in audio frames (`completionParams.n_predict`).
 
 #### Defined in
 
-[tts.ts:102](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L102)
+[tts.ts:102](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L102)
 
 ___
 
@@ -82,7 +82,7 @@ Shortest generation, in audio frames, before the stop token may end it.
 
 #### Defined in
 
-[tts.ts:100](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L100)
+[tts.ts:100](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L100)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[tts.ts:97](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L97)
+[tts.ts:97](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L97)
 
 ___
 
@@ -104,7 +104,7 @@ A sampling preset the model defines.
 
 #### Defined in
 
-[tts.ts:110](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L110)
+[tts.ts:110](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L110)
 
 ___
 
@@ -114,7 +114,7 @@ ___
 
 #### Defined in
 
-[tts.ts:98](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L98)
+[tts.ts:98](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L98)
 
 ___
 
@@ -126,7 +126,7 @@ Seed of codec.cpp's samplers (and `completionParams.seed`).
 
 #### Defined in
 
-[tts.ts:93](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L93)
+[tts.ts:93](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L93)
 
 ___
 
@@ -136,7 +136,7 @@ ___
 
 #### Defined in
 
-[tts.ts:94](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L94)
+[tts.ts:94](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L94)
 
 ___
 
@@ -146,7 +146,7 @@ ___
 
 #### Defined in
 
-[tts.ts:96](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L96)
+[tts.ts:96](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L96)
 
 ___
 
@@ -156,4 +156,4 @@ ___
 
 #### Defined in
 
-[tts.ts:95](https://github.com/mybigday/llama.rn/blob/4ae85a1e/src/tts.ts#L95)
+[tts.ts:95](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L95)

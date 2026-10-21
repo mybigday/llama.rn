@@ -46,8 +46,9 @@ using namespace rnllama;
 using json = nlohmann::ordered_json;
 
 // completionParams onto the context, for the keys getFormattedAudioCompletion
-// returns (the subset of JSIParams' parseCompletionParams it uses).
-static void apply_completion_params(llama_rn_context & ctx, const json & p) {
+// returns (the subset of JSIParams' parseCompletionParams it uses);
+// `logit_bias` is its Float32Array table.
+static void apply_completion_params(llama_rn_context & ctx, const json & p, const std::vector<float> & logit_bias) {
     auto & sp = ctx.params.sampling;
     sp = common_params_sampling();
     ctx.params.prompt    = p.value("prompt", std::string());
@@ -78,13 +79,8 @@ static void apply_completion_params(llama_rn_context & ctx, const json & p) {
         sp.samplers = common_sampler_types_from_names(names);
     }
     if (p.contains("grammar")) sp.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, p["grammar"].get<std::string>());
-    if (p.contains("allowed_tokens")) {
-        const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(ctx.model));
-        std::vector<char> ok((size_t) n_vocab, 0);
-        for (const auto & r : p["allowed_tokens"]) {
-            for (int t = std::max(0, r[0].get<int>()); t < std::min(n_vocab, r[1].get<int>()); ++t) ok[(size_t) t] = 1;
-        }
-        for (int t = 0; t < n_vocab; ++t) if (!ok[(size_t) t]) sp.logit_bias.push_back({t, -INFINITY});
+    for (size_t t = 0; t < logit_bias.size(); ++t) {
+        if (logit_bias[t] != 0.0f) sp.logit_bias.push_back({(llama_token) t, logit_bias[t]});
     }
     ctx.penalize_prompt = p.value("penalize_prompt", false);
 }
@@ -287,7 +283,7 @@ int main(int argc, char ** argv) {
             std::printf("[probe] flow=%s completionParams=%s\n", formatted.flow.c_str(),
                         formatted.completion_params.dump().substr(0, 400).c_str());
             ctx.completion->rewind();
-            apply_completion_params(ctx, formatted.completion_params);
+            apply_completion_params(ctx, formatted.completion_params, formatted.logit_bias);
             if (n_predict > 0) ctx.params.n_predict = n_predict;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");

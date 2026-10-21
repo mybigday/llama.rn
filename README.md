@@ -719,7 +719,7 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 
 codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. The flow is `getFormattedAudioCompletion()` → `completion()` → `decodeAudioTokens()` / `decodeAudioEmbeddings()`:
 
-- `getFormattedAudioCompletion()` arms a request and returns `completionParams`, the model's backbone sampling and constraints (temperature, top-k / top-p, penalties, sampler order, grammar or `allowed_tokens`, `n_predict` as the frame budget, `embedding` when the model reads hidden states, seed). Nothing is applied implicitly: pass them to `completion()` and override what you like.
+- `getFormattedAudioCompletion()` arms a request and returns `completionParams`, the model's backbone sampling and constraints (temperature, top-k / top-p, penalties, sampler order, grammar, or a `logit_bias` table (`Float32Array`, one bias per token) ruling out tokens the model never samples, `n_predict` as the frame budget, `embedding` when the model reads hidden states, seed). Nothing is applied implicitly: pass them to `completion()` and override what you like.
 - `completion()` is the regular completion. It samples with its own sampler and reports each step to codec.cpp, which says what the backbone reads next (a token or an embedding row) and when the speech ends. Its result carries the decoder input — `audio_tokens` (codec codes, `audio_tokens_width` per frame), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — plus `audio_frames` and `audio_stop_reason`.
 - The decoder input decodes to PCM at any later time, in any order.
 

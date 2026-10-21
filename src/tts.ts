@@ -140,5 +140,6 @@ export interface TTSCompletionParams {
   /** Sampler order (llama.cpp `--samplers` names). */
   samplers: string
   grammar?: string
-  allowed_tokens?: Array<[number, number]>
+  /** One bias per vocabulary token (`-Infinity` for tokens the model never samples), when the model restricts tokens without a grammar. */
+  logit_bias?: Float32Array
 }
