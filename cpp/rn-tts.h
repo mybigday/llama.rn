@@ -119,6 +119,7 @@ struct llama_rn_tts_capabilities {
     bool can_speaker_from_audio = false;
     bool can_take_instruct = false;   // getFormattedAudioCompletion's `instruct` is used
     bool needs_voice = false;         // a LlamaSpeaker is required (no builtin voice to fall back on)
+    bool uses_ref_text = false;       // a cloned voice's transcript (createSpeaker refText) is used
     int sample_rate = 0;
 };
 
@@ -204,7 +205,7 @@ struct llama_rn_context_tts {
     bool bakeSpeaker(llama_rn_context* main_ctx, int id);
     const rn_speaker* getSpeaker(int id) const;
     void releaseSpeaker(int id);
-    // Throws on failure.
+    // A speaker GGUF of this model.  Throws on failure.
     int loadSpeaker(const std::string &path, const std::string &name);
     // Writes a registry speaker's voice to a speaker file as `name` ("" = the
     // codec's default name).  Throws on failure.

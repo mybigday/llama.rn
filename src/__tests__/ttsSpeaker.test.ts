@@ -120,6 +120,7 @@ it('getFormattedAudioCompletion forwards a builtin voice name, and none for the 
     canSpeakerFromAudio: true,
     canTakeInstruct: false,
     needsVoice: false,
+    usesRefText: true,
   }
   mockGetTTSCapabilities.mockResolvedValueOnce(caps)
   mockGetFormattedAudioCompletion.mockClear()

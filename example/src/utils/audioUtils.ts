@@ -160,3 +160,19 @@ export const dumpTtsWavToDisk = async (
     return null
   }
 }
+
+// Write mono float samples to a 16-bit WAV file at `path`.
+export const writeWavFile = async (
+  path: string,
+  audioData: Float32Array,
+  sampleRate: number,
+): Promise<void> => {
+  const bytes = new Uint8Array(createWavFile(audioData, sampleRate, 16))
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!)
+  await ReactNativeBlobUtil.fs.writeFile(
+    path,
+    ReactNativeBlobUtil.base64.encode(binary),
+    'base64',
+  )
+}

@@ -1,36 +1,37 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
   Linking,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native'
 import { pick, keepLocalCopy } from '@react-native-documents/picker'
+import ReactNativeBlobUtil from 'react-native-blob-util'
+import { AudioManager, AudioRecorder } from 'react-native-audio-api'
 import type { TTSCapabilities } from '../../../src'
-import type { TTSParams } from '../utils/storage'
+import type { TTSCustomVoice, TTSParams } from '../utils/storage'
 import {
   saveTTSParams,
   loadTTSParams,
   resetTTSParams,
   DEFAULT_TTS_PARAMS,
-  TTS_VOICE_AUDIO,
-  TTS_VOICE_CLONE,
+  TTS_VOICE_BUNDLED,
   TTS_VOICE_DEFAULT,
-  TTS_VOICE_FILE,
-  TTS_VOICE_OUTETTS_JSON,
 } from '../utils/storage'
+import { writeWavFile } from '../utils/audioUtils'
 import { useParameterModal } from '../hooks/useParameterModal'
 import BaseParameterModal from './BaseParameterModal'
-import { ParameterMenu } from './ParameterMenu'
 import { ParameterTextInput } from './ParameterFormFields'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 
 const OUTETTS_SPEAKER_CREATOR =
   'https://huggingface.co/spaces/BricksDisplay/OuteTTS-Speaker-Creator'
+const RECORD_SAMPLE_RATE = 24000
 
 interface TTSParamsModalProps {
   visible: boolean
@@ -54,6 +55,17 @@ const pickFile = async (type: string[], fallbackName: string) => {
     : null
 }
 
+// A builtin voice's label; the default one is marked (or is just "Default"
+// when that is its name).
+const voiceTitle = (name: string, isDefault: boolean) => {
+  if (!isDefault) return name
+  return name.toLowerCase() === 'default' ? TTS_VOICE_DEFAULT : `${name} (default)`
+}
+
+const newId = () => `voice-${Date.now().toString(36)}`
+const baseName = (path: string) =>
+  (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '')
+
 export default function TTSParamsModal({
   visible,
   onClose,
@@ -63,33 +75,56 @@ export default function TTSParamsModal({
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
   const styles = StyleSheet.create({
-    row: {
+    tabs: {
+      flexDirection: 'row',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      overflow: 'hidden',
+      marginBottom: 16,
+    },
+    tab: { flex: 1, paddingVertical: 10, alignItems: 'center' },
+    tabActive: { backgroundColor: theme.colors.primary },
+    tabText: { fontSize: 14, fontWeight: '600', color: theme.colors.text },
+    tabTextActive: { color: theme.colors.white },
+    option: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      marginTop: 8,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.colors.border,
     },
+    radio: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: theme.colors.primary,
+      marginRight: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    radioDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.colors.primary,
+    },
+    optionBody: { flex: 1 },
+    optionTitle: { fontSize: 15, color: theme.colors.text },
+    optionNote: { fontSize: 12, color: theme.colors.textSecondary },
+    remove: { color: theme.colors.error, fontSize: 13, paddingHorizontal: 8 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
     button: {
       backgroundColor: theme.colors.primary,
       borderRadius: 6,
       paddingVertical: 8,
       paddingHorizontal: 12,
     },
-    buttonText: {
-      color: theme.colors.white,
-      fontSize: 14,
-      fontWeight: '500',
-    },
-    path: {
-      flex: 1,
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-    },
-    jsonInput: {
-      ...themedStyles.textInput,
-      minHeight: 120,
-      textAlignVertical: 'top',
-    },
+    buttonDisabled: { opacity: 0.4 },
+    buttonText: { color: theme.colors.white, fontSize: 14, fontWeight: '500' },
+    recording: { backgroundColor: theme.colors.error },
+    note: { flex: 1, fontSize: 12, color: theme.colors.textSecondary },
   })
 
   const {
@@ -106,49 +141,330 @@ export default function TTSParamsModal({
     defaultParams: DEFAULT_TTS_PARAMS,
   })
 
+  const [tab, setTab] = useState<'select' | 'clone'>('select')
+  // The Clone Voice form.
+  const [cloneName, setCloneName] = useState('')
+  const [cloneAudio, setCloneAudio] = useState('')
+  const [cloneText, setCloneText] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
+  const recorder = useRef<AudioRecorder | null>(null)
+  const recorded = useRef<Float32Array[]>([])
+
   useEffect(() => {
     if (visible) {
       loadParamsAsync()
+      setTab('select')
     }
   }, [loadParamsAsync, visible])
 
-  const isOuteTTS = caps?.family === 'outetts'
-  const builtinVoices = caps?.builtinVoices ?? []
-  const defaultVoice = builtinVoices.find((v) => v.isDefault)?.name
-  const voiceOptions = [
-    ...(caps?.needsVoice ? [] : [TTS_VOICE_DEFAULT]),
-    ...builtinVoices.map((v) => v.name),
-    ...(caps?.canSpeakerFromAudio
-      ? [TTS_VOICE_CLONE, TTS_VOICE_AUDIO, TTS_VOICE_FILE]
-      : []),
-    ...(isOuteTTS ? [TTS_VOICE_OUTETTS_JSON] : []),
-  ]
-  const selected = builtinVoices.find((v) => v.name === params.voice)
+  useEffect(() => () => recorder.current?.stop(), [])
 
-  const choose = async (
-    key: 'refAudioPath' | 'speakerFilePath',
-    type: string[],
-    name: string,
-  ) => {
+  const isOuteTTS = caps?.family === 'outetts'
+  const canClone = !!caps?.canSpeakerFromAudio
+  const builtinVoices = caps?.builtinVoices ?? []
+  // Speaker files work for any model that takes voices; clones need cloning.
+  const customVoices = (params.customVoices ?? []).filter((v) =>
+    v.kind === 'file' ? canClone || isOuteTTS : canClone,
+  )
+  // Choices of the Select tab, and whether the model offers any at all.
+  // A builtin voice the codec marks as default stands for the model's own
+  // voice; without one, a generic Default entry does.
+  const builtinDefault = builtinVoices.find((v) => v.isDefault)
+  const options: Array<{ id: string; title: string; note?: string }> = [
+    ...(caps?.needsVoice || builtinDefault
+      ? []
+      : [
+          {
+            id: TTS_VOICE_DEFAULT,
+            title: TTS_VOICE_DEFAULT,
+            note: "The model's own voice",
+          },
+        ]),
+    ...builtinVoices.map((v) => ({
+      id: v.name,
+      title: voiceTitle(v.name, v.isDefault),
+      note: v.refText || undefined,
+    })),
+    ...(canClone
+      ? [
+          {
+            id: TTS_VOICE_BUNDLED,
+            title: TTS_VOICE_BUNDLED,
+            note: 'A clone of the clip bundled with the example',
+          },
+        ]
+      : []),
+    ...customVoices.map((v) => ({
+      id: v.id,
+      title: v.name,
+      note: {
+        audio: `Clone of ${baseName(v.audioPath ?? '')}`,
+        file: `Speaker file ${baseName(v.filePath ?? '')}`,
+      }[v.kind],
+    })),
+  ]
+  const canSelect = builtinVoices.length > 0 || canClone || isOuteTTS
+  const showCloneTab = canClone || isOuteTTS
+  const transcriptRequired = !!caps?.usesRefText
+
+  const addVoice = (voice: TTSCustomVoice) => {
+    updateParam('customVoices', [...(params.customVoices ?? []), voice])
+    updateParam('voice', voice.id)
+  }
+
+  const removeVoice = (id: string) => {
+    updateParam(
+      'customVoices',
+      (params.customVoices ?? []).filter((v) => v.id !== id),
+    )
+    if (params.voice === id) updateParam('voice', TTS_VOICE_DEFAULT)
+  }
+
+  const fail = (e: any) => {
+    if (e?.code !== 'OPERATION_CANCELED') Alert.alert('Error', String(e?.message ?? e))
+  }
+
+  const loadSpeakerFile = async () => {
     try {
-      const path = await pickFile(type, name)
-      if (path) updateParam(key, path)
-    } catch (e: any) {
-      if (e?.code !== 'OPERATION_CANCELED') Alert.alert('Error', String(e?.message ?? e))
+      const path = await pickFile(['application/octet-stream', '*/*'], 'speaker.gguf')
+      if (path) addVoice({ id: newId(), name: baseName(path), kind: 'file', filePath: path })
+    } catch (e) {
+      fail(e)
     }
   }
 
-  const onSaveHandler = () => {
-    if (params.voice === TTS_VOICE_OUTETTS_JSON && params.outettsSpeakerJson.trim()) {
-      try {
-        JSON.parse(params.outettsSpeakerJson)
-      } catch (e: any) {
-        Alert.alert('Invalid JSON', String(e?.message ?? e))
+  const chooseWav = async () => {
+    try {
+      const path = await pickFile(['audio/*'], 'reference.wav')
+      if (path) setCloneAudio(path)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  const toggleRecording = async () => {
+    try {
+      if (isRecording) {
+        recorder.current?.stop()
+        recorder.current = null
+        setIsRecording(false)
+        const n = recorded.current.reduce((acc, c) => acc + c.length, 0)
+        const pcm = new Float32Array(n)
+        recorded.current.reduce((at, c) => {
+          pcm.set(c, at)
+          return at + c.length
+        }, 0)
+        const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/recording-${Date.now()}.wav`
+        await writeWavFile(path, pcm, RECORD_SAMPLE_RATE)
+        setCloneAudio(path)
         return
       }
+      // react-native-audio-api's permission request never settles on
+      // Android; React Native's own asks there.
+      const granted =
+        Platform.OS === 'android'
+          ? (await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            )) === PermissionsAndroid.RESULTS.GRANTED
+          : (await AudioManager.requestRecordingPermissions()) === 'Granted'
+      if (!granted) {
+        Alert.alert('Microphone', 'Recording needs the microphone permission.')
+        return
+      }
+      AudioManager.setAudioSessionOptions({
+        iosCategory: 'playAndRecord',
+        iosMode: 'default',
+        iosOptions: ['defaultToSpeaker'],
+      })
+      recorded.current = []
+      const rec = new AudioRecorder({
+        sampleRate: RECORD_SAMPLE_RATE,
+        bufferLengthInSamples: RECORD_SAMPLE_RATE / 10,
+      })
+      rec.onAudioReady(({ buffer, numFrames }) => {
+        // copyFromChannel, not getChannelData: the latter's ArrayBuffer frees
+        // the recorder's own samples (a double free in react-native-audio-api 0.9).
+        const chunk = new Float32Array(numFrames)
+        buffer.copyFromChannel(chunk, 0)
+        recorded.current.push(chunk)
+      })
+      rec.start()
+      recorder.current = rec
+      setIsRecording(true)
+    } catch (e) {
+      setIsRecording(false)
+      fail(e)
     }
-    handleSave(onSave, onClose)
   }
+
+  const audioLabel = cloneAudio ? baseName(cloneAudio) : 'No audio yet'
+  const cloneReady =
+    !!cloneAudio && (!transcriptRequired || !!cloneText.trim())
+
+  const createVoice = () => {
+    addVoice({
+      id: newId(),
+      name: cloneName.trim() || baseName(cloneAudio),
+      kind: 'audio',
+      audioPath: cloneAudio,
+      refText: cloneText.trim(),
+    })
+    setCloneName('')
+    setCloneAudio('')
+    setCloneText('')
+    setTab('select')
+  }
+
+  const selectTab = (
+    <View style={themedStyles.paramGroup}>
+      {canSelect ? (
+        options.map((o) => {
+          const custom = customVoices.find((v) => v.id === o.id)
+          const current = params.voice || TTS_VOICE_DEFAULT
+          const selected =
+            current === o.id ||
+            (current === TTS_VOICE_DEFAULT && builtinDefault?.name === o.id)
+          return (
+            <TouchableOpacity
+              key={o.id}
+              style={styles.option}
+              onPress={() => updateParam('voice', o.id)}
+            >
+              <View style={styles.radio}>
+                {selected ? <View style={styles.radioDot} /> : null}
+              </View>
+              <View style={styles.optionBody}>
+                <Text style={styles.optionTitle}>{o.title}</Text>
+                {o.note ? (
+                  <Text style={styles.optionNote} numberOfLines={2}>
+                    {o.note}
+                  </Text>
+                ) : null}
+              </View>
+              {custom ? (
+                <TouchableOpacity onPress={() => removeVoice(custom.id)}>
+                  <Text style={styles.remove}>Remove</Text>
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
+          )
+        })
+      ) : (
+        <Text style={themedStyles.paramDescription}>
+          {caps
+            ? 'This model speaks with a single voice: it has no voices to choose from and cannot clone one.'
+            : 'Load a TTS model to list its voices.'}
+        </Text>
+      )}
+      {canClone || isOuteTTS ? (
+        <View style={styles.row}>
+          <TouchableOpacity style={styles.button} onPress={loadSpeakerFile}>
+            <Text style={styles.buttonText}>Load speaker file</Text>
+          </TouchableOpacity>
+          <Text style={styles.note}>
+            A speaker GGUF of this model (saveSpeaker, tts-cli --save-speaker)
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  )
+
+  // OuteTTS clones a voice outside the app: the Speaker Creator exports a
+  // speaker GGUF, loaded here like any speaker file.
+  const outettsCloneTab = (
+    <View style={themedStyles.paramGroup}>
+      <Text style={themedStyles.paramLabel}>OuteTTS Speaker Creator</Text>
+      <Text style={themedStyles.paramDescription}>
+        Create a speaker from your recording with the OuteTTS Speaker Creator,
+        export it as a speaker GGUF, then load that file here.
+      </Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() =>
+            Linking.openURL(OUTETTS_SPEAKER_CREATOR).catch(() =>
+              Alert.alert('Error', `Could not open ${OUTETTS_SPEAKER_CREATOR}`),
+            )
+          }
+        >
+          <Text style={styles.buttonText}>Open Speaker Creator</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={async () => {
+            await loadSpeakerFile()
+            setTab('select')
+          }}
+        >
+          <Text style={styles.buttonText}>Load speaker file</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  )
+
+  const cloneTab = (
+    <>
+      <>
+        <View style={themedStyles.paramGroup}>
+          <Text style={themedStyles.paramLabel}>Reference audio</Text>
+          <Text style={themedStyles.paramDescription}>
+            Record or choose a WAV of the voice to clone (a few seconds of
+            clean speech).
+          </Text>
+          <View style={styles.row}>
+            <TouchableOpacity
+              style={[styles.button, isRecording && styles.recording]}
+              onPress={toggleRecording}
+            >
+              <Text style={styles.buttonText}>
+                {isRecording ? 'Stop' : 'Record'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, isRecording && styles.buttonDisabled]}
+              disabled={isRecording}
+              onPress={chooseWav}
+            >
+              <Text style={styles.buttonText}>Choose WAV</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.note, { marginTop: 8 }]} numberOfLines={2}>
+            {isRecording ? 'Recording...' : audioLabel}
+          </Text>
+        </View>
+        <ParameterTextInput
+          label={transcriptRequired ? 'Transcript (required)' : 'Transcript'}
+          description={
+              transcriptRequired
+                ? 'What the audio says. This model prompts with it; phoneme models get it phonemized.'
+                : 'What the audio says. This model does not use it.'
+            }
+          value={cloneText}
+          onChangeText={setCloneText}
+          placeholder="What the audio says"
+        />
+      </>
+      <ParameterTextInput
+        label="Name"
+        description="How the voice is listed under Select loaded voice."
+        value={cloneName}
+        onChangeText={setCloneName}
+        placeholder="My voice"
+      />
+      <View style={themedStyles.paramGroup}>
+        <TouchableOpacity
+          style={[styles.button, !cloneReady && styles.buttonDisabled]}
+          disabled={!cloneReady}
+          onPress={createVoice}
+        >
+          <Text style={styles.buttonText}>Create voice</Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  )
+
+  let activeTab = selectTab
+  if (tab === 'clone' && showCloneTab) activeTab = isOuteTTS ? outettsCloneTab : cloneTab
 
   return (
     <BaseParameterModal
@@ -157,131 +473,25 @@ export default function TTSParamsModal({
       title="TTS Parameters"
       description="Voice and speaking style of the loaded TTS model. Sampling comes from the model's GGUF (general.sampling.*)."
       isLoading={isLoading}
-      onSave={onSaveHandler}
+      onSave={() => handleSave(onSave, onClose)}
       onReset={handleReset}
     >
-      <ParameterMenu
-        label="Voice"
-        description={
-          caps
-            ? `${TTS_VOICE_DEFAULT}: the model's own${
-                defaultVoice ? ` (${defaultVoice})` : ''
-              }. A named voice is one of the codec's builtin voices.${
-                caps.canSpeakerFromAudio
-                  ? ` ${TTS_VOICE_CLONE}: the bundled clip. ${TTS_VOICE_AUDIO}: your WAV recording and what it says. ${TTS_VOICE_FILE}: a saved speaker (.gguf).`
-                  : ''
-              }${
-                isOuteTTS
-                  ? ` ${TTS_VOICE_OUTETTS_JSON}: a speaker made with the OuteTTS Speaker Creator.`
-                  : ''
-              }`
-            : 'Load a TTS model to list its voices.'
-        }
-        value={params.voice}
-        options={voiceOptions}
-        onSelect={(value) => updateParam('voice', value)}
-        placeholder={TTS_VOICE_DEFAULT}
-      />
-      {selected?.refText ? (
-        <View style={themedStyles.paramGroup}>
-          <Text style={themedStyles.paramDescription}>
-            {`Reference transcript: ${selected.refText}`}
-          </Text>
-        </View>
-      ) : null}
-
-      {params.voice === TTS_VOICE_AUDIO ? (
-        <>
-          <View style={themedStyles.paramGroup}>
-            <Text style={themedStyles.paramLabel}>Reference recording</Text>
-            <Text style={themedStyles.paramDescription}>
-              A WAV file of the voice to clone (a few seconds of clean speech).
-            </Text>
-            <View style={styles.row}>
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => choose('refAudioPath', ['audio/*'], 'reference.wav')}
-              >
-                <Text style={styles.buttonText}>Choose WAV</Text>
-              </TouchableOpacity>
-              <Text style={styles.path} numberOfLines={2}>
-                {params.refAudioPath || 'None'}
-              </Text>
-            </View>
-          </View>
-          <ParameterTextInput
-            label="Transcript"
-            description="What the recording says. Models that prompt with it (Qwen3-TTS Base, CosyVoice, NeuTTS) clone better with it; phoneme models get it phonemized."
-            value={params.refText}
-            onChangeText={(text) => updateParam('refText', text)}
-            placeholder="What the recording says"
-          />
-        </>
-      ) : null}
-
-      {params.voice === TTS_VOICE_FILE ? (
-        <>
-          <View style={themedStyles.paramGroup}>
-            <Text style={themedStyles.paramLabel}>Speaker file</Text>
-            <Text style={themedStyles.paramDescription}>
-              A speaker GGUF of this model (saveSpeaker, or codec.cpp tts-cli
-              --save-speaker).
-            </Text>
-            <View style={styles.row}>
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() =>
-                  choose('speakerFilePath', ['application/octet-stream', '*/*'], 'speaker.gguf')
-                }
-              >
-                <Text style={styles.buttonText}>Choose file</Text>
-              </TouchableOpacity>
-              <Text style={styles.path} numberOfLines={2}>
-                {params.speakerFilePath || 'None'}
-              </Text>
-            </View>
-          </View>
-          <ParameterTextInput
-            label="Speaker name"
-            description="The speaker in the file. Empty: the file's default."
-            value={params.speakerName}
-            onChangeText={(text) => updateParam('speakerName', text)}
-            placeholder="default"
-          />
-        </>
-      ) : null}
-
-      {params.voice === TTS_VOICE_OUTETTS_JSON ? (
-        <View style={themedStyles.paramGroup}>
-          <Text style={themedStyles.paramLabel}>OuteTTS speaker JSON</Text>
-          <Text style={themedStyles.paramDescription}>
-            Create a speaker from your own recording with the OuteTTS Speaker
-            Creator, then paste its JSON here.
-          </Text>
-          <View style={styles.row}>
+      {showCloneTab ? (
+        <View style={styles.tabs}>
+          {(['select', 'clone'] as const).map((t) => (
             <TouchableOpacity
-              style={styles.button}
-              onPress={() =>
-                Linking.openURL(OUTETTS_SPEAKER_CREATOR).catch(() =>
-                  Alert.alert('Error', `Could not open ${OUTETTS_SPEAKER_CREATOR}`),
-                )
-              }
+              key={t}
+              style={[styles.tab, tab === t && styles.tabActive]}
+              onPress={() => setTab(t)}
             >
-              <Text style={styles.buttonText}>Open Speaker Creator</Text>
+              <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
+                {t === 'select' ? 'Select loaded voice' : 'Clone Voice'}
+              </Text>
             </TouchableOpacity>
-          </View>
-          <TextInput
-            style={[styles.jsonInput, { marginTop: 8 }]}
-            value={params.outettsSpeakerJson}
-            onChangeText={(text) => updateParam('outettsSpeakerJson', text)}
-            placeholder="Paste the speaker JSON here..."
-            placeholderTextColor={theme.colors.textSecondary}
-            multiline
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          ))}
         </View>
       ) : null}
+      {activeTab}
 
       {caps?.canTakeInstruct ? (
         <ParameterTextInput

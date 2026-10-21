@@ -30,11 +30,8 @@ import type {
 import {
   loadContextParams,
   loadTTSParams,
-  TTS_VOICE_AUDIO,
-  TTS_VOICE_CLONE,
+  TTS_VOICE_BUNDLED,
   TTS_VOICE_DEFAULT,
-  TTS_VOICE_FILE,
-  TTS_VOICE_OUTETTS_JSON,
 } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
@@ -532,41 +529,32 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       const caps = await context.getTTSCapabilities()
       // The voice from TTS Parameters: the model's default, a builtin voice of
-      // the codec, or a clone of the bundled reference clip. Voice-clone
-      // models without a voice of their own (Qwen3-TTS Base) always clone.
+      // the codec, a clone of the bundled clip, or a voice the user made (a
+      // clone of a recording / WAV, or a speaker file).
+      // Voice-clone models without a voice of their own (Qwen3-TTS Base)
+      // clone the bundled clip unless another clone is chosen.
       const voice = ttsParams?.voice ?? TTS_VOICE_DEFAULT
       const knownVoice = caps.builtinVoices.some((v) => v.name === voice)
+      const custom = ttsParams?.customVoices?.find((v) => v.id === voice)
       // Models that read phonemes (NeuTTS) take a clone's transcript as
       // phonemes too, like the text below.
       const transcript = (text: string) =>
         caps.requiresPhonemes ? phonemize(text, caps.defaultLanguage) : text
-      if (voice === TTS_VOICE_AUDIO && ttsParams?.refAudioPath) {
-        const ref = await readWavFile(ttsParams.refAudioPath)
+      if (custom?.kind === 'audio' && custom.audioPath) {
+        const ref = await readWavFile(custom.audioPath)
         spk = await context.createSpeaker({
           refAudio: ref.pcm,
           refAudioSampleRate: ref.sampleRate,
-          refText: ttsParams.refText.trim()
-            ? transcript(ttsParams.refText.trim())
+          refText: custom.refText?.trim()
+            ? transcript(custom.refText.trim())
             : undefined,
         })
-      } else if (voice === TTS_VOICE_FILE && ttsParams?.speakerFilePath) {
-        spk = await context.loadSpeaker(ttsParams.speakerFilePath, {
-          name: ttsParams.speakerName.trim() || undefined,
+      } else if (custom?.kind === 'file' && custom.filePath) {
+        spk = await context.loadSpeaker(custom.filePath, {
+          name: custom.speakerName?.trim() || undefined,
         })
       } else if (
-        voice === TTS_VOICE_OUTETTS_JSON &&
-        ttsParams?.outettsSpeakerJson.trim()
-      ) {
-        // The OuteTTS Speaker Creator's JSON, loaded as a speaker file.
-        const path = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/outetts-speaker.json`
-        await ReactNativeBlobUtil.fs.writeFile(
-          path,
-          ttsParams.outettsSpeakerJson,
-          'utf8',
-        )
-        spk = await context.loadSpeaker(path)
-      } else if (
-        (voice === TTS_VOICE_CLONE || caps.needsVoice) &&
+        (voice === TTS_VOICE_BUNDLED || caps.needsVoice) &&
         isVocoderReady
       ) {
         const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)

@@ -7,27 +7,28 @@ import type {
 export type ContextParams = Omit<LlamaContextParams, 'model'>
 export type CompletionParams = Omit<LlamaCompletionParams, 'prompt'>
 
-// The voice of a TTS request: TTS_VOICE_DEFAULT (the model's own), a builtin
-// voice name of the codec, or TTS_VOICE_CLONE (the bundled reference clip).
+// The voice of a TTS request (TTSParams.voice): TTS_VOICE_DEFAULT (the
+// model's own), a builtin voice name of the codec, TTS_VOICE_BUNDLED (a clone
+// of the bundled reference clip) or the id of one of `customVoices`.
 export const TTS_VOICE_DEFAULT = 'Default'
-export const TTS_VOICE_CLONE = 'Clone reference clip'
-// Custom voices: a reference recording (WAV) with its transcript, a speaker
-// file (.gguf, saveSpeaker / tts-cli --save-speaker), or an OuteTTS speaker
-// JSON from the OuteTTS Speaker Creator.
-export const TTS_VOICE_AUDIO = 'Reference audio'
-export const TTS_VOICE_FILE = 'Speaker file'
-export const TTS_VOICE_OUTETTS_JSON = 'OuteTTS speaker JSON'
+export const TTS_VOICE_BUNDLED = 'Bundled reference clip'
+
+// A voice the user made: a clone of a recording / WAV file with its
+// transcript (createSpeaker), or a speaker GGUF (loadSpeaker), e.g. one the
+// OuteTTS Speaker Creator exports.
+export interface TTSCustomVoice {
+  id: string
+  name: string
+  kind: 'audio' | 'file'
+  audioPath?: string
+  refText?: string
+  filePath?: string
+  speakerName?: string
+}
 
 export interface TTSParams {
   voice: string
-  // TTS_VOICE_AUDIO: the WAV and what it says.
-  refAudioPath: string
-  refText: string
-  // TTS_VOICE_FILE: the speaker file and the speaker in it ('' = its default).
-  speakerFilePath: string
-  speakerName: string
-  // TTS_VOICE_OUTETTS_JSON: the speaker JSON.
-  outettsSpeakerJson: string
+  customVoices: TTSCustomVoice[]
   // How to speak, for models that take an instruct.
   instruct: string
 }
@@ -88,11 +89,7 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
 
 export const DEFAULT_TTS_PARAMS: TTSParams = {
   voice: TTS_VOICE_DEFAULT,
-  refAudioPath: '',
-  refText: '',
-  speakerFilePath: '',
-  speakerName: '',
-  outettsSpeakerJson: '',
+  customVoices: [],
   instruct: '',
 }
 

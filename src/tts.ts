@@ -67,6 +67,11 @@ export interface TTSCapabilities {
    * (reference audio) as `speaker` (e.g. Qwen3-TTS Base).
    */
   needsVoice: boolean
+  /**
+   * True when a cloned voice's transcript (`createSpeaker`'s `refText`) is
+   * used — give it when cloning (e.g. Qwen3-TTS Base, CosyVoice, NeuTTS).
+   */
+  usesRefText: boolean
 }
 
 

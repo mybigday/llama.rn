@@ -25,7 +25,7 @@ The model reads the backbone's hidden states (the context returns them).
 
 #### Defined in
 
-[tts.ts:93](https://github.com/mybigday/llama.rn/blob/12d25076/src/tts.ts#L93)
+[tts.ts:98](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L98)
 
 ___
 
@@ -37,7 +37,7 @@ The tokens the model may emit and its minimum length.
 
 #### Defined in
 
-[tts.ts:95](https://github.com/mybigday/llama.rn/blob/12d25076/src/tts.ts#L95)
+[tts.ts:100](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L100)
 
 ___
 
@@ -49,7 +49,7 @@ One bias per vocabulary token (`-Infinity` for tokens the model never samples), 
 
 #### Defined in
 
-[tts.ts:97](https://github.com/mybigday/llama.rn/blob/12d25076/src/tts.ts#L97)
+[tts.ts:102](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L102)
 
 ___
 
@@ -61,4 +61,4 @@ The armed text; `completion()` must be given this prompt.
 
 #### Defined in
 
-[tts.ts:91](https://github.com/mybigday/llama.rn/blob/12d25076/src/tts.ts#L91)
+[tts.ts:96](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L96)

@@ -181,6 +181,7 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
     cap.can_speaker_from_audio = c.takes_ref_audio;
     cap.can_take_instruct      = c.takes_instruct;
     cap.needs_voice            = c.needs_voice;
+    cap.uses_ref_text          = c.takes_ref_text;
     cap.sample_rate            = c.sample_rate;
 
     const int32_t n = codec_audio_lm_list_voices(alm, nullptr);
