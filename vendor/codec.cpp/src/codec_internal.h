@@ -8,6 +8,7 @@
 #include <ggml.h>
 #include <gguf.h>
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <cstdint>
@@ -48,11 +49,18 @@ struct codec_model {
     ggml_backend_t backend = nullptr;
     ggml_backend_buffer_type_t buffer_type = nullptr;
     ggml_backend_buffer_t weights_buffer = nullptr;
-    // Persistent CPU worker pool shared by the model's contexts (sized to the
-    // largest thread count asked for). Without one, ggml-cpu builds without
-    // OpenMP create and join a fresh pool on every graph compute.
-    struct ggml_threadpool * cpu_threadpool = nullptr;
-    int32_t cpu_threadpool_n = 0;
+    // Persistent CPU worker pools of the model's contexts. A compute borrows an
+    // idle pool (grown to its thread count) and returns it, so contexts
+    // computing at the same time each get their own; one at a time keeps one.
+    // Without them, ggml-cpu builds without OpenMP create and join a fresh pool
+    // on every graph compute.
+    struct codec_cpu_pool {
+        struct ggml_threadpool * tp = nullptr;
+        int32_t n = 0;
+        bool busy = false;
+    };
+    std::mutex cpu_pools_mutex;
+    std::vector<codec_cpu_pool> cpu_pools;
 
     struct codec_gguf_metadata metadata;
 
@@ -124,6 +132,9 @@ struct codec_graph_const_input {
 
 struct codec_context {
     struct codec_model * model;
+    // The context's own instance on the model's device (the weights stay in the
+    // model's buffer): backends are not thread safe, so contexts of one model
+    // can compute at the same time only on separate instances.
     ggml_backend_t backend = nullptr;
     ggml_backend_t cpu_backend = nullptr;
     ggml_backend_sched_t sched = nullptr;

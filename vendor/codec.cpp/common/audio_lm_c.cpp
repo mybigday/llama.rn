@@ -175,6 +175,25 @@ struct codec_audio_lm * codec_audio_lm_init(const struct codec_audio_lm_params *
     return nullptr;
 }
 
+struct codec_audio_lm * codec_audio_lm_init_shared(const struct codec_audio_lm * base, char * err, size_t err_size) {
+    std::string e;
+    auto ctx = std::unique_ptr<codec_audio_lm>(new (std::nothrow) codec_audio_lm());
+    if (!ctx) {
+        e = "out of memory";
+    } else if (base == nullptr) {
+        e = "base is required";
+    } else {
+        ctx->alm = audio_lm_init_shared(base->alm, &e);
+        if (ctx->alm != nullptr) {
+            ctx->family = alm_make_family(ctx->alm, base->family->backbone_path, &e);
+            if (ctx->family) ctx->family->share_from(*base->family);
+        }
+        if (ctx->family) return ctx.release();
+    }
+    if (err != nullptr && err_size > 0) std::snprintf(err, err_size, "%s", e.c_str());
+    return nullptr;
+}
+
 void codec_audio_lm_free(struct codec_audio_lm * ctx) { delete ctx; }
 
 const char * codec_audio_lm_last_error(const struct codec_audio_lm * ctx) {

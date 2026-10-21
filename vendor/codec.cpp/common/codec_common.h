@@ -141,6 +141,10 @@ struct audio_lm_context;
 // failure returns nullptr and writes the reason into `*err` if non-null.
 
 audio_lm_context * audio_lm_init (const audio_lm_params & p, std::string * err = nullptr);
+// Another context on `base`'s codec model (weights loaded once): its own codec
+// context, codec_lm and generation state, so the two can run at the same
+// time.  `base` must outlive it.
+audio_lm_context * audio_lm_init_shared(const audio_lm_context * base, std::string * err = nullptr);
 void               audio_lm_free (audio_lm_context * ctx);
 
 // Drop per-sequence state (accumulated codes, internal step machine,

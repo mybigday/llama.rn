@@ -250,38 +250,66 @@ static ggml_threadpool_t codec_make_unpinned_threadpool(const codec_cpu_threadpo
 #endif
 }
 
-// Attach the model's persistent CPU threadpool (grown to n_threads) to the
-// context's CPU backends.
-static void codec_attach_cpu_threadpool(codec_context * ctx, int32_t n_threads) {
-    const codec_cpu_threadpool_fns & api = codec_cpu_threadpool_api();
-    codec_model * model = ctx->model;
-    if (api.make == nullptr || model == nullptr || n_threads <= 1) {
-        return;
-    }
-    if (model->cpu_threadpool == nullptr || model->cpu_threadpool_n < n_threads) {
-        ggml_threadpool_t tp = codec_make_unpinned_threadpool(api, ggml_threadpool_params_default(n_threads));
-        if (tp == nullptr) {
+// Borrows an idle CPU pool of the model (grown to n_threads, made when every
+// pool is busy) and attaches it to the context's CPU backends; the destructor
+// returns it.  Two contexts computing at once never share a pool.
+struct codec_cpu_pool_lease {
+    codec_model * model = nullptr;
+    int32_t idx = -1;
+
+    codec_cpu_pool_lease(codec_context * ctx, int32_t n_threads) {
+        const codec_cpu_threadpool_fns & api = codec_cpu_threadpool_api();
+        if (api.make == nullptr || ctx->model == nullptr || n_threads <= 1) {
             return;
         }
-        if (model->cpu_threadpool != nullptr) {
-            api.destroy(model->cpu_threadpool);   // contexts re-attach before their next compute
+        model = ctx->model;
+        std::lock_guard<std::mutex> lock(model->cpu_pools_mutex);
+        auto & pools = model->cpu_pools;
+        for (size_t i = 0; i < pools.size() && idx < 0; ++i) {
+            if (!pools[i].busy && pools[i].n >= n_threads) idx = (int32_t) i;
         }
-        model->cpu_threadpool = tp;
-        model->cpu_threadpool_n = n_threads;
-    }
-    for (ggml_backend_t b : {ctx->backend, ctx->cpu_backend}) {
-        if (codec_backend_is_cpu(b)) {
-            api.attach(b, model->cpu_threadpool);
+        for (size_t i = 0; i < pools.size() && idx < 0; ++i) {
+            if (!pools[i].busy) idx = (int32_t) i;
+        }
+        if (idx < 0) {
+            pools.emplace_back();
+            idx = (int32_t) pools.size() - 1;
+        }
+        codec_model::codec_cpu_pool & p = pools[(size_t) idx];
+        if (p.tp == nullptr || p.n < n_threads) {
+            ggml_threadpool_t tp = codec_make_unpinned_threadpool(api, ggml_threadpool_params_default(n_threads));
+            if (tp == nullptr) {
+                idx = -1;
+                return;
+            }
+            if (p.tp != nullptr) {
+                api.destroy(p.tp);   // contexts re-attach before their next compute
+            }
+            p.tp = tp;
+            p.n = n_threads;
+        }
+        p.busy = true;
+        for (ggml_backend_t b : {ctx->backend, ctx->cpu_backend}) {
+            if (codec_backend_is_cpu(b)) {
+                api.attach(b, p.tp);
+            }
         }
     }
-}
+    ~codec_cpu_pool_lease() {
+        if (idx < 0) return;
+        std::lock_guard<std::mutex> lock(model->cpu_pools_mutex);
+        model->cpu_pools[(size_t) idx].busy = false;
+    }
+    codec_cpu_pool_lease(const codec_cpu_pool_lease &) = delete;
+    codec_cpu_pool_lease & operator=(const codec_cpu_pool_lease &) = delete;
+};
 
 void codec_model_free_cpu_threadpool(codec_model * model) {
-    if (model != nullptr && model->cpu_threadpool != nullptr) {
-        codec_cpu_threadpool_api().destroy(model->cpu_threadpool);
-        model->cpu_threadpool = nullptr;
-        model->cpu_threadpool_n = 0;
+    if (model == nullptr) return;
+    for (auto & p : model->cpu_pools) {
+        if (p.tp != nullptr) codec_cpu_threadpool_api().destroy(p.tp);
     }
+    model->cpu_pools.clear();
 }
 
 static bool codec_sched_ensure_capacity(codec_context * ctx, int32_t required, std::string * error) {
@@ -337,7 +365,10 @@ bool codec_runtime_init(codec_context * ctx, std::string * error) {
         return false;
     }
 
-    ctx->backend = ctx->model->backend;
+    ctx->backend = nullptr;
+    if (ctx->model->backend != nullptr) {
+        ctx->backend = ggml_backend_dev_init(ggml_backend_get_device(ctx->model->backend), nullptr);
+    }
     ctx->eval_arena_buf = nullptr;
     ctx->eval_arena_size = 0;
     ctx->eval_ctx = nullptr;
@@ -347,7 +378,7 @@ bool codec_runtime_init(codec_context * ctx, std::string * error) {
     ctx->sched_reserved_graph_size = 0;
     if (ctx->backend == nullptr) {
         if (error != nullptr) {
-            *error = "model backend is null";
+            *error = "could not start a backend on the model's device";
         }
         return false;
     }
@@ -489,7 +520,7 @@ bool codec_graph_compute(
     if (ctx->cpu_backend != nullptr) {
         codec_backend_set_n_threads(ctx->cpu_backend, n_threads);
     }
-    codec_attach_cpu_threadpool(ctx, n_threads);
+    codec_cpu_pool_lease pool(ctx, n_threads);
 
     if (!codec_graph_prepare_io(ctx, entry, error)) {
         return false;
@@ -545,5 +576,9 @@ void codec_runtime_free(codec_context * ctx) {
     if (ctx->cpu_backend != nullptr) {
         ggml_backend_free(ctx->cpu_backend);
         ctx->cpu_backend = nullptr;
+    }
+    if (ctx->backend != nullptr) {
+        ggml_backend_free(ctx->backend);
+        ctx->backend = nullptr;
     }
 }

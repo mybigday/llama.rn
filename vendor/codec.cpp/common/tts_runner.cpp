@@ -18,10 +18,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -298,28 +300,62 @@ codec_audio_lm_vocab host_vocab(const llama_vocab * v) {
 
 }  // namespace
 
-// Session: the codec_audio_lm context and (unless the model is
-// self-contained) the backbone, loaded once for any number of runs.
+// One request at a time: a codec_audio_lm context and (unless the model is
+// self-contained) a backbone context.
+struct tts_runner_slot {
+    codec_audio_lm * alm  = nullptr;
+    llama_context  * lctx = nullptr;
+    bool             busy = false;
+};
+
+// Session: the weights (codec, backbone) loaded once, and n_parallel slots
+// over them for any number of runs.  Runs take the free slots in arrival order.
 struct tts_runner_session {
-    codec_audio_lm * alm    = nullptr;
     bool             llama_inited = false;
     llama_model    * lmodel = nullptr;
-    llama_context  * lctx   = nullptr;
-    int32_t          max_frames = 0;   // load-time cap the context is sized for
+    int32_t          max_frames = 0;   // load-time cap the contexts are sized for
+    std::vector<tts_runner_slot> slots;   // slots[0].alm owns the codec weights
+
+    std::mutex              m;
+    std::condition_variable cv;
+    uint64_t                next_ticket = 0, serving = 0;
+
+    // Waits for this caller's turn and a free slot.
+    tts_runner_slot * acquire() {
+        std::unique_lock<std::mutex> lock(m);
+        const uint64_t ticket = next_ticket++;
+        tts_runner_slot * got = nullptr;
+        cv.wait(lock, [&] {
+            if (ticket != serving) return false;
+            for (auto & sl : slots) if (!sl.busy) { got = &sl; return true; }
+            return false;
+        });
+        got->busy = true;
+        ++serving;
+        cv.notify_all();
+        return got;
+    }
+    void release(tts_runner_slot * sl) {
+        std::lock_guard<std::mutex> lock(m);
+        sl->busy = false;
+        cv.notify_all();
+    }
 
     ~tts_runner_session() {
-        if (lctx)   llama_free(lctx);
+        for (auto & sl : slots) if (sl.lctx) llama_free(sl.lctx);
         if (lmodel) llama_model_free(lmodel);
         if (llama_inited) llama_backend_free();
-        if (alm)    codec_audio_lm_free(alm);
+        // The shared contexts before the one that owns the weights.
+        for (size_t i = slots.size(); i-- > 0;) if (slots[i].alm) codec_audio_lm_free(slots[i].alm);
     }
 };
 
 // One generation (one segment): prompt, the backbone loop, audio.
-static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out, stream_out * so) {
-    codec_audio_lm * alm  = s->alm;
-    if (s->lctx == nullptr) return tts_runner_generate_self_contained(alm, a, out);
-    llama_context  * lctx = s->lctx;
+static bool run_one(tts_runner_session * s, tts_runner_slot * sl, const tts_runner_params & a, tts_runner_result * out,
+                    stream_out * so) {
+    codec_audio_lm * alm  = sl->alm;
+    if (sl->lctx == nullptr) return tts_runner_generate_self_contained(alm, a, out);
+    llama_context  * lctx = sl->lctx;
     const llama_vocab * vocab = llama_model_get_vocab(s->lmodel);
     const codec_audio_lm_vocab cv = host_vocab(vocab);
     auto fail = [&](const std::string & what) {
@@ -499,10 +535,17 @@ tts_runner_session * tts_runner_load(const tts_runner_params & a, std::string * 
         delete s;
         return nullptr;
     };
-    s->alm = tts_runner_open_codec(a, err);
-    if (s->alm == nullptr) return fail(*err);
+    const int32_t n_slots = std::max(1, a.n_parallel);
+    s->slots.resize((size_t) n_slots);
+    s->slots[0].alm = tts_runner_open_codec(a, err);
+    if (s->slots[0].alm == nullptr) return fail(*err);
+    for (int32_t i = 1; i < n_slots; ++i) {
+        char e[512] = "";
+        s->slots[(size_t) i].alm = codec_audio_lm_init_shared(s->slots[0].alm, e, sizeof e);
+        if (s->slots[(size_t) i].alm == nullptr) return fail(std::string("codec_audio_lm_init_shared: ") + e);
+    }
     codec_audio_lm_caps caps{};
-    codec_audio_lm_get_caps(s->alm, &caps);
+    codec_audio_lm_get_caps(s->slots[0].alm, &caps);
     if (!caps.needs_backbone) return s;   // self-contained (Pocket-TTS FlowLM)
     if (a.backbone_path.empty()) return fail("synthesize requires backbone_path (llama.cpp model)");
 
@@ -520,8 +563,8 @@ tts_runner_session * tts_runner_load(const tts_runner_params & a, std::string * 
     // The context the model asks for, sized once for the load-time max_frames.
     const codec_audio_lm_vocab cv = host_vocab(llama_model_get_vocab(s->lmodel));
     codec_audio_lm_backbone_req req{};
-    if (!codec_audio_lm_backbone_requirements(s->alm, &cv, a.max_frames, &req)) {
-        return fail(std::string("backbone: ") + codec_audio_lm_last_error(s->alm));
+    if (!codec_audio_lm_backbone_requirements(s->slots[0].alm, &cv, a.max_frames, &req)) {
+        return fail(std::string("backbone: ") + codec_audio_lm_last_error(s->slots[0].alm));
     }
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx        = (uint32_t) req.n_ctx;
@@ -533,49 +576,59 @@ tts_runner_session * tts_runner_load(const tts_runner_params & a, std::string * 
     if (!req.flash_attn) cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (a.n_threads > 0) { cp.n_threads = a.n_threads; cp.n_threads_batch = a.n_threads; }
     cp.op_offload = a.use_gpu;
-    s->lctx = llama_init_from_model(s->lmodel, cp);
-    if (!s->lctx) return fail("llama_init_from_model failed");
+    for (auto & sl : s->slots) {
+        sl.lctx = llama_init_from_model(s->lmodel, cp);
+        if (!sl.lctx) return fail("llama_init_from_model failed");
+    }
     return s;
 }
 
-codec_audio_lm * tts_runner_audio_lm(tts_runner_session * s) { return s ? s->alm : nullptr; }
+void tts_runner_with_audio_lm(tts_runner_session * s, const std::function<void(codec_audio_lm *)> & fn) {
+    if (s == nullptr) return;
+    tts_runner_slot * sl = s->acquire();
+    fn(sl->alm);
+    s->release(sl);
+}
 
 void tts_runner_free(tts_runner_session * s) { delete s; }
 
 tts_runner_info tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file) {
     tts_runner_info info;
-    if (s == nullptr) return info;
-    const int32_t n = codec_audio_lm_list_voices(s->alm, speaker_file.empty() ? nullptr : speaker_file.c_str());
-    if (n < 0) info.error = codec_audio_lm_last_error(s->alm);
-    for (int32_t i = 0; i < n; ++i) {
-        const char * name = nullptr;
-        bool is_default = false;
-        if (!codec_audio_lm_voice(s->alm, i, &name, nullptr, &is_default)) continue;
-        info.voices.push_back(name);
-        if (is_default) info.default_voice = name;
-    }
-    codec_audio_lm_caps caps{};
-    codec_audio_lm_get_caps(s->alm, &caps);
-    info.takes_instruct = caps.takes_instruct;
+    tts_runner_with_audio_lm(s, [&](codec_audio_lm * alm) {
+        const int32_t n = codec_audio_lm_list_voices(alm, speaker_file.empty() ? nullptr : speaker_file.c_str());
+        if (n < 0) info.error = codec_audio_lm_last_error(alm);
+        for (int32_t i = 0; i < n; ++i) {
+            const char * name = nullptr;
+            bool is_default = false;
+            if (!codec_audio_lm_voice(alm, i, &name, nullptr, &is_default)) continue;
+            info.voices.push_back(name);
+            if (is_default) info.default_voice = name;
+        }
+        codec_audio_lm_caps caps{};
+        codec_audio_lm_get_caps(alm, &caps);
+        info.takes_instruct = caps.takes_instruct;
+    });
     return info;
 }
 
 // One request: the voice once, then each text segment as its own generation,
 // joined the model's way.
-static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out) {
+static bool tts_runner_run_segments(tts_runner_session * s, tts_runner_slot * sl, const tts_runner_params & a,
+                                    tts_runner_result * out) {
+    codec_audio_lm * alm = sl->alm;
     tts_runner_params ra = a;
     ra.max_frames = s->max_frames;   // the context was sized for the load-time cap
     if (s->lmodel) sampling_from_model(s->lmodel, a.sampling_user_set, &ra.sampling, &ra.samplers);
     const uint32_t base_seed = ra.sampling.seed;
     std::vector<std::string> segments;
-    const int32_t n_seg = codec_audio_lm_tts_split(s->alm, a.text.c_str(), a.segment_bytes);
-    for (int32_t i = 0; i < n_seg; ++i) segments.push_back(codec_audio_lm_tts_segment(s->alm, i));
+    const int32_t n_seg = codec_audio_lm_tts_split(alm, a.text.c_str(), a.segment_bytes);
+    for (int32_t i = 0; i < n_seg; ++i) segments.push_back(codec_audio_lm_tts_segment(alm, i));
     if (segments.empty()) {
         out->error = "empty text";
         return false;
     }
     tts_runner_voice voice;
-    if (!tts_runner_make_voice(s->alm, a, &voice, &out->speaker_ms, &out->error)) return false;
+    if (!tts_runner_make_voice(alm, a, &voice, &out->speaker_ms, &out->error)) return false;
     ra.voice_spk = voice.use;
     out->pcm.clear();
     out->n_frames  = 0;
@@ -588,8 +641,8 @@ static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_par
         if (base_seed != CODEC_AUDIO_LM_DEFAULT_SEED) ra.sampling.seed = base_seed + (uint32_t) i;
         tts_runner_result r;
         std::unique_ptr<stream_out> so;
-        if (a.on_audio && a.stream_chunk_ms > 0) so = std::make_unique<stream_out>(s->alm, ra, &r);
-        const bool ok = run_one(s, ra, &r, so.get());
+        if (a.on_audio && a.stream_chunk_ms > 0) so = std::make_unique<stream_out>(alm, ra, &r);
+        const bool ok = run_one(s, sl, ra, &r, so.get());
         out->decode_ms += r.decode_ms;
         if (!ok) {
             out->error = segments.size() > 1 ? "segment " + std::to_string(i + 1) + ": " + r.error : r.error;
@@ -607,7 +660,7 @@ static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_par
         own.n_channels  = r.n_channels;
         own.n_samples   = (int32_t) (r.pcm.size() / (size_t) std::max(1, r.n_channels));
         own.sample_rate = r.sample_rate;
-        const int32_t gap = std::max(0, codec_audio_lm_tts_join(s->alm, &own, (int32_t) i, (int32_t) segments.size()));
+        const int32_t gap = std::max(0, codec_audio_lm_tts_join(alm, &own, (int32_t) i, (int32_t) segments.size()));
         r.pcm.assign(own.data, own.data + (size_t) own.n_samples * (size_t) std::max(1, own.n_channels));
         codec_pcm_buffer_free(&own);
         const std::vector<float> silence((size_t) gap * (size_t) std::max(1, r.n_channels), 0.0f);
@@ -626,7 +679,9 @@ static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_par
 
 bool tts_runner_run(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out) {
     const auto t0 = std::chrono::steady_clock::now();
-    const bool ok = tts_runner_run_segments(s, a, out);
+    tts_runner_slot * sl = s->acquire();
+    const bool ok = tts_runner_run_segments(s, sl, a, out);
+    s->release(sl);
     out->total_ms = ms_since(t0);
     return ok;
 }

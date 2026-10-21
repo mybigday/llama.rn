@@ -37,6 +37,7 @@ static std::vector<float> resample_linear_mono(const std::vector<float> & in,
 // =====================================================================
 struct audio_lm_context {
     codec_model    * model      = nullptr;
+    bool             owns_model = true;    // false: borrowed from the context it was shared from
     codec_context  * codec_ctx  = nullptr;
     codec_lm       * lm         = nullptr;
     codec_lm_state * state      = nullptr;
@@ -344,6 +345,8 @@ codec_model * load_codec_model(const std::string & path, codec_model_params mp,
     return codec_model_load_from_file_ext(path.c_str(), mp, ov.data());
 }
 
+static bool audio_lm_attach(audio_lm_context * ctx, std::string * err);
+
 audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
     if (p.codec_path.empty()) {
         if (err) *err = "audio_lm_init: codec_path is empty";
@@ -365,13 +368,33 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
         return nullptr;
     }
 
+    return audio_lm_attach(ctx, err) ? ctx : nullptr;
+}
+
+audio_lm_context * audio_lm_init_shared(const audio_lm_context * base, std::string * err) {
+    if (base == nullptr || base->model == nullptr) {
+        if (err) *err = "audio_lm_init_shared: no context to share";
+        return nullptr;
+    }
+    auto * ctx = new (std::nothrow) audio_lm_context();
+    if (ctx == nullptr) {
+        if (err) *err = "audio_lm_init: out of memory";
+        return nullptr;
+    }
+    ctx->model      = base->model;
+    ctx->owns_model = false;
+    return audio_lm_attach(ctx, err) ? ctx : nullptr;
+}
+
+// The context's own codec context, codec_lm and state over ctx->model, plus
+// what the GGUF metadata says about them.  Frees ctx on failure.
+static bool audio_lm_attach(audio_lm_context * ctx, std::string * err) {
     auto cp = codec_context_default_params();
     ctx->codec_ctx = codec_init_from_model(ctx->model, cp);
     if (ctx->codec_ctx == nullptr) {
         if (err) *err = "audio_lm_init: codec_init_from_model failed";
-        codec_model_free(ctx->model);
-        delete ctx;
-        return nullptr;
+        audio_lm_free(ctx);
+        return false;
     }
 
     // LM adaptor is OPTIONAL.  codec-only GGUFs (e.g. wavtokenizer.gguf,
@@ -393,7 +416,7 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
 
     ctx->modality_mask = read_modality_or_infer(ctx);
     init_decode_transform(ctx);
-    return ctx;
+    return true;
 }
 
 void audio_lm_free(audio_lm_context * ctx) {
@@ -401,7 +424,7 @@ void audio_lm_free(audio_lm_context * ctx) {
     if (ctx->state)     codec_lm_state_free(ctx->state);
     if (ctx->lm)        codec_lm_free(ctx->lm);
     if (ctx->codec_ctx) codec_free(ctx->codec_ctx);
-    if (ctx->model)     codec_model_free(ctx->model);
+    if (ctx->model && ctx->owns_model) codec_model_free(ctx->model);
     delete ctx;
 }
 

@@ -73,6 +73,12 @@ struct codec_audio_lm_params codec_audio_lm_default_params(void);
 // NULL on failure; the reason goes to `err` (may be NULL).
 struct codec_audio_lm * codec_audio_lm_init(const struct codec_audio_lm_params * params,
                                             char * err, size_t err_size);
+// Another context on `base`'s weights (the codec GGUF and, for models that
+// read it, the backbone's embedding table load once), with its own generation
+// state, so requests can run on the two at the same time (one thread each).
+// `base` must outlive it and stay idle while this is created.  NULL on failure.
+struct codec_audio_lm * codec_audio_lm_init_shared(const struct codec_audio_lm * base,
+                                                   char * err, size_t err_size);
 void         codec_audio_lm_free      (struct codec_audio_lm * ctx);
 const char * codec_audio_lm_last_error(const struct codec_audio_lm * ctx);
 

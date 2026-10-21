@@ -93,6 +93,7 @@ struct tts_runner_params {
 
     int32_t  n_threads = 0;
     bool     use_gpu   = false;
+    int32_t  n_parallel = 1;         // tts_runner_load: requests a session runs at once
     int32_t  max_frames = 0;         // 0 → per-model default
     int32_t  min_frames = -1;        // -1 → the model's own minimum
 
@@ -190,10 +191,13 @@ bool tts_runner_generate_self_contained(codec_audio_lm * alm, const tts_runner_p
 // ─────────────────────────────────────────────────────────────────────
 // Session — load once, synthesize many (a server).  tts_runner_load reads
 // the load-time fields of `params` (codec_path, kv_overrides,
-// backbone_path, n_threads, use_gpu, max_frames); tts_runner_run reads the per-request ones (text,
-// voice / speaker_file / ref_audio, sampler knobs, ...); max_frames stays
-// the load-time one.  Runs on one session are not thread-safe: callers
-// serialize them.  Only compiled into codec_tts_runner.
+// backbone_path, n_threads, use_gpu, max_frames, n_parallel);
+// tts_runner_run reads the per-request ones (text, voice / speaker_file /
+// ref_audio, sampler knobs, ...); max_frames stays the load-time one.
+// The weights load once; each of the n_parallel slots has its own codec and
+// backbone contexts, so that many runs go at once (n_threads each).  Runs
+// may come from any thread: a run waits for a free slot, in arrival order.
+// Only compiled into codec_tts_runner.
 // ─────────────────────────────────────────────────────────────────────
 struct tts_runner_session;
 
@@ -208,8 +212,10 @@ tts_runner_session * tts_runner_load(const tts_runner_params & params, std::stri
 bool                 tts_runner_run (tts_runner_session * s, const tts_runner_params & params,
                                      tts_runner_result * out);
 void                 tts_runner_free(tts_runner_session * s);
-// The session's codec_audio_lm, e.g. to create / load voices (serialize with the runs).
-codec_audio_lm *     tts_runner_audio_lm(tts_runner_session * s);
+// Calls fn with an idle slot's codec_audio_lm, e.g. to create / load voices
+// (voices work on every slot); waits for one like a run.
+void                 tts_runner_with_audio_lm(tts_runner_session * s,
+                                              const std::function<void(codec_audio_lm *)> & fn);
 // Voices are the codec GGUF's builtin speakers, or those in `speaker_file`
 // when the runs pass one.
 tts_runner_info      tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file = "");

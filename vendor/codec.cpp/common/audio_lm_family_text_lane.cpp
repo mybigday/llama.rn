@@ -14,6 +14,9 @@
 #include "audio_lm_family.h"
 #include "audio_lm_text_embd.h"
 
+#include <memory>
+#include <mutex>
+
 namespace codec_common {
 namespace {
 
@@ -36,10 +39,13 @@ protected:
         n_cb_   = audio_lm_n_codebook(alm_);
         frames_ = 0;
         stop_reason_ = "max_frames";
-        if (!table_.loaded()) {
-            if (backbone_path.empty()) return fail("this model needs the backbone GGUF path (its text embedding table)");
-            std::string err;
-            if (!table_.load(backbone_path.c_str(), hidden_, err)) return fail(err);
+        {
+            std::lock_guard<std::mutex> lock(table_->m);
+            if (!table_->t.loaded()) {
+                if (backbone_path.empty()) return fail("this model needs the backbone GGUF path (its text embedding table)");
+                std::string err;
+                if (!table_->t.load(backbone_path.c_str(), hidden_, err)) return fail(err);
+            }
         }
         audio_lm_set_uses_embed_override(alm_, true, 1);
         return true;
@@ -55,6 +61,10 @@ protected:
     }
 
 public:
+    void share_from(alm_family & base) override {
+        if (auto * b = dynamic_cast<text_lane_family *>(&base)) table_ = b->table_;
+    }
+
     const float * head_logits() const override { return logits_.data(); }
 
     bool head_token(int32_t id, codec_audio_lm_verdict * v) override {
@@ -101,7 +111,13 @@ protected:
     bool in_text_ = false;
     audio_lm_prompt_info pi_;
     int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0;
-    alm_text_embd table_;
+    // The backbone's table, loaded on first use and shared by the contexts of
+    // one model (codec_audio_lm_init_shared).
+    struct shared_table {
+        std::mutex    m;
+        alm_text_embd t;
+    };
+    std::shared_ptr<shared_table> table_ = std::make_shared<shared_table>();
     std::vector<float> next_;
 };
 
@@ -174,7 +190,7 @@ protected:
 private:
     // text_embd[text_token] + the codes' audio embedding.
     bool compose(int32_t text_token, const int32_t * codes, float * dst) {
-        if (!table_.row(text_token, dst)) return fail("text embedding row " + std::to_string(text_token));
+        if (!table_->t.row(text_token, dst)) return fail("text embedding row " + std::to_string(text_token));
         std::vector<float> aud((size_t) hidden_, 0.0f);
         if (!audio_lm_compose_audio_codes_embd(alm_, codes, n_cb_, aud.data(), hidden_)) return fail_alm("audio embedding");
         for (int32_t i = 0; i < hidden_; ++i) dst[i] += aud[(size_t) i];
@@ -263,11 +279,11 @@ protected:
 private:
     // The tied-embedding head: logits[v] = <hidden, token_embd[v]>.
     void text_logits(const float * h) {
-        const int32_t n_vocab = (int32_t) table_.vocab;
+        const int32_t n_vocab = (int32_t) table_->t.vocab;
         logits_.resize((size_t) n_vocab);
         row_.resize((size_t) hidden_);
         for (int32_t t = 0; t < n_vocab; ++t) {
-            if (!table_.row(t, row_.data())) { logits_[(size_t) t] = -1e30f; continue; }
+            if (!table_->t.row(t, row_.data())) { logits_[(size_t) t] = -1e30f; continue; }
             double acc = 0.0;
             for (int32_t i = 0; i < hidden_; ++i) acc += (double) h[i] * (double) row_[(size_t) i];
             logits_[(size_t) t] = (float) acc;

@@ -143,6 +143,9 @@ public:
     explicit alm_family(audio_lm_context * alm) : alm_(alm) {}
     std::string backbone_path;   // set by the factory (models that read its embedding table)
     virtual ~alm_family() = default;
+    // Takes over the read-only data `base` (the same model's family) loaded or
+    // will load, instead of a copy (codec_audio_lm_init_shared).
+    virtual void share_from(alm_family & /*base*/) {}
 
     virtual const char * name() const = 0;
     virtual void caps(codec_audio_lm_caps * out) const;
