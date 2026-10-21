@@ -9,7 +9,6 @@
 #include "chat.h"
 #include "speculative.h"
 #include <deque>
-#include <functional>
 
 using json = nlohmann::ordered_json;
 
@@ -64,55 +63,6 @@ struct completion_token_output
 // raw logits at batch index `idx` (post_sampling = false).
 std::vector<completion_token_output::token_prob> get_token_probabilities(
     llama_context *ctx, common_sampler *sampler, int idx, int n_probs, bool post_sampling);
-
-// A prompt given as chunks instead of text: token ids or input-embedding rows
-// (`n_embd` floats each), on `n_seq` sequences decoded side by side (a guidance
-// pair); a chunk holds its rows sequence by sequence.
-struct completion_prompt_chunk
-{
-    std::vector<llama_token> tokens;   // n_seq * n, or empty
-    std::vector<float> embd;           // n_seq * n * n_embd, or empty
-    int32_t n = 0;
-    int32_t n_embd = 0;
-};
-
-// Takes part in a completion step by step beside its sampler (text-to-speech:
-// codec.cpp's codec_audio_lm).  The completion samples every token, its own
-// and the hook's (auxiliary samplers built from the completion's sampling);
-// the hook says what the model reads next and when the generation ends.
-struct completion_step_hook
-{
-    virtual ~completion_step_hook() = default;
-
-    // Sequences decoded side by side.
-    virtual int32_t nSeq() const { return 1; }
-    // The prompt's per-position hidden states, passed to onPrompt.
-    virtual bool wantsPromptHiddens() const { return false; }
-    virtual void onPrompt(llama_rn_context * ctx, const float * hiddens, int32_t n_pos) {
-        (void) ctx; (void) hiddens; (void) n_pos;
-    }
-
-    // Auxiliary samplers over logits the hook hands out: one per group, from
-    // the completion's sampling (seeded seed + 1 + group).
-    struct sampler_group {
-        bool penalties = true;                // false: no penalties
-        std::vector<llama_token> history;     // accepted before the first draw
-    };
-    virtual std::vector<sampler_group> samplerGroups() const { return {}; }
-    using sample_fn = std::function<llama_token(int32_t group, const float * logits, int32_t n_vocab)>;
-
-    // Whether the next step samples a token from the model's logits.
-    virtual bool samplesToken() const { return true; }
-    struct step {
-        bool stop = false;
-        bool audio = false;           // the step belongs to the hook's output (never text)
-        llama_token feed = -1;        // the token the model reads next (text unless `audio`)
-        std::vector<float> embd;      // or: nSeq() embedding rows
-    };
-    // One step: `sampled` is the completion's token (-1 when samplesToken()
-    // was false); `sample` draws from an auxiliary sampler.
-    virtual step onStep(llama_rn_context * ctx, llama_token sampled, const sample_fn & sample) = 0;
-};
 
 struct completion_chat_output
 {
@@ -187,15 +137,10 @@ struct llama_rn_context_completion {
 
     // Sampling context
     common_sampler *ctx_sampling = nullptr;
-
-    // Step hook of a chunk prompt (loadPrompt(chunks, hook)), its auxiliary
-    // samplers and the embedding rows the next decode reads.
-    completion_step_hook *step_hook = nullptr;
+    // TTS: samplers for codec.cpp's codebook head groups (sampleAux).
     std::vector<common_sampler *> aux_sampling;
     std::vector<common_params_sampling> aux_params;
     std::vector<std::vector<llama_token>> aux_history;
-    std::vector<float> pending_embd;
-    int32_t pending_embd_width = 0;
 
     // Speculative decoding context for MTP.
     common_speculative *spec = nullptr;
@@ -243,9 +188,6 @@ struct llama_rn_context_completion {
     void eraseStateCheckpointsAfter(size_t n_tokens);
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths, bool allow_state_cache = true);
-    // A prompt of chunks, decoded from position 0; `hook` (may be null) takes
-    // part in every step.  Its tokens count for the penalties.
-    void loadPrompt(const std::vector<completion_prompt_chunk> &chunks, completion_step_hook *hook);
     // Ascending message-boundary positions: the first content token after each
     // run of chat-template delimiter tokens (CONTROL/USER_DEFINED). Boundaries
     // closer than min_gap to the previous one are dropped (min_gap == 1 keeps
@@ -259,8 +201,7 @@ struct llama_rn_context_completion {
     void startGenerationTiming();
     void updateGenerationTiming();
     completion_token_output nextToken();
-    // A draw from auxiliary sampler `group` (a step hook's logits).
-    llama_token sampleAux(int32_t group, const float * logits, int32_t n_vocab);
+    llama_token sampleAux(int group, const float * logits, int n_vocab);
     bool shouldUseMTP() const;
     void resetSpeculative();
     void initMTP();

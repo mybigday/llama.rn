@@ -1186,14 +1186,7 @@ namespace rnllama_jsi {
                         if (!mediaPaths.empty() && !ctx->isMultimodalEnabled()) {
                             throw std::runtime_error("Multimodal support not enabled. Call initMultimodal first.");
                         }
-                        // With a vocoder, codec.cpp builds the prompt (MTMD-style:
-                        // its voice markers become embedding rows) and takes part
-                        // in every step.
-                        if (mediaPaths.empty() && ctx->isVocoderEnabled()) {
-                            ctx->tts_wrapper->loadPrompt(ctx);
-                        } else {
-                            ctx->completion->loadPrompt(mediaPaths);
-                        }
+                        ctx->completion->loadPrompt(mediaPaths);
                     } catch (const std::exception &e) {
                         ctx->completion->endCompletion();
                         throw std::runtime_error(e.what());

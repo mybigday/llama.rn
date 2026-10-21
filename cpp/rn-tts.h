@@ -2,6 +2,7 @@
 #define RNTTS_H
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,34 @@ struct llama_rn_audio_completion_result {
     std::string flow;
     json completion_params = json::object();
     std::vector<float> logit_bias;   // n_vocab entries, or empty
+};
+
+// The completion's prompt as codec.cpp builds it (buildPrompt): token runs
+// and embedding rows, each holding its rows sequence by sequence.
+struct llama_rn_tts_prompt {
+    struct chunk {
+        std::vector<llama_token> tokens;   // n_seq * n, or empty
+        std::vector<float> embd;           // n_seq * n * n_embd, or empty
+        int n = 0;
+        int n_embd = 0;
+    };
+    std::vector<chunk> chunks;
+    int n_seq = 1;
+    bool needs_prompt_hidden = false;      // prefill takes every position's hidden state
+    // codec.cpp's codebook head groups: one sampler each (sample_head).
+    struct head_group {
+        bool penalties = true;
+        std::vector<llama_token> history;  // accepted into the penalties first
+    };
+    std::vector<head_group> head_groups;
+};
+
+// What a step says (step): the end, whether its token is audio, and the
+// token the backbone reads next (-1: the embedding rows in pending_next_embd).
+struct llama_rn_tts_step {
+    bool stop = false;
+    bool audio = false;
+    llama_token feed = -1;
 };
 
 // A codec voice (codec_speaker.h).  Created and loaded voices are freed with
@@ -150,12 +179,23 @@ struct llama_rn_context_tts {
                                                                  const std::string &text_to_speak, int speakerId = -1,
                                                                  const std::string &instruct = "",
                                                                  const json &options = json::object());
-    // Loads the completion's prompt (getFormattedAudioCompletion's, or the
-    // caller's edit of it) MTMD-style: codec.cpp builds its chunks, tokens and
-    // embedding rows, with the completion's voice (pending_speaker_id /
-    // pending_voice, else the model's default) filling the <__voice__>
-    // markers, and its step hook takes part in every step.  Throws on failure.
-    void loadPrompt(llama_rn_context* main_ctx);
+    // ── TTS flow of the completion (rn-completion.cpp) ───────────────────
+    // loadPrompt arms prompt_pending; nextToken's TTS prefill decodes
+    // buildPrompt (codec.cpp builds the completion's prompt MTMD-style: its
+    // voice markers become embedding rows, filled by the completion's voice,
+    // pending_speaker_id / pending_voice, else the model's default) and
+    // passes prefill the prompt's hidden states where the model reads them.
+    // Every step after the backbone's calls step, which has codec.cpp's
+    // codebook heads drawn through `sample_head` and leaves the embedding
+    // rows the backbone reads next in pending_next_embd.  Throw on failure.
+    bool prompt_pending = false;
+    bool sample_backbone = false;   // the next step samples a backbone token
+    int n_seq = 1;                  // sequences of the generation (2: guidance pair)
+    std::vector<float> pending_next_embd;   // n_seq rows, or empty
+    llama_rn_tts_prompt buildPrompt(llama_rn_context* main_ctx);
+    void prefill(llama_rn_context* main_ctx, const float * hiddens, int n_pos);
+    llama_rn_tts_step step(llama_rn_context* main_ctx, llama_token sampled,
+                           const std::function<llama_token(int group, const float * logits, int n_vocab)> &sample_head);
     // The last generation's decoder input into audio_tokens / audio_latents.
     // Throws on failure.
     void collectGeneration();
@@ -192,9 +232,8 @@ private:
     // The voice of the last completion, kept for decoding its generation later.
     rn_voice gen_voice;
 
-    // codec.cpp's part in the completion's steps (rn-tts.cpp).
-    struct step_hook;
-    std::unique_ptr<step_hook> hook;
+    int n_embd = 0;
+    bool needs_hidden = false;
 };
 
 }

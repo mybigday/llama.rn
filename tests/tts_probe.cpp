@@ -300,7 +300,7 @@ int main(int argc, char ** argv) {
             }
             ctx.completion->beginCompletion();
             const auto t3 = std::chrono::steady_clock::now();
-            ctx.tts_wrapper->loadPrompt(&ctx);
+            ctx.completion->loadPrompt({});
             while (ctx.completion->has_next_token) (void) ctx.completion->doCompletion();
             ctx.completion->endCompletion();
             const auto t4 = std::chrono::steady_clock::now();

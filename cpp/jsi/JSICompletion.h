@@ -168,9 +168,9 @@ namespace rnllama_jsi {
         res["stopping_word"] = c.stopping_word;
         res["tokens_cached"] = c.n_past;
 
-        // A text-to-speech completion (a step hook): its decoder input, codec
-        // codes or latents (as the embeddings), and why it ended.
-        if (c.step_hook != nullptr && ctx->isVocoderEnabled()) {
+        // A completion with a vocoder: its decoder input, codec codes or
+        // latents (as the embeddings), and why it ended.
+        if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
             auto * tts = ctx->tts_wrapper;
             tts->collectGeneration();
             result.audio_tokens = tts->audio_tokens;
