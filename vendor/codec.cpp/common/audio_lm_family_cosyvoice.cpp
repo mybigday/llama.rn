@@ -7,14 +7,12 @@
 // tokens and a transcript, cross-lingual when it has prompt tokens but no
 // transcript (the LLM sees neither), instruct when an instruction is given
 // (it replaces the prompt text, no prompt tokens), SFT for x-vector-only
-// speakers.  The speech head is sampled codec-side with the request's
-// llama.cpp settings (the model card approximates the reference's
-// ras_sampling with top-k / top-p and a repetition penalty over its window),
-// the end token held back for the first min_len tokens.  The flow decodes the
+// speakers.  The host samples the speech head (the model card approximates
+// the reference's ras_sampling with top-k / top-p and a repetition penalty
+// over its window); the end token is held back for the first min_len tokens.  The flow decodes the
 // whole token sequence at the end.
 
 #include "audio_lm_family.h"
-#include "audio_lm_sampler.h"
 #include "lm/lm_models.h"
 
 #include <algorithm>
@@ -145,9 +143,7 @@ public:
         chunks.push_back(alm_chunk::of_embd(std::move(tail), n_tail));
         out->seqs = {std::move(chunks)};
 
-        std::string serr;
-        if (!head_.init(req.head_sampler(), true, &serr)) return fail(serr);
-        req.sampling_to(out);
+        out->head_groups = {alm_head_group{true, {}, {}}};   // the speech head, sampled by the host
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->max_frames       = max_len_ + 1;   // the text-length bound below stops first
@@ -158,30 +154,38 @@ public:
         if (hiddens == nullptr) return fail("observe needs the backbone hidden state");
         const int32_t step = (int32_t) decoded_.size();
         if (step >= max_len_) {
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            stop_reason_ = "max_len";
+            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
             return true;
         }
         if (!audio_lm_step_begin(alm_, hiddens, hidden_)) return fail_alm("speech head");
         int32_t cb = 0, n = 0;
         const float * lg = audio_lm_step_logits(alm_, &cb, &n);
         if (lg == nullptr || n <= 0) return fail_alm("speech head");
-        std::vector<float> logits(lg, lg + n);
+        logits_.assign(lg, lg + n);
         audio_lm_step_push_code(alm_, 0);
         int32_t dummy = 0;
         audio_lm_step_finish(alm_, &dummy, 1);
 
         // The reference holds the end token back for the first min_len tokens.
-        if (step < min_len_) logits[(size_t) ci_->ignore_eos_id] = -INFINITY;
-        const int32_t id = head_.sample(logits.data(), n);
+        if (step < min_len_) logits_[(size_t) ci_->ignore_eos_id] = -INFINITY;
+        *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, 0, n};
+        return true;
+    }
+
+    const float * head_logits() const override { return logits_.data(); }
+
+    bool head_token(int32_t id, codec_audio_lm_verdict * v) override {
+        if (id < 0 || id >= (int32_t) logits_.size()) return fail("head token out of range");
         if (id >= ci_->stop_begin && id < ci_->stop_end) {
             stop_reason_ = "eos";
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
             return true;
         }
         decoded_.push_back(id);
         next_.assign((size_t) hidden_, 0.0f);
         if (codec_lm_cosyvoice_speech_embd(lm_, &id, 1, next_.data(), 1) != CODEC_STATUS_SUCCESS) return fail_lm("speech embedding");
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1, 0, 0};
         return true;
     }
 
@@ -210,9 +214,8 @@ private:
     codec_lm * lm_;
     const codec_lm_cosyvoice_info * ci_;
     int32_t hidden_ = 0, min_len_ = 0, max_len_ = 0;
-    alm_head_sampler head_;
     std::vector<int32_t> decoded_;
-    std::vector<float> next_;
+    std::vector<float> next_, logits_;
 };
 
 }  // namespace

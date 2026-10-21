@@ -79,6 +79,8 @@ struct llama_rn_context_completion {
 
     // Completion state fields
     bool is_predicting = false;
+    // loadPrompt armed a text-to-speech request; nextToken decodes its prompt.
+    bool tts_prefill_pending = false;
     bool is_interrupted = false;
     bool has_next_token = false;
     std::string prefill_text;
@@ -197,9 +199,9 @@ struct llama_rn_context_completion {
     void startGenerationTiming();
     void updateGenerationTiming();
     completion_token_output nextToken();
+    bool shouldUseMTP() const;
     // A text-to-speech request is running (llama_rn_context_tts hooks in).
     bool isAudioGeneration() const;
-    bool shouldUseMTP() const;
     void resetSpeculative();
     void initMTP();
     void evalMTPPrompt();

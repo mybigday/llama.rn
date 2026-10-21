@@ -143,10 +143,8 @@ public:
         out->n_embd = n_embd;
         out->seqs   = {{alm_chunk::of_embd(std::vector<float>(lm_cond, lm_cond + n_embd), 1),
                         alm_chunk::of_tokens(std::move(toks))}};
-        // The penalties never touch the end and silence tokens (logits.py);
-        // the model card's sampling approximates logits.py's token-run
-        // penalty with DRY.
-        req.sampling_to(out, {c.speech_end, c.stop, c.audio_base + c.silence});
+        // The penalties should never touch the end and silence tokens (logits.py).
+        out->penalty_exempt = {c.speech_end, c.stop, c.audio_base + c.silence};
         // Speech is audio tokens until <speech_end> / [STOP]: keep a quantized
         // backbone from drifting into the Qwen3 text vocabulary.
         out->allowed = {{c.audio_base, c.audio_base + c.n_audio}, {c.speech_end, c.speech_end + 1}, {c.stop, c.stop + 1}};

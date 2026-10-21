@@ -45,7 +45,8 @@ struct BackboneSampler {
     BackboneSampler & operator=(const BackboneSampler &) = delete;
     ~BackboneSampler() { if (smpl) common_sampler_free(smpl); }
 
-    bool build(const llama_model * model, const codec_audio_lm_sampler & s, int32_t n_ctx, const std::string & grammar,
+    bool build(const llama_model * model, const tts_sampling & s, const std::string & samplers,
+               const std::vector<int32_t> & exempt, int32_t n_ctx, const std::string & grammar,
                const std::vector<llama_logit_bias> & logit_bias, std::string * err) {
         common_params_sampling sp;
         sp.seed               = s.seed;
@@ -58,14 +59,14 @@ struct BackboneSampler {
         sp.penalty_repeat     = s.penalty_repeat;
         sp.penalty_freq       = s.penalty_freq;
         sp.penalty_present    = s.penalty_present;
-        sp.penalty_exempt.assign(s.penalty_exempt, s.penalty_exempt + std::max(0, s.n_penalty_exempt));
+        sp.penalty_exempt     = exempt;
         sp.dry_multiplier     = s.dry_multiplier;
         sp.dry_base           = s.dry_base;
         sp.dry_allowed_length = s.dry_allowed_length;
         sp.dry_penalty_last_n = s.dry_penalty_last_n;
-        if (s.samplers && *s.samplers) {
+        if (!samplers.empty()) {
             std::vector<std::string> names;
-            std::stringstream ss(s.samplers);
+            std::stringstream ss(samplers);
             for (std::string n; std::getline(ss, n, ';');) if (!n.empty()) names.push_back(n);
             sp.samplers = common_sampler_types_from_names(names);
         }
@@ -96,7 +97,62 @@ struct BackboneSampler {
 
 // The backbone GGUF's recommended sampling (general.sampling.*, as llama.cpp's
 // common_init_sampler_from_model reads it) for the settings the user left unset.
-void sampling_from_model(const llama_model * model, uint32_t user_set, codec_audio_lm_sampler * s, std::string * samplers) {
+// A llama.cpp sampler chain for one codec-side head group, drawing from the
+// logits codec_audio_lm hands out (no vocab: no grammar, no DRY).
+struct HeadSampler {
+    llama_sampler * chain = nullptr;
+    std::vector<llama_token_data> cur;
+
+    HeadSampler() = default;
+    HeadSampler(const HeadSampler &) = delete;
+    HeadSampler & operator=(const HeadSampler &) = delete;
+    HeadSampler(HeadSampler && o) noexcept : chain(o.chain) { o.chain = nullptr; }
+    ~HeadSampler() { if (chain) llama_sampler_free(chain); }
+
+    bool build(const tts_sampling & s, const std::string & samplers, const codec_audio_lm_head_group & g,
+               uint32_t seed, int32_t n_ctx, std::string * err) {
+        chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
+        const std::string order = !samplers.empty() ? samplers
+                                                    : "penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature";
+        std::stringstream ss(order);
+        for (std::string n; std::getline(ss, n, ';');) {
+            if (n == "penalties") {
+                if (!g.penalties) continue;
+                llama_sampler_chain_add(chain, llama_sampler_init_penalties_exempt(
+                    s.penalty_last_n < 0 ? n_ctx : s.penalty_last_n, s.penalty_repeat, s.penalty_freq, s.penalty_present,
+                    g.penalty_exempt, (size_t) std::max(0, g.n_penalty_exempt)));
+            } else if (n == "top_k") {
+                llama_sampler_chain_add(chain, llama_sampler_init_top_k(s.top_k));
+            } else if (n == "top_p" || n == "nucleus") {
+                llama_sampler_chain_add(chain, llama_sampler_init_top_p(s.top_p, 0));
+            } else if (n == "min_p") {
+                llama_sampler_chain_add(chain, llama_sampler_init_min_p(s.min_p, 0));
+            } else if (n == "temperature" || n == "temp") {
+                llama_sampler_chain_add(chain, llama_sampler_init_temp_ext(s.temp, 0.0f, 1.0f));
+            } else if (n == "dry") {
+                if (s.dry_multiplier != 0.0f) { if (err) *err = "DRY needs a vocabulary; codec-side heads have none"; return false; }
+            } else if (!n.empty() && n != "top_n_sigma" && n != "typ_p" && n != "typical_p" && n != "typical" && n != "xtc") {
+                if (err) *err = "unknown sampler '" + n + "'";
+                return false;
+            }
+        }
+        llama_sampler_chain_add(chain, llama_sampler_init_dist(seed));
+        for (int32_t i = 0; i < g.n_history; ++i) llama_sampler_accept(chain, g.history[i]);
+        return true;
+    }
+
+    int32_t sample(const float * logits, int32_t n) {
+        cur.resize((size_t) n);
+        for (int32_t i = 0; i < n; ++i) cur[(size_t) i] = llama_token_data{i, logits[i], 0.0f};
+        llama_token_data_array arr = {cur.data(), cur.size(), -1, false};
+        llama_sampler_apply(chain, &arr);
+        const int32_t id = arr.data[arr.selected].id;
+        llama_sampler_accept(chain, id);
+        return id;
+    }
+};
+
+void sampling_from_model(const llama_model * model, uint32_t user_set, tts_sampling * s, std::string * samplers) {
     auto meta = [&](const char * key, std::string * v) {
         char buf[512] = {0};
         if (llama_model_meta_val_str(model, key, buf, sizeof(buf)) <= 0) return false;
@@ -279,8 +335,11 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
         return false;
     }
 
-    // Backbone sampler: the completion's settings; a user grammar replaces the model's.
-    const codec_audio_lm_sampler & sp = c.sampler;
+    // Backbone sampler: the host's settings plus the completion's suggested
+    // constraints; a user grammar replaces the model's.
+    const tts_sampling & sp = a.sampling;
+    std::vector<int32_t> exempt = a.penalty_exempt;
+    exempt.insert(exempt.end(), c.penalty_exempt, c.penalty_exempt + c.n_penalty_exempt);
     const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
     const std::string grammar = !a.grammar.empty() ? a.grammar : (c.grammar ? c.grammar : "");
     const int32_t n_vocab = llama_vocab_n_tokens(vocab);
@@ -298,9 +357,18 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
     };
     BackboneSampler smpl;
     std::string serr;
-    if (!smpl.build(s->lmodel, sp, n_ctx, grammar, allowed_bias(-1), &serr)) {
+    if (!smpl.build(s->lmodel, sp, a.samplers, exempt, n_ctx, grammar, allowed_bias(-1), &serr)) {
         out->error = serr;
         return false;
+    }
+    // One sampler per codec-side head group, seeded seed + 1 + g.
+    std::vector<HeadSampler> heads((size_t) c.n_head_groups);
+    for (int32_t g = 0; g < c.n_head_groups; ++g) {
+        const uint32_t seed = sp.seed == CODEC_AUDIO_LM_DEFAULT_SEED ? sp.seed : sp.seed + 1u + (uint32_t) g;
+        if (!heads[(size_t) g].build(sp, a.samplers, c.head_groups[g], seed, n_ctx, &serr)) {
+            out->error = serr;
+            return false;
+        }
     }
 
     // Prompt: chunk i of every sequence in one batch (sequence q on seq_id q),
@@ -385,6 +453,11 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
         }
         codec_audio_lm_verdict v{};
         if (!codec_audio_lm_observe(alm, sample ? &tok : nullptr, h, &v)) return fail("observe");
+        while (v.action == CODEC_AUDIO_LM_SAMPLE_HEAD) {   // the codec-side heads, drawn here
+            if (v.head_group < 0 || v.head_group >= (int32_t) heads.size()) { out->error = "bad head group"; return false; }
+            const int32_t id = heads[(size_t) v.head_group].sample(codec_audio_lm_head_logits(alm), v.n_vocab);
+            if (!codec_audio_lm_head_token(alm, id, &v)) return fail("head");
+        }
         if (v.is_audio) ++frames;
         if (v.action == CODEC_AUDIO_LM_STOP) break;
         bool ok = true;

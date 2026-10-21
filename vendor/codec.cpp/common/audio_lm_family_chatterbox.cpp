@@ -8,7 +8,6 @@
 
 #include "audio_lm_family.h"
 #include "lm/lm_models.h"
-#include "audio_lm_sampler.h"
 #include "tts_segment.h"
 
 #include <cstring>
@@ -106,13 +105,10 @@ public:
             const float * b = rows.data() + (size_t) s * seq_len * hidden_;
             out->seqs.push_back({alm_chunk::of_embd(std::vector<float>(b, b + (size_t) seq_len * hidden_), seq_len)});
         }
-        // The speech head samples with the request's llama.cpp settings.  T3's
-        // penalty history starts with the start-of-speech token (sample_t3);
-        // Turbo's covers the generated tokens only.
-        std::string serr;
-        if (!head_.init(req.head_sampler(), true, &serr)) return fail(serr);
-        if (!turbo) head_.accept(ci_->start_speech_token);
-        req.sampling_to(out);
+        // The host samples the speech head (one group).  T3's penalty history
+        // starts with the start-of-speech token (sample_t3); Turbo's covers the
+        // generated tokens only.
+        out->head_groups = {alm_head_group{true, turbo ? std::vector<int32_t>{} : std::vector<int32_t>{ci_->start_speech_token}, {}}};
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->max_frames       = 512;
@@ -124,17 +120,25 @@ public:
         std::vector<float> cond, uncond;
         if (!speech_logits(hiddens, &cond)) return false;
         if (n_seq_ == 2 && !speech_logits(hiddens + hidden_, &uncond)) return false;
+        // The guided logits (cond + w * (cond - uncond)) go to the host.
         const int32_t n = (int32_t) cond.size();
-        std::vector<float> logits((size_t) n);
+        logits_.resize((size_t) n);
         for (int32_t i = 0; i < n; ++i) {
-            logits[(size_t) i] = n_seq_ == 2 ? cond[(size_t) i] + cfg_ * (cond[(size_t) i] - uncond[(size_t) i]) : cond[(size_t) i];
+            logits_[(size_t) i] = n_seq_ == 2 ? cond[(size_t) i] + cfg_ * (cond[(size_t) i] - uncond[(size_t) i]) : cond[(size_t) i];
         }
-        const int32_t code = head_.sample(logits.data(), n);
+        *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, 0, n};
+        return true;
+    }
+
+    const float * head_logits() const override { return logits_.data(); }
+
+    bool head_token(int32_t code, codec_audio_lm_verdict * v) override {
+        if (code < 0 || code >= (int32_t) logits_.size()) return fail("head token out of range");
         if (code == ci_->stop_speech_token) {
             stop_reason_ = "eos_code_c0";
             codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox AR done: %d frames, %zu speech codes, stop=eos_code_c0\n", frames_,
                       codes_.size());
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
             return true;
         }
         if (code < ci_->start_speech_token) codes_.push_back(code);
@@ -143,7 +147,7 @@ public:
         if (codec_lm_chatterbox_compose_speech_embd(lm_, code, frames_, next_.data(), hidden_) != CODEC_STATUS_SUCCESS) {
             return fail(std::string("speech embedding: ") + codec_lm_get_last_error(lm_));
         }
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1, 0, 0};
         return true;
     }
 
@@ -174,8 +178,7 @@ private:
     int32_t hidden_ = 0, n_seq_ = 1, frames_ = 0;
     float cfg_ = 0.0f;
     std::vector<int32_t> codes_;
-    std::vector<float> next_;
-    alm_head_sampler head_;
+    std::vector<float> next_, logits_;
 };
 
 }  // namespace

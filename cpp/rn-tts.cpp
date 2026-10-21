@@ -339,32 +339,13 @@ rn_voice llama_rn_context_tts::resolveVoice(const armed_voice &v) {
 
 void llama_rn_context_tts::prompt(llama_rn_context* main_ctx, const rn_voice &voice, codec_audio_lm_completion &c) {
     const json &o = armed_options;
-    // The completion's sampling drives codec.cpp's own samplers (codec-side
-    // heads) too; codec.cpp's sampler is common_params_sampling field for field.
-    const common_params_sampling & sp = main_ctx->params.sampling;
-    std::string samplers;
-    for (const auto t : sp.samplers) samplers += (samplers.empty() ? "" : ";") + common_sampler_type_to_str(t);
-
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
-    req.text        = armed_text.c_str();
-    req.voice       = voice.get();
-    req.instruct    = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
-    req.min_frames  = o.contains("min_frames") && o["min_frames"].is_number() ? o["min_frames"].get<int32_t>() : -1;
-    codec_audio_lm_sampler & rs = req.sampler;
-    rs.seed               = sp.seed;
-    rs.temp               = sp.temp;
-    rs.top_k              = sp.top_k;
-    rs.top_p              = sp.top_p;
-    rs.min_p              = sp.min_p;
-    rs.penalty_last_n     = sp.penalty_last_n;
-    rs.penalty_repeat     = sp.penalty_repeat;
-    rs.penalty_freq       = sp.penalty_freq;
-    rs.penalty_present    = sp.penalty_present;
-    rs.dry_multiplier     = sp.dry_multiplier;
-    rs.dry_base           = sp.dry_base;
-    rs.dry_allowed_length = sp.dry_allowed_length;
-    rs.dry_penalty_last_n = sp.dry_penalty_last_n;
-    rs.samplers           = samplers.c_str();
+    req.text       = armed_text.c_str();
+    req.voice      = voice.get();
+    req.instruct   = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
+    req.min_frames = o.contains("min_frames") && o["min_frames"].is_number() ? o["min_frames"].get<int32_t>() : -1;
+    // The model's own randomness (flow / CFM noise) follows the completion's seed.
+    req.seed       = main_ctx->params.sampling.seed;
 
     const codec_audio_lm_vocab cv = host_vocab(llama_model_get_vocab(main_ctx->model));
     codec_affinity_scope affinity(main_ctx);
@@ -382,9 +363,9 @@ void llama_rn_context_tts::prompt(llama_rn_context* main_ctx, const rn_voice &vo
                                  " or turn the guidance off with the codec's kv_overrides");
     }
     // llama.rn's llama.cpp has no penalty exemption; no hosted model asks for it.
-    if (c.sampler.n_penalty_exempt > 0) {
-        throw std::runtime_error("TTS: this model needs penalty-exempt tokens, which llama.rn does not support");
-    }
+    bool exempt = c.n_penalty_exempt > 0;
+    for (int32_t g = 0; g < c.n_head_groups; ++g) exempt = exempt || c.head_groups[g].n_penalty_exempt > 0;
+    if (exempt) throw std::runtime_error("TTS: this model needs penalty-exempt tokens, which llama.rn does not support");
 }
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
@@ -475,6 +456,28 @@ int llama_rn_context_tts::beginGeneration(llama_rn_context* main_ctx, std::vecto
     needs_hidden = c.needs_embeddings;
     sample_next  = c.sample_first;
 
+    // One sampler per head group, from the completion's sampling (llama.cpp's
+    // common sampler over the head's logits): seeded seed + 1 + g so groups
+    // draw independently; a group without penalties drops them.  Grammar,
+    // the token mask and DRY belong to the backbone's text vocabulary.
+    head_samplers.clear();
+    for (int32_t g = 0; g < c.n_head_groups; ++g) {
+        const codec_audio_lm_head_group & hg = c.head_groups[g];
+        common_params_sampling hp = main_ctx->params.sampling;
+        hp.grammar = {};
+        hp.logit_bias.clear();
+        hp.dry_multiplier = 0.0f;
+        if (hp.seed != LLAMA_DEFAULT_SEED) hp.seed += 1u + (uint32_t) g;
+        if (!hg.penalties) {
+            hp.penalty_last_n = 0;
+            hp.penalty_repeat = 1.0f;
+            hp.penalty_freq = 0.0f;
+            hp.penalty_present = 0.0f;
+        }
+        head_samplers.emplace_back(std::make_unique<common_params_sampling>(std::move(hp)));
+        head_samplers.back().history.assign(hg.history, hg.history + std::max(0, hg.n_history));
+    }
+
     // The prompt starts from an empty context.
     llama_memory_clear(llama_get_memory(lctx), true);
     const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
@@ -532,6 +535,33 @@ int llama_rn_context_tts::beginGeneration(llama_rn_context* main_ctx, std::vecto
     return dec.n_past;
 }
 
+llama_rn_context_tts::head_sampler::head_sampler(std::unique_ptr<common_params_sampling> p) : params(std::move(p)) {}
+llama_rn_context_tts::head_sampler::head_sampler(head_sampler && o) noexcept
+    : params(std::move(o.params)), smpl(o.smpl), n_vocab(o.n_vocab), history(std::move(o.history)) {
+    o.smpl = nullptr;
+}
+llama_rn_context_tts::head_sampler::~head_sampler() {
+    if (smpl != nullptr) common_sampler_free(smpl);
+}
+
+llama_token llama_rn_context_tts::sampleHead(int32_t group, const float * logits, int32_t n_vocab) {
+    if (group < 0 || group >= (int32_t) head_samplers.size() || logits == nullptr || n_vocab <= 0) {
+        throw std::runtime_error("TTS: codec.cpp asked for a head sample it did not describe");
+    }
+    head_sampler & h = head_samplers[(size_t) group];
+    // A group's heads share one vocabulary width; the sampler is built on the first draw.
+    if (h.smpl == nullptr || h.n_vocab != n_vocab) {
+        if (h.smpl != nullptr) common_sampler_free(h.smpl);
+        h.smpl = common_sampler_init_logits(*h.params, n_vocab);
+        if (h.smpl == nullptr) throw std::runtime_error("TTS: the completion's sampling cannot sample a codec head");
+        h.n_vocab = n_vocab;
+        for (llama_token t : h.history) common_sampler_accept(h.smpl, t, false);
+    }
+    const llama_token id = common_sampler_sample_logits(h.smpl, logits, n_vocab);
+    common_sampler_accept(h.smpl, id, true);
+    return id;
+}
+
 llama_rn_context_tts::verdict llama_rn_context_tts::observe(llama_rn_context* main_ctx, llama_token sampled) {
     llama_context * lctx = main_ctx->ctx;
     std::vector<float> hiddens;
@@ -551,6 +581,11 @@ llama_rn_context_tts::verdict llama_rn_context_tts::observe(llama_rn_context* ma
         codec_affinity_scope affinity(main_ctx);
         if (!codec_audio_lm_observe(alm, sampled >= 0 ? &sampled : nullptr, needs_hidden ? hiddens.data() : nullptr, &v)) {
             throw std::runtime_error(alm_error(alm, "TTS step"));
+        }
+        // codec.cpp's own heads: the host draws each token.
+        while (v.action == CODEC_AUDIO_LM_SAMPLE_HEAD) {
+            const llama_token id = sampleHead(v.head_group, codec_audio_lm_head_logits(alm), v.n_vocab);
+            if (!codec_audio_lm_head_token(alm, id, &v)) throw std::runtime_error(alm_error(alm, "TTS head"));
         }
         if (v.action == CODEC_AUDIO_LM_FEED_EMBD) {
             feed_rows.resize((size_t) n_seq * n_embd);
@@ -590,6 +625,7 @@ void llama_rn_context_tts::endGeneration(llama_rn_context* main_ctx) {
     if (!generating) return;
     generating = false;
     feed_rows.clear();
+    head_samplers.clear();
     // The KV cache holds TTS rows; text completions start over.
     llama_memory_clear(llama_get_memory(main_ctx->ctx), true);
     if (stop_reason.empty()) stop_reason = "interrupted";

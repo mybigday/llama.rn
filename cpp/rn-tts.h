@@ -15,6 +15,8 @@ struct codec_audio_lm;
 struct codec_audio_lm_generation;
 struct codec_audio_lm_completion;
 struct codec_speaker;
+struct common_sampler;
+struct common_params_sampling;
 
 namespace rnllama {
 
@@ -168,6 +170,8 @@ struct llama_rn_context_tts {
     // Reports one step: `sampled` is the token the completion sampled (-1
     // when samplesBackbone() was false).  Throws on failure.
     verdict observe(llama_rn_context* main_ctx, llama_token sampled);
+    // The last observe asked for embedding row(s) (decodeFeed).
+    bool hasFeed() const { return !feed_rows.empty(); }
     // Decodes the embedding row(s) the last observe asked for at `n_past`.
     // Returns false when none is pending.  Throws on failure.
     bool decodeFeed(llama_rn_context* main_ctx, int n_past);
@@ -227,6 +231,20 @@ private:
     bool needs_hidden = false;
     bool sample_next = false;
     std::vector<float> feed_rows;   // n_seq embedding rows for the next decode
+
+    // A head group's llama.cpp common sampler (common_sampler_init_logits).
+    struct head_sampler {
+        std::unique_ptr<::common_params_sampling> params;
+        ::common_sampler * smpl = nullptr;
+        int32_t n_vocab = 0;
+        std::vector<llama_token> history;
+        explicit head_sampler(std::unique_ptr<::common_params_sampling> p);
+        head_sampler(head_sampler && o) noexcept;
+        head_sampler(const head_sampler &) = delete;
+        ~head_sampler();
+    };
+    std::vector<head_sampler> head_samplers;
+    llama_token sampleHead(int32_t group, const float * logits, int32_t n_vocab);
 };
 
 }

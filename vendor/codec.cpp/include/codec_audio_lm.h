@@ -25,15 +25,18 @@ extern "C" {
 //   voice = codec_audio_lm_get_voice / create_voice / load_voice   // NULL = default
 //   n = codec_audio_lm_tts_split(ctx, text, 0)                 // optional segmentation
 //   for each segment i (codec_audio_lm_tts_segment(ctx, i)):
-//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, sampler}, &vocab)
+//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, seed}, &vocab)
 //       codec_audio_lm_get_completion(ctx, &c)
 //       if c.flow == SELF_CONTAINED: codec_audio_lm_generate_self_contained(ctx)
 //       else:
-//           build a sampler from c.sampler (+ c.grammar), clear the KV cache
+//           build the host's llama.cpp sampler (+ c.grammar / c.allowed / c.penalty_exempt)
+//           and one per c.head_groups[g], clear the KV cache
 //           for each sequence s: decode chunk 0..c.n_chunks-1 of s in order
 //           loop until c.max_frames audio frames (or the context is full):
 //               tok = verdict.sample_backbone ? sample(backbone logits) : -1
 //               codec_audio_lm_observe(ctx, toks[], hiddens[], &verdict)
+//               while SAMPLE_HEAD: id = sample(group[v.head_group], head_logits(ctx), v.n_vocab);
+//                                  codec_audio_lm_head_token(ctx, id, &verdict)
 //               STOP -> break; FEED_TOKEN -> decode (verdict.token >= 0 ? verdict.token : tok);
 //               FEED_EMBD -> decode codec_audio_lm_next_embd(ctx, s) on every sequence s
 //       codec_audio_lm_decode(ctx, &pcm)       // or stream_poll / stream_finish
@@ -165,38 +168,12 @@ bool codec_audio_lm_backbone_requirements(struct codec_audio_lm * ctx, const str
 
 // ── Text to speech ───────────────────────────────────────────────────
 
-// Sampler settings: llama.cpp's common_params_sampling, field for field, with
-// its defaults (codec_audio_lm_default_tts_request).  The model sets none of
-// them; its card recommends values.  They drive every sampler of a
-// generation: the backbone's (completion.sampler, which the host builds as
-// llama.cpp does, prompt tokens counted for the penalties as llama-server
-// does) and the codec-side heads codec_audio_lm samples itself.
-#define CODEC_AUDIO_LM_DEFAULT_SEED 0xFFFFFFFFu   // LLAMA_DEFAULT_SEED: random
-
-struct codec_audio_lm_sampler {
-    uint32_t seed;                 // CODEC_AUDIO_LM_DEFAULT_SEED: random
-    float    temp;                 // <= 0: greedy
-    int32_t  top_k;                // <= 0: off
-    float    top_p;                // >= 1: off
-    float    min_p;                // <= 0: off
-    int32_t  penalty_last_n;       // penalty window; 0: off, -1: the whole context
-    float    penalty_repeat;       // 1: off
-    float    penalty_freq;         // 0: off
-    float    penalty_present;      // 0: off
-    // Tokens the penalties never touch.  In the completion: the request's plus
-    // the model's (end / pause tokens it must stay free to emit).  Needs a
-    // llama.cpp with patches/penalty-exempt-llamacpp.patch; a stock llama.cpp
-    // ignores the list (the tokens are then penalized too).
-    const int32_t * penalty_exempt;
-    int32_t         n_penalty_exempt;
-    float    dry_multiplier;       // 0: off
-    float    dry_base;
-    int32_t  dry_allowed_length;
-    int32_t  dry_penalty_last_n;   // -1: context size
-    // Sampler order, as llama.cpp's --samplers ("penalties;dry;top_k;top_p;
-    // min_p;temperature"); NULL / "" = llama.cpp's default order.
-    const char * samplers;
-};
+// Sampling is the host's: every token of a generation, the backbone's and the
+// codec-side heads' (SAMPLE_HEAD verdicts), is drawn by the host with
+// llama.cpp's sampler and its settings (the backbone GGUF's general.sampling.*
+// recommends them).  codec_audio_lm only suggests constraints (grammar,
+// allowed ranges, penalty_exempt, head groups) and masks a head's logits.
+#define CODEC_AUDIO_LM_DEFAULT_SEED 0xFFFFFFFFu   // random
 
 struct codec_audio_lm_tts_request {
     const char * text;          // required: one text (one segment)
@@ -204,7 +181,9 @@ struct codec_audio_lm_tts_request {
     // the generation is decoded (decode / stream_finish) or the next prompt.
     const struct codec_speaker * voice;
     const char * instruct;      // instruction text, for models that take it (may be NULL)
-    struct codec_audio_lm_sampler sampler;
+    // Seed of the model's own randomness (flow / CFM init noise; not token
+    // sampling); CODEC_AUDIO_LM_DEFAULT_SEED = random.
+    uint32_t     seed;
     // Generation length: at least min_frames audio frames before the model's
     // end (< 0: the model's own minimum), at most max_frames (<= 0: the
     // model's default).
@@ -264,6 +243,18 @@ enum codec_audio_lm_flow {
 
 struct codec_audio_lm_token_range { int32_t begin, end; };   // [begin, end)
 
+// Codec-side token heads (SAMPLE_HEAD verdicts) come in groups; build one host
+// sampler per group (one random stream and penalty history; seed group g with
+// seed + 1 + g so groups draw independently).  All groups use the same
+// llama.cpp settings as the backbone; a group differs only as below.
+struct codec_audio_lm_head_group {
+    bool            penalties;          // false: this group's sampler takes no penalties
+    const int32_t * history;            // ids to accept into the penalty history first
+    int32_t         n_history;
+    const int32_t * penalty_exempt;     // ids the penalties never touch
+    int32_t         n_penalty_exempt;
+};
+
 struct codec_audio_lm_completion {
     enum codec_audio_lm_flow flow;
     int32_t n_seq;                         // backbone sequences (2: guidance pair)
@@ -272,12 +263,13 @@ struct codec_audio_lm_completion {
     // decoded in order on sequence s (pad chunks have n == 0).
     const struct codec_audio_lm_chunk * chunks;
     int32_t n_chunks;
-    // Backbone sampling (used when a verdict asks for a backbone token): the
-    // request's settings, the model's penalty_exempt tokens added.
-    struct codec_audio_lm_sampler sampler;
-    // GBNF ("" = none): the tokens the model may emit, and the minimum length
-    // (min_frames frames before the end token).
+    // Backbone token sampling (the host's sampler), suggested constraints:
+    // GBNF ("" = none) for the tokens the model may emit and its minimum length
+    // (min_frames frames before the end token), tokens the penalties should
+    // never touch, and the allowed ranges below.
     const char * grammar;
+    const int32_t * penalty_exempt;
+    int32_t n_penalty_exempt;
     const struct codec_audio_lm_token_range * allowed;   // allowed backbone tokens
     int32_t n_allowed;                     // 0 = no restriction
     // Host requirements.
@@ -287,6 +279,9 @@ struct codec_audio_lm_completion {
     bool    streamable;                    // stream_poll works during this generation (else
                                            // only the whole generation decodes)
     int32_t max_frames;                    // audio frames to stop after (verdicts with is_audio)
+    // Codec-side head groups (n_head_groups = 0: no SAMPLE_HEAD verdicts).
+    const struct codec_audio_lm_head_group * head_groups;
+    int32_t n_head_groups;
 };
 
 // The completion for the prepared prompt.
@@ -302,6 +297,9 @@ enum codec_audio_lm_action {
     CODEC_AUDIO_LM_FEED_TOKEN = 0,     // decode the sampled token next
     CODEC_AUDIO_LM_FEED_EMBD  = 1,     // decode codec_audio_lm_next_embd(ctx, s) on each sequence
     CODEC_AUDIO_LM_STOP       = 2,     // generation finished
+    // Sample a codec-side head: draw an id from codec_audio_lm_head_logits with
+    // group `head_group`'s sampler, report it with codec_audio_lm_head_token.
+    CODEC_AUDIO_LM_SAMPLE_HEAD = 3,
 };
 
 struct codec_audio_lm_verdict {
@@ -310,6 +308,8 @@ struct codec_audio_lm_verdict {
     bool is_audio;                     // this step produced audio (for progress / streaming)
     int32_t token;                     // FEED_TOKEN: the token to decode when the model picked it
                                        // itself (-1 = the token the host sampled)
+    int32_t head_group;                // SAMPLE_HEAD: the group to sample with
+    int32_t n_vocab;                   // SAMPLE_HEAD: the head's logits (ids 0..n_vocab-1)
 };
 
 // Report one step: `tokens` has n_seq sampled backbone tokens (or NULL when
@@ -317,6 +317,14 @@ struct codec_audio_lm_verdict {
 // state, row-major (or NULL when the flow does not need them).
 bool codec_audio_lm_observe(struct codec_audio_lm * ctx, const int32_t * tokens, const float * hiddens,
                             struct codec_audio_lm_verdict * out);
+
+// After a SAMPLE_HEAD verdict: the head's logits (verdict.n_vocab floats, the
+// model's constraints already applied as -inf, guidance already combined),
+// valid until the next call.
+const float * codec_audio_lm_head_logits(const struct codec_audio_lm * ctx);
+// The id the host drew from them; fills the next verdict (another SAMPLE_HEAD,
+// FEED_* or STOP), as observe does.
+bool codec_audio_lm_head_token(struct codec_audio_lm * ctx, int32_t id, struct codec_audio_lm_verdict * out);
 
 // Next input row of sequence `seq` after FEED_EMBD (n_embd floats).
 const float * codec_audio_lm_next_embd(const struct codec_audio_lm * ctx, int32_t seq);

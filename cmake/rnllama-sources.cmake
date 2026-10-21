@@ -121,7 +121,6 @@ file(GLOB RNLLAMA_CODEC_SOURCES CONFIGURE_DEPENDS
     ${_codec}/common/audio_lm.cpp
     ${_codec}/common/audio_lm_c.cpp
     ${_codec}/common/audio_lm_family*.cpp
-    ${_codec}/common/audio_lm_sampler.cpp
     ${_codec}/common/tts_segment.cpp
     ${_codec}/common/kitten_text.cpp
 )

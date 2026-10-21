@@ -117,7 +117,6 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        req.sampling_to(out);
         out->allowed = {{off, off + count}, {eos, eos + 1}};
         // Some seeds sample the end token first at temp 1 / top-k 50; by
         // default it stays out for the first 25 frames (~0.3 s).
@@ -320,7 +319,6 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        req.sampling_to(out);
         // Free generation (word blocks interleave with the codes) kept well
         // formed by the prompt-derived grammar: only the input's words,
         // complete headers, in-range codes.

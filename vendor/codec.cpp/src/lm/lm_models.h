@@ -198,6 +198,7 @@ struct codec_lm_flow_info {
     int32_t n_txt_bins;              // SentencePiece vocab (4000)
     int32_t insert_bos_before_voice; // 1 if a learned BOS row precedes voice rows
     int32_t frames_after_eos;        // -1 = derive from word count, else fixed
+    float   temperature;             // LSD init-noise variance (0.7), a model setting
     float   eos_threshold;           // EOS fires when out_eos logit > this (-4.0)
     int32_t lsd_decode_steps;        // LSD Euler steps (1)
     int32_t has_tokenizer;           // 1 if a SentencePiece model is baked in

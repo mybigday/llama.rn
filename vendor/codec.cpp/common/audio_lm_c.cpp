@@ -126,6 +126,7 @@ struct codec_audio_lm {
 
     alm_completion                    completion;
     std::vector<codec_audio_lm_chunk> chunks;   // views into `completion`
+    std::vector<codec_audio_lm_head_group> head_groups;   // views into `completion`
     std::unique_ptr<alm_streamer>     streamer;
 
     std::vector<audio_lm_speaker_entry> voices;
@@ -252,7 +253,7 @@ bool codec_audio_lm_save_voice(struct codec_audio_lm * ctx, const struct codec_s
 
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void) {
     codec_audio_lm_tts_request r{};
-    r.sampler = alm_default_sampler();
+    r.seed = CODEC_AUDIO_LM_DEFAULT_SEED;
     r.lm_guidance = r.flow_guidance = -1.0f;
     r.min_frames = r.flow_steps = -1;
     r.max_frames = 0;
@@ -270,14 +271,7 @@ bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_a
     alm_tts_request r;
     r.text = req->text;
     if (req->instruct) r.instruct = req->instruct;
-    r.sampler = req->sampler;
-    if (req->sampler.penalty_exempt && req->sampler.n_penalty_exempt > 0) {
-        r.penalty_exempt.assign(req->sampler.penalty_exempt, req->sampler.penalty_exempt + req->sampler.n_penalty_exempt);
-    }
-    if (req->sampler.samplers) r.samplers = req->sampler.samplers;
-    r.sampler.penalty_exempt = nullptr;
-    r.sampler.n_penalty_exempt = 0;
-    r.sampler.samplers = nullptr;
+    r.seed_ = req->seed;
     r.min_frames = req->min_frames;
     r.lm_guidance = req->lm_guidance;
     r.flow_guidance = req->flow_guidance;
@@ -340,10 +334,8 @@ bool codec_audio_lm_get_completion(struct codec_audio_lm * ctx, struct codec_aud
     out->n_embd   = c.n_embd;
     out->chunks   = ctx->chunks.empty() ? nullptr : ctx->chunks.data();
     out->n_chunks = (int32_t) n_chunks;
-    out->sampler  = c.sampler;
-    out->sampler.penalty_exempt   = c.penalty_exempt.empty() ? nullptr : c.penalty_exempt.data();
-    out->sampler.n_penalty_exempt = (int32_t) c.penalty_exempt.size();
-    out->sampler.samplers         = c.samplers.c_str();
+    out->penalty_exempt   = c.penalty_exempt.empty() ? nullptr : c.penalty_exempt.data();
+    out->n_penalty_exempt = (int32_t) c.penalty_exempt.size();
     out->grammar  = c.grammar.c_str();
     out->allowed  = c.allowed.empty() ? nullptr : c.allowed.data();
     out->n_allowed = (int32_t) c.allowed.size();
@@ -352,6 +344,18 @@ bool codec_audio_lm_get_completion(struct codec_audio_lm * ctx, struct codec_aud
     out->sample_first        = c.sample_first;
     out->streamable          = c.streamable;
     out->max_frames          = c.max_frames;
+    ctx->head_groups.clear();
+    for (const alm_head_group & g : c.head_groups) {
+        codec_audio_lm_head_group d{};
+        d.penalties        = g.penalties;
+        d.history          = g.history.empty() ? nullptr : g.history.data();
+        d.n_history        = (int32_t) g.history.size();
+        d.penalty_exempt   = g.penalty_exempt.empty() ? nullptr : g.penalty_exempt.data();
+        d.n_penalty_exempt = (int32_t) g.penalty_exempt.size();
+        ctx->head_groups.push_back(d);
+    }
+    out->head_groups   = ctx->head_groups.empty() ? nullptr : ctx->head_groups.data();
+    out->n_head_groups = (int32_t) ctx->head_groups.size();
     return true;
 }
 
@@ -363,7 +367,18 @@ bool codec_audio_lm_prefill(struct codec_audio_lm * ctx, const float * hiddens, 
 bool codec_audio_lm_observe(struct codec_audio_lm * ctx, const int32_t * tokens, const float * hiddens,
                             struct codec_audio_lm_verdict * out) {
     if (ctx == nullptr || out == nullptr) return false;
+    *out = codec_audio_lm_verdict{};
     return ctx->family->observe(tokens, hiddens, out) || ctx->fail_family();
+}
+
+const float * codec_audio_lm_head_logits(const struct codec_audio_lm * ctx) {
+    return ctx != nullptr ? ctx->family->head_logits() : nullptr;
+}
+
+bool codec_audio_lm_head_token(struct codec_audio_lm * ctx, int32_t id, struct codec_audio_lm_verdict * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    *out = codec_audio_lm_verdict{};
+    return ctx->family->head_token(id, out) || ctx->fail_family();
 }
 
 const float * codec_audio_lm_next_embd(const struct codec_audio_lm * ctx, int32_t seq) {

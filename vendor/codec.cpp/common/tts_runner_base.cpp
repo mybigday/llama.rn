@@ -21,7 +21,7 @@ static double ms_since(std::chrono::steady_clock::time_point t0) {
 }
 
 const std::vector<tts_sampling_option> & tts_sampling_options() {
-    using S = codec_audio_lm_sampler;
+    using S = tts_sampling;
     static const std::vector<tts_sampling_option> opts = {
         {"--temp",               "temperature",        TTS_SAMPLING_TEMP,               &S::temp,               nullptr},
         {"--top-k",              "top_k",              TTS_SAMPLING_TOP_K,              nullptr,                &S::top_k},
@@ -73,10 +73,7 @@ codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & a) {
     req.text     = a.text.c_str();
     req.instruct = a.instruct.empty() ? nullptr : a.instruct.c_str();
     req.voice    = a.voice_spk;
-    req.sampler  = a.sampling;
-    req.sampler.samplers         = a.samplers.empty() ? nullptr : a.samplers.c_str();
-    req.sampler.penalty_exempt   = a.penalty_exempt.empty() ? nullptr : a.penalty_exempt.data();
-    req.sampler.n_penalty_exempt = (int32_t) a.penalty_exempt.size();
+    req.seed     = a.sampling.seed;
     req.min_frames    = a.min_frames;
     req.max_frames    = a.max_frames;
     req.lm_guidance   = a.lm_guidance;

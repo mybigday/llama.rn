@@ -42,7 +42,6 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_HIDDEN;
         out->seqs = {{alm_chunk::of_text("[STOP][TEXT]" + text + "[START]", false, true)}};
-        req.sampling_to(out);
         out->allowed = {{off, off + count}};
         if (eos_ >= 0) out->allowed.push_back({eos_, eos_ + 1});
         out->needs_embeddings = true;

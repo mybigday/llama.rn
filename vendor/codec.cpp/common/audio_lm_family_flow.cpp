@@ -94,11 +94,10 @@ public:
             return fail(std::string("frame input: ") + codec_lm_state_get_last_error(st_));
         }
 
-        // CFM init noise ~ N(0, temperature): Box-Muller on a uniform mt19937
+        // CFM init noise ~ N(0, temperature) (the GGUF's codec.lm.temperature): Box-Muller on a uniform mt19937
         // stream (std::normal_distribution's polar method gives poor early
         // draws; the FlowLM is very sensitive to the first frames' noise).
         std::seed_seq seq{ req.seed(), 0x9E3779B9u, 0x243F6A88u, 0xB7E15162u };
-        temperature_ = std::max(0.0f, req.sampler.temp);
         flow_steps_  = req.flow_steps > 0 ? req.flow_steps : 0;   // 0: the GGUF's lsd_decode_steps
         rng_.seed(seq);
         min_len_ = req.min_frames >= 0 ? req.min_frames : 0;   // ignore the EOS head before this frame
@@ -109,7 +108,6 @@ public:
         stop_reason_ = "max_frames";
 
         *out = alm_completion();
-        req.sampling_to(out);
         out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
         out->n_embd = hidden;
         out->seqs   = {{alm_chunk::of_tokens(ids), alm_chunk::of_embd(std::move(rows), n_rows),
@@ -124,7 +122,7 @@ public:
     bool observe(const int32_t *, const float * hiddens, codec_audio_lm_verdict * v) override {
         if (hiddens == nullptr) return fail("observe needs the backbone hidden state");
         const int32_t ldim = fi_->ldim;
-        const float noise_std = std::sqrt(temperature_);
+        const float noise_std = std::sqrt(std::max(0.0f, fi_->temperature));
         std::uniform_real_distribution<float> u(0.0f, 1.0f);
         std::vector<float> noise((size_t) ldim), lat((size_t) ldim);
         for (float & z : noise) {
@@ -169,7 +167,6 @@ public:
 private:
     codec_lm * lm_;
     const codec_lm_flow_info * fi_;
-    float temperature_ = 0.0f;   // init-noise variance (the request's temperature)
     int32_t flow_steps_ = 0;
     codec_lm_state * st_ = nullptr;
     std::mt19937 rng_;

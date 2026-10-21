@@ -5,7 +5,6 @@
 // from the backbone's own vocabulary under a grammar, the rest from heads).
 
 #include "audio_lm_family.h"
-#include "audio_lm_sampler.h"
 
 #include <algorithm>
 #include <cstring>
@@ -144,11 +143,12 @@ public:
         }
         out->seqs = {std::move(chunks)};
 
-        // The request's llama.cpp settings drive the backbone and the codec
-        // heads.  The penalties count codebook 0's codes only (Qwen3-TTS: the
-        // talker's repetition_penalty over the frames' first codes); the depth
-        // codebooks take none.
-        req.sampling_to(out);
+        // The host samples every codebook.  Codebook 0, when a codec head, is
+        // its own group with the penalties (Qwen3-TTS: the talker's
+        // repetition_penalty over the frames' first codes); the depth codebooks
+        // share one group without them (the subtalker).
+        if (pi_.cb0_from_backbone) out->head_groups = {alm_head_group{false, {}, {}}};
+        else                       out->head_groups = {alm_head_group{true, {}, {}}, alm_head_group{false, {}, {}}};
         if (pi_.cb0_from_backbone) {
             // Codebook 0 is a backbone token: keep it to the speech range + end.
             out->grammar = tts_auto_grammar(pi_, req.text);
@@ -157,15 +157,6 @@ public:
                 if (pi_.audio_tok_eos >= 0) out->allowed.push_back({pi_.audio_tok_eos, pi_.audio_tok_eos + 1});
             }
         }
-        codec_audio_lm_sampler hs = req.head_sampler();
-        hs.seed = req.seed();
-        std::string serr;
-        if (!head_.init(hs, false, &serr)) return fail(serr);
-        const codec_audio_lm_sampler & sp = hs;
-        c0_penalized_ = !pi_.cb0_from_backbone && sp.penalty_last_n != 0 &&
-                        (sp.penalty_repeat != 1.0f || sp.penalty_freq != 0.0f || sp.penalty_present != 0.0f);
-        hs.seed ^= 0x9E3779B9u;
-        if (c0_penalized_ && !head_c0_.init(hs, true, &serr)) return fail(serr);
         out->needs_embeddings = true;
         out->sample_first     = pi_.cb0_from_backbone;
         out->streamable       = true;
@@ -173,31 +164,61 @@ public:
         return true;
     }
 
+    // One frame: observe() starts it, then one SAMPLE_HEAD per codec-side
+    // codebook (head_token() resumes), then the frame's verdict.
     bool observe(const int32_t * tokens, const float * hiddens, codec_audio_lm_verdict * v) override {
         if (hiddens == nullptr) return fail("observe needs the backbone hidden state");
-        std::vector<int32_t> codes((size_t) n_cb_);
         if (pi_.cb0_from_backbone) {
             if (tokens == nullptr) return fail("observe needs the sampled codebook-0 token");
             if (!audio_lm_step_set_text_context(alm_, tokens[0])) return fail_alm("step");
-            codes[0] = tokens[0];
+            cb0_token_ = tokens[0];
         }
         if (!audio_lm_step_begin(alm_, hiddens, hidden_)) return fail_alm("step");
-        for (int32_t cb = 0; cb < n_cb_; ++cb) {
+        hiddens_.assign(hiddens, hiddens + hidden_);
+        cb_ = 0;
+        return next_head(v);
+    }
+
+    const float * head_logits() const override { return logits_.data(); }
+
+    bool head_token(int32_t id, codec_audio_lm_verdict * v) override {
+        if (cb_ >= n_cb_) return fail("no codebook is waiting for a token");
+        if (id < 0 || id >= (int32_t) logits_.size()) return fail("head token out of range");
+        if (!audio_lm_step_push_code(alm_, id)) return fail_alm("step");
+        ++cb_;
+        return next_head(v);
+    }
+
+    const float * next_embd(int32_t) const override { return next_.data(); }
+
+private:
+    // The next codebook to sample, or the frame's end.
+    bool next_head(codec_audio_lm_verdict * v) {
+        for (; cb_ < n_cb_; ++cb_) {
             int32_t idx = 0, n = 0;
             const float * lg = audio_lm_step_logits(alm_, &idx, &n);
             if (lg == nullptr) return fail_alm("step logits");
-            const int32_t code = (pi_.cb0_from_backbone && cb == 0) ? codes[0]
-                               : (c0_penalized_ && cb == 0)         ? head_c0_.sample(lg, n)
-                                                                    : head_.sample(lg, n);
-            if (!audio_lm_step_push_code(alm_, code)) return fail_alm("step");
+            if (pi_.cb0_from_backbone && cb_ == 0) {   // the backbone's token
+                if (!audio_lm_step_push_code(alm_, cb0_token_)) return fail_alm("step");
+                continue;
+            }
+            logits_.assign(lg, lg + n);
+            const int32_t group = (!pi_.cb0_from_backbone && cb_ > 0) ? 1 : 0;   // head_groups above
+            *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, group, n};
+            return true;
         }
+        return finish_frame(v);
+    }
+
+    bool finish_frame(codec_audio_lm_verdict * v) {
+        std::vector<int32_t> codes((size_t) n_cb_);
         if (!audio_lm_step_finish(alm_, codes.data(), n_cb_)) return fail_alm("step");
-        if (audio_lm_observe_codes(alm_, codes.data(), n_cb_, hiddens, hidden_) == OBSERVE_STOP) {
+        if (audio_lm_observe_codes(alm_, codes.data(), n_cb_, hiddens_.data(), hidden_) == OBSERVE_STOP) {
             const char * e = audio_lm_last_error(alm_);
             if (e && *e) return fail_alm("frame");
             stop_reason_ = "eos_code_c0";
             codec_log(CODEC_LOG_LEVEL_INFO, "AR loop done: %d frames, stop=eos_code_c0\n", frames_);
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
             return true;
         }
         ++frames_;
@@ -215,11 +236,10 @@ public:
             for (int32_t i = 0; i < hidden_; ++i) next_[(size_t) i] += tt[(size_t) i];
             ++talker_step_;
         }
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, pi_.cb0_from_backbone, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, pi_.cb0_from_backbone, true, -1, 0, 0};
         return true;
     }
 
-    const float * next_embd(int32_t) const override { return next_.data(); }
 
 private:
     bool meta_true(const char * key) const {
@@ -275,9 +295,9 @@ private:
     int32_t talker_step_ = 0;
     std::vector<int32_t> icl_codes_;   // reference frames [n, n_cb] of an ICL voice
     std::vector<float> next_;
-    alm_head_sampler head_;
-    alm_head_sampler head_c0_;   // codebook 0 when it takes a repetition penalty
-    bool c0_penalized_ = false;
+    std::vector<float> hiddens_;   // the frame's backbone hidden (observe -> finish_frame)
+    std::vector<float> logits_;    // the head waiting for the host's token
+    int32_t cb_ = 0, cb0_token_ = -1;
 };
 
 }  // namespace

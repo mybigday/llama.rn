@@ -47,6 +47,7 @@ struct flow_impl {
     int32_t insert_bos_before_voice;
     int32_t lsd_decode_steps;
     int32_t frames_after_eos;
+    float   temperature;   // 0.7
     float   eos_threshold; // -4.0
     float   flow_ln_eps;   // 1e-6 (flow head LN)
     float   flow_rms_eps;  // 1e-5 (time-embed RMSNorm)
@@ -255,6 +256,7 @@ bool init(codec_lm * lm) {
     I->insert_bos_before_voice = codec_read_bool_kv(gf, "codec.lm.insert_bos_before_voice", false) ? 1 : 0;
     I->lsd_decode_steps = codec_read_i32_kv(gf, "codec.lm.lsd_decode_steps", 1);
     I->frames_after_eos = codec_read_i32_kv(gf, "codec.lm.frames_after_eos", -1);
+    I->temperature  = codec_read_f32_kv(gf, "codec.lm.temperature", 0.7f);
     I->eos_threshold= codec_read_f32_kv(gf, "codec.lm.eos_threshold", -4.0f);
     I->flow_ln_eps  = 1e-6f;
     I->flow_rms_eps = 1e-5f;
@@ -334,7 +336,7 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float /
     flow_state * s = static_cast<flow_state *>(st->impl);
     const int32_t n_steps = n_timesteps > 0 ? n_timesteps : (I.lsd_decode_steps > 0 ? I.lsd_decode_steps : 1);
 
-    // The noise's variance is the sampling temperature: the caller draws it.
+    // The noise's variance is codec.lm.temperature (a model setting): the caller draws it.
     const float * z = noise;
     if (z == nullptr) { st->last_error = "FlowLM step_generate needs the init noise"; return CODEC_STATUS_INVALID_ARG; }
 
@@ -391,6 +393,7 @@ const struct codec_lm_flow_info * codec_lm_flow_get_info(struct codec_lm * lm) {
     g_flow_info.n_txt_bins       = I->n_txt_bins;
     g_flow_info.insert_bos_before_voice = I->insert_bos_before_voice;
     g_flow_info.frames_after_eos = I->frames_after_eos;
+    g_flow_info.temperature      = I->temperature;
     g_flow_info.eos_threshold    = I->eos_threshold;
     g_flow_info.lsd_decode_steps = I->lsd_decode_steps;
     g_flow_info.has_tokenizer    = M->has_spm ? 1 : 0;

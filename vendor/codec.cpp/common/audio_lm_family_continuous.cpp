@@ -36,7 +36,6 @@ public:
         codec_log(CODEC_LOG_LEVEL_INFO, "prompt: \"%s%s%s\" -> %zu tokens\n", pi_.prompt_prefix.c_str(), req.text.c_str(),
                   pi_.prompt_suffix.c_str(), toks.size());
         *out = alm_completion();
-        req.sampling_to(out);
         out->flow   = CODEC_AUDIO_LM_FLOW_HIDDEN;
         out->n_embd = hidden_;
         out->seqs   = {{alm_chunk::of_tokens(toks)}};

@@ -69,45 +69,8 @@ alm_chunk alm_chunk::of_embd(std::vector<float> e, int32_t n_rows) {
     return c;
 }
 
-codec_audio_lm_sampler alm_default_sampler() {
-    codec_audio_lm_sampler s{};
-    s.seed               = CODEC_AUDIO_LM_DEFAULT_SEED;
-    s.temp               = 0.80f;
-    s.top_k              = 40;
-    s.top_p              = 0.95f;
-    s.min_p              = 0.05f;
-    s.penalty_last_n     = 64;
-    s.penalty_repeat     = 1.00f;
-    s.penalty_freq       = 0.00f;
-    s.penalty_present    = 0.00f;
-    s.dry_multiplier     = 0.0f;
-    s.dry_base           = 1.75f;
-    s.dry_allowed_length = 2;
-    s.dry_penalty_last_n = -1;
-    return s;
-}
-
-void alm_tts_request::sampling_to(alm_completion * out, const std::vector<int32_t> & model_exempt) const {
-    out->sampler = sampler;
-    out->samplers = samplers;
-    out->penalty_exempt = penalty_exempt;
-    for (int32_t t : model_exempt) {
-        if (std::find(out->penalty_exempt.begin(), out->penalty_exempt.end(), t) == out->penalty_exempt.end()) {
-            out->penalty_exempt.push_back(t);
-        }
-    }
-}
-
-codec_audio_lm_sampler alm_tts_request::head_sampler() const {
-    codec_audio_lm_sampler s = sampler;
-    s.penalty_exempt   = penalty_exempt.empty() ? nullptr : penalty_exempt.data();
-    s.n_penalty_exempt = (int32_t) penalty_exempt.size();
-    s.samplers         = samplers.c_str();
-    return s;
-}
-
 uint32_t alm_tts_request::seed() const {
-    return sampler.seed == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : sampler.seed;
+    return seed_ == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : seed_;
 }
 
 std::string alm_min_length_grammar(int32_t end, int32_t min_tokens, const std::string & body) {

@@ -48,14 +48,32 @@ enum tts_sampling_field : uint32_t {
     TTS_SAMPLING_SAMPLERS           = 1u << 12,
 };
 
+// The host's llama.cpp sampling (common_params_sampling's fields and defaults),
+// for the backbone and every codec-side head group.
+struct tts_sampling {
+    uint32_t seed               = CODEC_AUDIO_LM_DEFAULT_SEED;   // random
+    float    temp               = 0.80f;
+    int32_t  top_k              = 40;
+    float    top_p              = 0.95f;
+    float    min_p              = 0.05f;
+    int32_t  penalty_last_n     = 64;      // 0 = off, -1 = the whole context
+    float    penalty_repeat     = 1.00f;
+    float    penalty_freq       = 0.00f;
+    float    penalty_present    = 0.00f;
+    float    dry_multiplier     = 0.0f;
+    float    dry_base           = 1.75f;
+    int32_t  dry_allowed_length = 2;
+    int32_t  dry_penalty_last_n = -1;
+};
+
 // One llama.cpp sampling setting: its CLI flag (common/arg.cpp), its
 // llama-server request field, the bit, and the field (float or int).
 struct tts_sampling_option {
     const char * flag;
     const char * json;
     uint32_t     bit;
-    float   codec_audio_lm_sampler::* f32;
-    int32_t codec_audio_lm_sampler::* i32;
+    float   tts_sampling::* f32;
+    int32_t tts_sampling::* i32;
 };
 const std::vector<tts_sampling_option> & tts_sampling_options();
 
@@ -78,10 +96,10 @@ struct tts_runner_params {
     int32_t  max_frames = 0;         // 0 → per-model default
     int32_t  min_frames = -1;        // -1 → the model's own minimum
 
-    // llama.cpp sampling (common_params_sampling defaults); its pointers are
-    // unused, `samplers` / `penalty_exempt` below hold them.  Segment i of a
-    // long text uses seed + i (a random seed stays random).
-    codec_audio_lm_sampler sampling = codec_audio_lm_default_tts_request().sampler;
+    // llama.cpp sampling (common_params_sampling defaults).  Segment i of a
+    // long text uses seed + i (a random seed stays random); the seed also
+    // drives the model's own randomness (flow init noise).
+    tts_sampling           sampling;
     std::string            samplers;
     std::vector<int32_t>   penalty_exempt;
     uint32_t               sampling_user_set = 0;   // tts_sampling_field bits
