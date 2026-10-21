@@ -584,7 +584,7 @@ ___
 | `preserved_tokens?` | `string`[] | - |
 | `prompt` | `string` | - |
 | `reasoning_format?` | ``"none"`` \| ``"auto"`` \| ``"deepseek"`` | - |
-| `samplers?` | `string` \| `string`[] | Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: llama.cpp's order. |
+| `samplers?` | `string` \| `string`[] | Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: the model's `general.sampling.sequence`, else llama.cpp's order. |
 | `seed?` | `number` | Set the random number generator (RNG) seed. Default: `-1`, which is a random seed. |
 | `spec_draft_n_max?` | `number` | - |
 | `spec_draft_n_min?` | `number` | - |

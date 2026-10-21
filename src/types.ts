@@ -402,7 +402,7 @@ export type NativeCompletionParams = {
    */
   logit_bias?: Array<Array<number>> | Float32Array
   /**
-   * Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: llama.cpp's order.
+   * Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: the model's `general.sampling.sequence`, else llama.cpp's order.
    */
   samplers?: string | Array<string>
   /**
