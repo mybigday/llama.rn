@@ -116,17 +116,6 @@ export type {
   TTSRequestOptions,
   TTSCompletionParams,
 } from './tts'
-export {
-  lookupVoice as getTTSVoice,
-  listVoices as listTTSVoices,
-  listLanguages as listTTSLanguages,
-} from './tts-voices'
-export type {
-  OuteTTSWord,
-  OuteTTSSpeaker,
-  NeuTTSSpeaker,
-  SpeakerPayload,
-} from './tts-voices'
 
 const logListeners: Array<(level: string, text: string) => void> = []
 const emitNativeLog = (level: string, text: string) => {
@@ -1302,17 +1291,10 @@ export class LlamaContext {
         'speaker: pass a builtin voice name (capabilities.builtinVoices) or a LlamaSpeaker',
       )
     }
-    // No speaker (or 'default'): the language's default voice when the codec
-    // has one of that name (NeuTTS greta for 'de'), else the codec's default.
+    // No speaker: the codec's default voice.
     let voice: string | undefined
-    if (options.speaker === undefined || options.speaker === 'default') {
-      const { defaultVoiceName } = require('./tts-voices')
-      const name = defaultVoiceName(cap.family, language)
-      voice = (
-        cap.builtinVoices.find((v) => v.name === 'default') ??
-        cap.builtinVoices.find((v) => v.name === name) ??
-        cap.builtinVoices.find((v) => v.isDefault)
-      )?.name
+    if (options.speaker === undefined) {
+      voice = undefined
     } else if (cap.builtinVoices.some((v) => v.name === options.speaker)) {
       voice = options.speaker
     } else {

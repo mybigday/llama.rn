@@ -13,7 +13,7 @@ export interface TTSSpeakerInfo {
 export interface TTSCapabilities {
   /** Numeric tts_type enum value (matches cpp/rn-tts.h). */
   type: number
-  /** Prompt assembly family — drives default-voice selection on the JS side. */
+  /** The model's prompt format. */
   promptKind:
     | 'outetts_legacy'
     | 'outetts_v0_3'
@@ -67,18 +67,6 @@ export interface TTSCapabilities {
    * (reference audio) as `speaker` (e.g. Qwen3-TTS Base).
    */
   needsVoice: boolean
-  /**
-   * Always empty: a text-to-speech completion samples with the model's own
-   * settings (codec.cpp).
-   * @deprecated
-   */
-  samplingDefaults: {
-    temperature?: number
-    top_k?: number
-    top_p?: number
-    min_p?: number
-    penalty_repeat?: number
-  }
 }
 
 

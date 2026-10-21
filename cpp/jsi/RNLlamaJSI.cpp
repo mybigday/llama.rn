@@ -2106,7 +2106,6 @@ namespace rnllama_jsi {
                         {"canSpeakerFromAudio", cap.can_speaker_from_audio},
                         {"canTakeInstruct", cap.can_take_instruct},
                         {"needsVoice", cap.needs_voice},
-                        {"samplingDefaults", cap.sampling_defaults},
                     });
                     return [res](jsi::Runtime& rt) {
                         return fromJson(rt, res);

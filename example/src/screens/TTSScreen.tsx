@@ -30,6 +30,8 @@ import type {
 import {
   loadContextParams,
   loadTTSParams,
+  TTS_VOICE_CLONE,
+  TTS_VOICE_DEFAULT,
 } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
@@ -38,6 +40,7 @@ import { createWavFile, decodeBase64Pcm16, dumpTtsWavToDisk } from '../utils/aud
 // committed so Metro can bundle it — used by the voice-clone demo below.
 import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1'
 import { initLlama, LlamaContext, LlamaSpeaker } from '../../../src' // import 'llama.rn'
+import type { TTSCapabilities } from '../../../src'
 
 const models: (typeof MODELS.OUTE_TTS_0_3)[] = [
   MODELS.OUTE_TTS_0_3,
@@ -272,6 +275,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   const [showTTSParamsModal, setShowTTSParamsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [ttsParams, setTtsParams] = useState<TTSParams | null>(null)
+  const [ttsCaps, setTtsCaps] = useState<TTSCapabilities | null>(null)
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -428,7 +432,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const isChatterboxT3 =
         /chatterbox/.test(ttsPath.toLowerCase()) &&
         !/turbo/.test(ttsPath.toLowerCase())
-      const ttsParams = {
+      const ttsContextParams = {
         ...params,
         n_ctx: Math.min(params.n_ctx ?? 8192, 4096),
         use_mlock: false,
@@ -450,7 +454,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const llamaContext = await initLlama(
         {
           model: ttsPath,
-          ...ttsParams,
+          ...ttsContextParams,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -473,6 +477,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             : {}),
         })
         setIsVocoderReady(true)
+        setTtsCaps(await llamaContext.getTTSCapabilities())
         if (isCosyVoice && !inputText.trim()) {
           setInputText('今天天氣真好，我們一起去公園走走吧。')
         }
@@ -494,9 +499,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   const generateSpeech = async () => {
     if (!inputText.trim() || !context || isGenerating) return
 
-    // Create a LlamaSpeaker from the bundled ref audio when speakerConfig is a
-    // non-null object (voice-clone family). String values are passed as-is
-    // (built-in voice name). null / undefined → no speaker.
+    // A cloned voice (LlamaSpeaker), released after the generation.
     let spk: LlamaSpeaker | undefined
     try {
       setIsGenerating(true)
@@ -519,15 +522,13 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
               .replace(/oʊ/g, 'əʊ')
               .replace(/ˈ\b/g, '')
 
-      const speakerCfg = ttsParams?.speakerConfig
       const caps = await context.getTTSCapabilities()
-      // Voice-clone models without a voice of their own (Qwen3-TTS Base)
-      // clone the bundled reference clip unless a voice is configured.
-      const cloneDefault = caps.needsVoice && !speakerCfg
-      if (
-        ((speakerCfg && typeof speakerCfg === 'object') || cloneDefault) &&
-        isVocoderReady
-      ) {
+      // The voice from TTS Parameters: the model's default, a builtin voice of
+      // the codec, or a clone of the bundled reference clip. Voice-clone
+      // models without a voice of their own (Qwen3-TTS Base) always clone.
+      const voice = ttsParams?.voice ?? TTS_VOICE_DEFAULT
+      const knownVoice = caps.builtinVoices.some((v) => v.name === voice)
+      if ((voice === TTS_VOICE_CLONE || caps.needsVoice) && isVocoderReady) {
         const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
         spk = await context.createSpeaker({
           refAudio: pcm,
@@ -539,10 +540,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             : DEFAULT_REF_AUDIO.refText,
         })
       }
-
       const resolvedSpeaker: string | LlamaSpeaker | undefined =
-        spk ??
-        (typeof speakerCfg === 'string' ? speakerCfg : undefined)
+        spk ?? (knownVoice ? voice : undefined)
+      const instruct =
+        caps.canTakeInstruct && ttsParams?.instruct?.trim()
+          ? ttsParams.instruct.trim()
+          : undefined
 
       const prompt = inputText.trim()
       // completionParams are the model's sampling and constraints, reported by
@@ -551,6 +554,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         await context.getFormattedAudioCompletion({
           prompt,
           speaker: resolvedSpeaker,
+          instruct,
           phonemizer: phonemize,
         })
       const { logit_bias: ttsLogitBias, ...ttsSampling } = ttsCompletion
@@ -699,6 +703,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           visible={showTTSParamsModal}
           onClose={() => setShowTTSParamsModal(false)}
           onSave={handleSaveTTSParams}
+          caps={ttsCaps}
         />
 
         <MaskedProgress
@@ -895,6 +900,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         visible={showTTSParamsModal}
         onClose={() => setShowTTSParamsModal(false)}
         onSave={handleSaveTTSParams}
+        caps={ttsCaps}
       />
     </View>
   )

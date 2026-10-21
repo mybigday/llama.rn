@@ -362,7 +362,6 @@ if (!NativeModules.RNLlama) {
         canSpeakerFromAudio: false,
         canTakeInstruct: false,
         needsVoice: false,
-        samplingDefaults: {},
       })),
     )
     setGlobal(

@@ -104,32 +104,42 @@ it('getFormattedAudioCompletion forwards minFrames as min_frames and returns com
   expect(f.completionParams.prompt).toBe('hello')
 })
 
-it('getFormattedAudioCompletion resolves a NeuTTS default to the language default codec voice', async () => {
+it('getFormattedAudioCompletion forwards a builtin voice name, and none for the codec default', async () => {
   const voice = (name: string, isDefault = false) => ({
     name,
     refText: '',
     isDefault,
   })
-  mockGetTTSCapabilities.mockResolvedValueOnce({
+  const caps = {
     type: 5,
     promptKind: 'neutts',
     family: 'neutts',
     requiresPhonemes: true,
     defaultLanguage: 'en-us',
-    builtinVoices: [voice('jo', true), voice('dave'), voice('greta')],
+    builtinVoices: [voice('jo', true), voice('dave')],
     canSpeakerFromAudio: true,
-    samplingDefaults: {},
-  })
+    canTakeInstruct: false,
+    needsVoice: false,
+  }
+  mockGetTTSCapabilities.mockResolvedValueOnce(caps)
   mockGetFormattedAudioCompletion.mockClear()
-
-  await ctx.getFormattedAudioCompletion({ prompt: 'hallo', language: 'de' })
-
-  // A builtin codec voice beats the JS preset of the same name, and 'de'
-  // picks greta rather than the codec's own default (jo).
+  await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: 'dave' })
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    { codec_voice: 'greta' },
-    'hallo',
+    { codec_voice: 'dave' },
+    'hello',
+    -1,
+    undefined,
+    {},
+  )
+
+  mockGetTTSCapabilities.mockResolvedValueOnce(caps)
+  mockGetFormattedAudioCompletion.mockClear()
+  await ctx.getFormattedAudioCompletion({ prompt: 'hello' })
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    null,
+    'hello',
     -1,
     undefined,
     {},

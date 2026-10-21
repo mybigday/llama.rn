@@ -7,8 +7,15 @@ import type {
 export type ContextParams = Omit<LlamaContextParams, 'model'>
 export type CompletionParams = Omit<LlamaCompletionParams, 'prompt'>
 
+// The voice of a TTS request: TTS_VOICE_DEFAULT (the model's own), a builtin
+// voice name of the codec, or TTS_VOICE_CLONE (the bundled reference clip).
+export const TTS_VOICE_DEFAULT = 'Default'
+export const TTS_VOICE_CLONE = 'Clone reference clip'
+
 export interface TTSParams {
-  speakerConfig: any | null
+  voice: string
+  // How to speak, for models that take an instruct.
+  instruct: string
 }
 
 export interface CustomModel {
@@ -66,7 +73,8 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
 }
 
 export const DEFAULT_TTS_PARAMS: TTSParams = {
-  speakerConfig: null,
+  voice: TTS_VOICE_DEFAULT,
+  instruct: '',
 }
 
 export const DEFAULT_MCP_CONFIG: MCPConfig = {
