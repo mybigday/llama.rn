@@ -45,7 +45,6 @@ import type {
   ParallelRequestStatus,
 } from './types'
 import { BUILD_NUMBER, BUILD_COMMIT } from './version'
-import type { SpeakerPayload } from './tts-voices'
 
 export type RNLlamaMessagePart = {
   type: string
@@ -111,7 +110,12 @@ export type {
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
 
-export type { TTSCapabilities, TTSSpeakerInfo } from './tts'
+export type {
+  TTSCapabilities,
+  TTSSpeakerInfo,
+  TTSRequestOptions,
+  TTSCompletionParams,
+} from './tts'
 export {
   lookupVoice as getTTSVoice,
   listVoices as listTTSVoices,
@@ -160,7 +164,6 @@ const jsiBindingKeys = [
   'llamaGetFormattedAudioCompletion',
   'llamaGetTTSCapabilities',
   'llamaDecodeAudioTokens',
-  'llamaGenerateAudioCodes',
   'llamaCreateSpeaker',
   'llamaBakeSpeaker',
   'llamaReleaseSpeaker',
@@ -1216,47 +1219,52 @@ export class LlamaContext {
   }
 
   /**
-   * Arm a text-to-speech request; the next `completion()` runs it.
+   * Arm a text-to-speech request and report how to run it.
    *
-   * codec.cpp builds the model's prompt and sampling, so that completion
-   * ignores the prompt, grammar and sampling params it is given; `n_predict`
-   * caps the audio frames and `seed` seeds the sampling. Its result carries
-   * the decoder input: `audio_tokens` (codec codes), or `embeddings` +
-   * `embedding_dim` (latents, e.g. Soprano / BlueMagpie). Decode them with
-   * `decodeAudioTokens` / `decodeAudioEmbeddings` at any later time.
+   * The flow is `getFormattedAudioCompletion` → `completion()` →
+   * `decodeAudioTokens` / `decodeAudioEmbeddings`. The returned
+   * `completionParams` are the model's backbone sampling and constraints
+   * (grammar or allowed tokens, minimum length, frame budget, `embedding`);
+   * pass them to `completion()`, overriding what you like — the completion
+   * runs with exactly the params it gets. Its `prompt` must be
+   * `completionParams.prompt`. The completion samples with its own sampler
+   * and hands every step to codec.cpp, which decides what the backbone reads
+   * next and when to stop; the result carries the decoder input:
+   * `audio_tokens` (codec codes, `audio_tokens_width` per frame) or
+   * `embeddings` + `embedding_dim` (latents, e.g. Soprano / BlueMagpie).
+   * Long text is the caller's to split: one request per piece.
    *
    * - `prompt` — text to speak. Phonemized if `phonemizer` is supplied.
    * - `speaker` — a builtin voice name of the codec (`builtinVoices`), a
    *   `LlamaSpeaker`, or `undefined` for the model's default voice.
-   *   Structured speaker objects are not used.
-   * - `phonemizer` — optional `(text, language) => string | Promise<string>`.
-   *   When set, `prompt` and `speaker.ref_text` (if missing `ref_phones`) go
-   *   through it. Models that need phonemes (NeuTTS) get off-distribution
-   *   text otherwise — caller's call.
-   * - `language` — phonemizer hook hint; defaults to capabilities.defaultLanguage.
+   * - `phonemizer` — optional `(text, language) => string | Promise<string>`,
+   *   for models with `requiresPhonemes`.
+   * - `language` — phonemizer hint; defaults to capabilities.defaultLanguage.
    * - `instruct` — how to speak (e.g. "Speak cheerfully"), for models with
    *   `canTakeInstruct`; others reject it.
+   * - `request` — codec.cpp's overrides (seed, codec-side sampling, frame
+   *   limits, guidance); see `TTSRequestOptions`.
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
-    speaker?: string | LlamaSpeaker | SpeakerPayload
+    speaker?: string | LlamaSpeaker
     phonemizer?: (
       text: string,
       language: string,
     ) => string | Promise<string>
     language?: string
     instruct?: string
+    request?: import('./tts').TTSRequestOptions
   }): Promise<{
     prompt: string
     grammar?: string
     embedding: boolean
     flow: 'tokens' | 'continuous_embd' | ''
+    completionParams: import('./tts').TTSCompletionParams
   }> {
-    const { lookupVoice, defaultVoiceName } = require('./tts-voices')
     const cap = await this.getTTSCapabilities()
     const language = options.language ?? (cap.defaultLanguage || 'en-us')
 
-    // 1. phonemize input text (only if hook supplied — caller controls)
     let inputText = options.prompt
     if (cap.requiresPhonemes && options.phonemizer) {
       inputText = await Promise.resolve(
@@ -1264,11 +1272,25 @@ export class LlamaContext {
       )
     }
 
-    const { llamaGetFormattedAudioCompletion } = getJsi()
+    const r = options.request ?? {}
+    const request: Record<string, number | string> = {}
+    const set = (key: string, value: number | string | undefined) => {
+      if (value !== undefined) request[key] = value
+    }
+    set('seed', r.seed)
+    set('temperature', r.temperature)
+    set('top_p', r.topP)
+    set('top_k', r.topK)
+    set('min_p', r.minP)
+    set('repetition_penalty', r.repetitionPenalty)
+    set('min_frames', r.minFrames)
+    set('max_frames', r.maxFrames)
+    set('lm_guidance', r.lmGuidance)
+    set('flow_guidance', r.flowGuidance)
+    set('flow_steps', r.flowSteps)
+    set('preset', r.preset)
 
-    // 2. LlamaSpeaker handle path: pass a null speaker payload + the speaker
-    //    id so native arms pending_speaker_id from the registry. Downstream
-    //    completion / generateAudioCodes calls inject the speaker automatically.
+    const { llamaGetFormattedAudioCompletion } = getJsi()
     if (options.speaker instanceof LlamaSpeaker) {
       return llamaGetFormattedAudioCompletion(
         this.id,
@@ -1276,81 +1298,42 @@ export class LlamaContext {
         inputText,
         options.speaker.id,
         options.instruct,
+        request,
       )
     }
-
-    // 3. Otherwise resolve to a pre-baked speaker payload (an OuteTTSSpeaker /
-    //    NeuTTSSpeaker config) and forward it to native as an object. A
-    //    structured object is used directly; a string name — or `undefined`,
-    //    which means 'default' — resolves against the built-in voice table,
-    //    whose entries are themselves pre-baked payloads. Native never sees a
-    //    voice-name key; voice resolution is JS-only.
-    // A builtin voice of the codec GGUF (codec_speaker) wins over a preset of
-    // the same name. No speaker, or 'default', picks the language's default
-    // preset voice when the codec has a builtin voice of that name (NeuTTS
-    // greta for 'de'), else the codec's own default (BreezyVoice zh_female).
-    const defaultBuiltinVoice = () => {
+    if (options.speaker !== undefined && typeof options.speaker !== 'string') {
+      throw new TypeError(
+        'speaker: pass a builtin voice name (capabilities.builtinVoices) or a LlamaSpeaker',
+      )
+    }
+    // No speaker (or 'default'): the language's default voice when the codec
+    // has one of that name (NeuTTS greta for 'de'), else the codec's default.
+    let voice: string | undefined
+    if (options.speaker === undefined || options.speaker === 'default') {
+      const { defaultVoiceName } = require('./tts-voices')
       const name = defaultVoiceName(cap.family, language)
-      return (
+      voice = (
+        cap.builtinVoices.find((v) => v.name === 'default') ??
         cap.builtinVoices.find((v) => v.name === name) ??
         cap.builtinVoices.find((v) => v.isDefault)
-      )
-    }
-    let codecVoice: import('./tts').TTSSpeakerInfo | undefined
-    if (options.speaker === undefined || options.speaker === 'default') {
-      codecVoice =
-        cap.builtinVoices.find((v) => v.name === 'default') ??
-        defaultBuiltinVoice()
-    } else if (typeof options.speaker === 'string') {
-      codecVoice = cap.builtinVoices.find((v) => v.name === options.speaker)
-    }
-    let payload: Record<string, any> | null
-    if (options.speaker && typeof options.speaker === 'object') {
-      payload = { ...options.speaker }
-    } else if (codecVoice) {
-      payload = { codec_voice: codecVoice.name }
+      )?.name
+    } else if (cap.builtinVoices.some((v) => v.name === options.speaker)) {
+      voice = options.speaker
     } else {
-      const name =
-        typeof options.speaker === 'string' ? options.speaker : 'default'
-      // The built-in OuteTTS voice is a legacy word/codes payload that only
-      // fits the legacy / V0.3 prompt builders. OuteTTS 1.0 expects per-word
-      // c1/c2 codes — resolving the legacy payload for it poisons the prompt
-      // (codeless word blocks), so V1.0 falls back to speaker-less generation.
-      const voice =
-        cap.promptKind === 'outetts_v1_0'
-          ? null
-          : lookupVoice(cap.family, name, language)
-      if (!voice && typeof options.speaker === 'string') {
-        // Not a type check — this reports an unknown voice *value*, so Error
-        // (not TypeError) is correct despite the enclosing typeof guard.
-        // eslint-disable-next-line unicorn/prefer-type-error
-        throw new Error(
-          `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
-        )
-      }
-      payload = voice ? { ...voice } : null
-    }
-
-    // NeuTTS: phonemize the payload's ref_text → ref_phones if the caller
-    // didn't already pre-phonemize it.
-    if (
-      payload &&
-      cap.requiresPhonemes &&
-      !payload.ref_phones &&
-      payload.ref_text &&
-      options.phonemizer
-    ) {
-      payload.ref_phones = await Promise.resolve(
-        options.phonemizer(payload.ref_text, language),
+      // eslint-disable-next-line unicorn/prefer-type-error
+      throw new Error(
+        `Unknown voice '${options.speaker}'; builtin voices: ${
+          cap.builtinVoices.map((v) => v.name).join(', ') || 'none'
+        }`,
       )
     }
-
     return llamaGetFormattedAudioCompletion(
       this.id,
-      payload,
+      voice ? { codec_voice: voice } : null,
       inputText,
       -1,
       options.instruct,
+      request,
     )
   }
 
@@ -1374,14 +1357,10 @@ export class LlamaContext {
   }
 
   /**
-   * DEPRECATED: arms `prompt` with the default voice (or `speakerId` of the
-   * completion params) and runs it like `completion()`. `codes` has one entry
-   * per audio frame; `maxFrames` caps them. The sampling options are not used
-   * (the model's own apply). Use `getFormattedAudioCompletion` +
-   * `completion()` + `decodeAudioTokens`.
-   *
-   * `onFrame` (optional) fires per audio frame. It is fire-and-forget — its
-   * return value isn't read.
+   * DEPRECATED: `getFormattedAudioCompletion` + `completion()` with its
+   * `completionParams`. `maxFrames`, `temperature`, `topP`, `topK` and `seed`
+   * override the request's (`TTSRequestOptions`). `onFrame` fires per
+   * completion step with an empty `codes`; the codes come in the result.
    */
   async generateAudioCodes(options: {
     prompt: string
@@ -1398,9 +1377,28 @@ export class LlamaContext {
     stoppedOnEos: boolean
     aborted: boolean
   }> {
-    const { llamaGenerateAudioCodes } = getJsi()
-    const { onFrame, ...rest } = options
-    return await llamaGenerateAudioCodes(this.id, rest, onFrame)
+    const { onFrame, prompt, ...request } = options
+    const formatted = await this.getFormattedAudioCompletion({
+      prompt,
+      request,
+    })
+    let step = 0
+    const res = await this.completion(
+      formatted.completionParams,
+      onFrame
+        ? () => {
+            onFrame(step, [])
+            step += 1
+          }
+        : undefined,
+    )
+    return {
+      codes: res.audio_tokens ?? [],
+      nCodebook: res.audio_tokens_width ?? 0,
+      nFrames: res.audio_frames ?? 0,
+      stoppedOnEos: res.stopped_eos,
+      aborted: res.interrupted,
+    }
   }
 
   /**

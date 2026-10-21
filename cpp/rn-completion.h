@@ -197,8 +197,7 @@ struct llama_rn_context_completion {
     void startGenerationTiming();
     void updateGenerationTiming();
     completion_token_output nextToken();
-    completion_token_output nextAudioStep();
-    // A text-to-speech request is running (its tokens are audio frames).
+    // A text-to-speech request is running (llama_rn_context_tts hooks in).
     bool isAudioGeneration() const;
     bool shouldUseMTP() const;
     void resetSpeculative();

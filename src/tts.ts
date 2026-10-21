@@ -81,3 +81,64 @@ export interface TTSCapabilities {
   }
 }
 
+
+/**
+ * codec.cpp's request overrides for `getFormattedAudioCompletion`. Unset
+ * fields keep the model's defaults. The sampling fields apply to the samplers
+ * codec.cpp runs itself (codec-side heads) and to the backbone sampling it
+ * reports in `completionParams`.
+ */
+export interface TTSRequestOptions {
+  /** Seed of codec.cpp's samplers (and `completionParams.seed`). */
+  seed?: number
+  temperature?: number
+  topP?: number
+  topK?: number
+  minP?: number
+  repetitionPenalty?: number
+  /** Shortest generation, in audio frames, before the stop token may end it. */
+  minFrames?: number
+  /** Longest generation, in audio frames (`completionParams.n_predict`). */
+  maxFrames?: number
+  /** Classifier-free guidance weight of the backbone pair; `0` turns it off (one sequence). */
+  lmGuidance?: number
+  /** Guidance of a flow / diffusion decoder. */
+  flowGuidance?: number
+  /** Steps of a flow / diffusion decoder. */
+  flowSteps?: number
+  /** A sampling preset the model defines. */
+  preset?: string
+}
+
+/**
+ * The `completion()` parameters a text-to-speech request runs with, as
+ * `getFormattedAudioCompletion` reports them: the model's backbone sampling
+ * and constraints. Pass them to `completion()` (and override any of them);
+ * nothing is applied implicitly.
+ */
+export interface TTSCompletionParams {
+  /** The armed text; `completion()` must be given this prompt. */
+  prompt: string
+  /** The model reads the backbone's hidden states (the context returns them). */
+  embedding: boolean
+  /** Step budget: the model's frame limit, or `-1`. */
+  n_predict: number
+  seed: number
+  temperature: number
+  top_k: number
+  top_p: number
+  min_p: number
+  penalty_last_n: number
+  penalty_repeat: number
+  penalty_freq: number
+  penalty_present: number
+  penalize_prompt: boolean
+  dry_multiplier: number
+  dry_base: number
+  dry_allowed_length: number
+  dry_penalty_last_n: number
+  /** Sampler order (llama.cpp `--samplers` names). */
+  samplers: string
+  grammar?: string
+  allowed_tokens?: Array<[number, number]>
+}

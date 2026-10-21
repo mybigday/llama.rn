@@ -169,7 +169,14 @@ namespace rnllama_jsi {
         res["tokens_cached"] = c.n_past;
 
         if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
-            result.audio_tokens = ctx->tts_wrapper->audio_tokens;
+            const auto * tts = ctx->tts_wrapper;
+            result.audio_tokens = tts->audio_tokens;
+            if (!tts->audio_tokens.empty() || !tts->audio_latents.empty()) {
+                // codec.cpp's frame count and why the generation ended.
+                res["audio_frames"] = tts->n_frames;
+                res["audio_stop_reason"] = tts->stop_reason;
+            }
+            if (!tts->audio_tokens.empty()) res["audio_tokens_width"] = tts->getCodeWidth();
         }
         if (!c.embeddings.empty()) {
             result.embeddings = c.embeddings;

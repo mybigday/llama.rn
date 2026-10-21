@@ -400,6 +400,18 @@ export type NativeCompletionParams = {
    */
   logit_bias?: Array<Array<number>>
   /**
+   * Restrict sampling to these token id ranges, `[begin, end)` each; every other token is ruled out. Default: none (all tokens).
+   */
+  allowed_tokens?: Array<[number, number]>
+  /**
+   * The prompt's tokens count for the repetition penalties. Default: `false`
+   */
+  penalize_prompt?: boolean
+  /**
+   * Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: llama.cpp's order.
+   */
+  samplers?: string | Array<string>
+  /**
    * Set the random number generator (RNG) seed. Default: `-1`, which is a random seed.
    */
   seed?: number
@@ -528,7 +540,14 @@ export type NativeCompletionResult = {
   completion_probabilities?: Array<NativeCompletionTokenProb>
   embeddings?: Array<number>
   embedding_dim?: number
+  /** Text-to-speech: the generation's codec codes, frame-major (`audio_tokens_width` per frame). */
   audio_tokens?: Array<number>
+  /** Text-to-speech: codebooks per frame of `audio_tokens`. */
+  audio_tokens_width?: number
+  /** Text-to-speech: audio frames codec.cpp counted. */
+  audio_frames?: number
+  /** Text-to-speech: why the generation ended (codec.cpp's stop reason, `n_predict`, `context_full` or `interrupted`). */
+  audio_stop_reason?: string
 }
 
 export type NativeTokenizeResult = {

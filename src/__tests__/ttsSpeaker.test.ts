@@ -61,6 +61,7 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
     'hello',
     spk.id,
     undefined,
+    {},
   )
 
   // Return value must not carry any speakerEmb* fields
@@ -71,23 +72,36 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
   expect(result).toHaveProperty('flow')
 })
 
-it('getFormattedAudioCompletion forwards a structured speaker payload as-is (not the default voice)', async () => {
+it('getFormattedAudioCompletion rejects structured speaker payloads and unknown voices', async () => {
+  const payload = { ref_phones: 'h ə l oʊ', ref_codes: [11, 22, 33] }
+  await expect(
+    ctx.getFormattedAudioCompletion({
+      prompt: 'hello',
+      speaker: payload as unknown as string,
+    }),
+  ).rejects.toThrow(TypeError)
+  await expect(
+    ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: 'nobody' }),
+  ).rejects.toThrow("Unknown voice 'nobody'")
+})
+
+it('getFormattedAudioCompletion forwards the request options in snake_case and returns completionParams', async () => {
   mockGetFormattedAudioCompletion.mockClear()
 
-  // NeuTTSSpeaker-shaped payload (already phonemized) with custom reference codes.
-  const payload = { ref_phones: 'h ə l oʊ', ref_codes: [11, 22, 33] }
+  const f = await ctx.getFormattedAudioCompletion({
+    prompt: 'hello',
+    request: { seed: 7, topP: 0.9, maxFrames: 100, lmGuidance: 0 },
+  })
 
-  await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: payload })
-
-  // The supplied payload must be passed through as the speaker arg —
-  // NOT silently replaced by the built-in default voice.
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    payload,
+    null,
     'hello',
     -1,
     undefined,
+    { seed: 7, top_p: 0.9, max_frames: 100, lm_guidance: 0 },
   )
+  expect(f.completionParams.prompt).toBe('hello')
 })
 
 it('getFormattedAudioCompletion resolves a NeuTTS default to the language default codec voice', async () => {
@@ -118,6 +132,7 @@ it('getFormattedAudioCompletion resolves a NeuTTS default to the language defaul
     'hallo',
     -1,
     undefined,
+    {},
   )
 })
 
@@ -126,16 +141,16 @@ it('getFormattedAudioCompletion forwards instruct', async () => {
 
   await ctx.getFormattedAudioCompletion({
     prompt: 'hello',
-    speaker: { codec_voice: 'ryan' },
     instruct: 'Speak cheerfully',
   })
 
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    { codec_voice: 'ryan' },
+    null,
     'hello',
     -1,
     'Speak cheerfully',
+    {},
   )
 })
 

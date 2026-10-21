@@ -17,7 +17,6 @@ import ReactNativeBlobUtil from 'react-native-blob-util'
 import { toIPA } from 'phonemize/all'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
-import CompletionParamsModal from '../components/CompletionParamsModal'
 import TTSParamsModal from '../components/TTSParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
 import { Waveform } from '../components/Waveform'
@@ -26,12 +25,10 @@ import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
-  CompletionParams,
   TTSParams,
 } from '../utils/storage'
 import {
   loadContextParams,
-  loadCompletionParams,
   loadTTSParams,
 } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
@@ -272,20 +269,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   const [sampleRate, setSampleRate] = useState<number>(24000)
   const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
-  const [showCompletionParamsModal, setShowCompletionParamsModal] =
-    useState(false)
   const [showTTSParamsModal, setShowTTSParamsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
   const [ttsParams, setTtsParams] = useState<TTSParams | null>(null)
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
-  }
-
-  const handleSaveCompletionParams = (params: CompletionParams) => {
-    setCompletionParams(params)
   }
 
   const handleSaveTTSParams = (params: TTSParams) => {
@@ -392,10 +381,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             <HeaderButton
               iconName="speaker"
               onPress={() => setShowTTSParamsModal(true)}
-            />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
         ),
@@ -546,78 +531,31 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         (typeof speakerCfg === 'string' ? speakerCfg : undefined)
 
       const prompt = inputText.trim()
-      const {
-        prompt: formattedPrompt,
-        grammar,
-        embedding,
-      } = await context.getFormattedAudioCompletion({
-        prompt,
-        speaker: resolvedSpeaker,
-        // The IPA phonemizer is for the English phoneme families; Chinese
-        // text (BreezyVoice's bopomofo frontend) goes in as typed.
-        phonemizer: (text: string, language: string) =>
-          language.startsWith('zh')
-            ? text
-            : toIPA(text, { anyAscii: true, language })
-            .replace(/ɫ/g, 'l')
-            .replace(/oʊ/g, 'əʊ')
-            .replace(/ˈ\b/g, ''),
-      })
+      // completionParams are the model's sampling and constraints, reported by
+      // codec.cpp; the completion runs with exactly these.
+      const { completionParams: ttsCompletion } =
+        await context.getFormattedAudioCompletion({
+          prompt,
+          speaker: resolvedSpeaker,
+          // The IPA phonemizer is for the English phoneme families; Chinese
+          // text (BreezyVoice's bopomofo frontend) goes in as typed.
+          phonemizer: (text: string, language: string) =>
+            language.startsWith('zh')
+              ? text
+              : toIPA(text, { anyAscii: true, language })
+              .replace(/ɫ/g, 'l')
+              .replace(/oʊ/g, 'əʊ')
+              .replace(/ˈ\b/g, ''),
+        })
+      console.log('TTS completionParams:', JSON.stringify(ttsCompletion))
 
-      const params = completionParams || (await loadCompletionParams())
-
-      // top_k=4 for OuteTTS 0.x matches llama.cpp's tts example — wider
-      // sampling makes the 500M model garble audio codes mid-word
-      // (ASR-verified: 4/4 seeds intelligible at top_k 4 vs 1/4 without).
-      const isLegacyOuteTTS =
-        caps.promptKind === 'outetts_legacy' ||
-        caps.promptKind === 'outetts_v0_3'
-      let ttsSamplingDefaults: {
-        temperature: number
-        top_p: number
-        top_k?: number
-      } = { temperature: 0.7, top_p: 0.9 }
-      if (caps.family === 'neutts') {
-        ttsSamplingDefaults = { temperature: 1.0, top_k: 50, top_p: 1.0 }
-      } else if (isLegacyOuteTTS) {
-        ttsSamplingDefaults = { temperature: 0.7, top_p: 0.9, top_k: 4 }
-      }
-
-      // All families run through the standard completion loop. For codec-LM
-      // AR models (CSM / Qwen3-TTS / MOSS / Chatterbox) the native loop drives
-      // the codec_lm step machine per `llama_decode` and appends codes to
-      // `result.audio_tokens`; continuous-latent models return `result.embeddings`.
+      // The completion's result carries the decoder input: `audio_tokens`
+      // (codec codes) or `embeddings` (latents, e.g. Soprano / BlueMagpie).
       const collectedTokens: number[] = []
       const genStartTime = Date.now()
 
-      // Reference sampling stored in the codec GGUF (e.g. Chatterbox Turbo's
-      // repetition penalty) wins over the generic chat defaults; without the
-      // penalty Turbo can get stuck emitting silence tokens.
-      const modelSampling = caps.samplingDefaults ?? {}
-
       const result = await context.completion(
-        {
-          prompt: formattedPrompt,
-          grammar,
-          embedding,
-          n_predict: params?.n_predict || 4096,
-          temperature:
-            modelSampling.temperature ??
-            params.temperature ??
-            ttsSamplingDefaults.temperature,
-          top_p: modelSampling.top_p ?? params.top_p ?? ttsSamplingDefaults.top_p,
-          top_k:
-            modelSampling.top_k ??
-            (params as { top_k?: number }).top_k ??
-            ttsSamplingDefaults.top_k,
-          ...(modelSampling.min_p !== undefined
-            ? { min_p: modelSampling.min_p }
-            : {}),
-          ...(modelSampling.penalty_repeat !== undefined
-            ? { penalty_repeat: modelSampling.penalty_repeat }
-            : {}),
-          stop: params.stop || ['<|im_end|>', '<|SPEECH_GENERATION_END|>'],
-        },
+        ttsCompletion,
         (data) => {
           // Token-flow families (e.g. OuteTTS) stream one callback per audio
           // token; continuous-latent families (e.g. BlueMagpie) don't stream,
@@ -939,12 +877,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         visible={showContextParamsModal}
         onClose={() => setShowContextParamsModal(false)}
         onSave={handleSaveContextParams}
-      />
-
-      <CompletionParamsModal
-        visible={showCompletionParamsModal}
-        onClose={() => setShowCompletionParamsModal(false)}
-        onSave={handleSaveCompletionParams}
       />
 
       <TTSParamsModal

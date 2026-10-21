@@ -133,39 +133,24 @@ declare global {
     text: string,
     speakerId?: number,
     instruct?: string,
+    // codec.cpp request overrides, snake_case (TTSRequestOptions).
+    request?: Record<string, number | string>,
   ) => Promise<{
     prompt: string
     grammar?: string
     embedding: boolean
-    // Always 'tokens': the next `completion()` runs the request.  Its result
-    // carries `audio_tokens` (codes, for decodeAudioTokens) or `embeddings`
-    // (latents, for decodeAudioEmbeddings); 'continuous_embd' is no longer
-    // produced.
+    // Always 'tokens': a completion() with completionParams runs the request.
+    // Its result carries `audio_tokens` (codes, for decodeAudioTokens) or
+    // `embeddings` (latents, for decodeAudioEmbeddings); 'continuous_embd' is
+    // no longer produced.
     flow: 'tokens' | 'continuous_embd' | ''
+    completionParams: import('./tts').TTSCompletionParams
   }>
   var llamaGetTTSCapabilities: (contextId: number) => Promise<TTSCapabilities>
   var llamaDecodeAudioTokens: (
     contextId: number,
     tokens: Int32Array | number[],
   ) => Promise<Float32Array>
-  var llamaGenerateAudioCodes: (
-    contextId: number,
-    opts: {
-      prompt: string
-      maxFrames?: number
-      temperature?: number
-      topP?: number
-      topK?: number
-      seed?: number
-    },
-    onFrame?: (step: number, codes: number[]) => void,
-  ) => Promise<{
-    codes: number[]
-    nCodebook: number
-    nFrames: number
-    stoppedOnEos: boolean
-    aborted: boolean
-  }>
   var llamaCreateSpeaker: (
     contextId: number,
     pcm: Float32Array | number[],

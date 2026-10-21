@@ -18,9 +18,11 @@
 //   --then TEXT            generate TEXT too, then decode both (the first one
 //                          last, from its saved result) into OUT and OUT.then.wav
 //
+// --lm-guidance F sets the guidance weight (0: none, for a one-sequence context).
 // Backbone: --ngl N, --cache-type T, --fa / --no-fa, --n-parallel N; --codec-gpu runs the
-// codec on the GPU.  Sampling is the model's own (codec_audio_lm); --seed N
-// sets its seed.
+// codec on the GPU.  The completion runs with getFormattedAudioCompletion's
+// completionParams, as the JS layer passes them; --seed N is the request's
+// seed (codec.cpp's samplers and, through completionParams, the backbone's).
 
 #include <chrono>
 #include <cmath>
@@ -36,11 +38,56 @@
 #include "rn-completion.h"
 #include "rn-tts.h"
 #include "common.h"
+#include "sampling.h"
 #include "utils/wav_io.h"
 #include "nlohmann/json.hpp"
 
 using namespace rnllama;
 using json = nlohmann::ordered_json;
+
+// completionParams onto the context, for the keys getFormattedAudioCompletion
+// returns (the subset of JSIParams' parseCompletionParams it uses).
+static void apply_completion_params(llama_rn_context & ctx, const json & p) {
+    auto & sp = ctx.params.sampling;
+    sp = common_params_sampling();
+    ctx.params.prompt    = p.value("prompt", std::string());
+    ctx.params.n_predict = p.value("n_predict", -1);
+    ctx.params.embedding = p.value("embedding", false);
+    llama_set_embeddings(ctx.ctx, ctx.params.embedding);
+    sp.seed               = p.value("seed", (uint32_t) LLAMA_DEFAULT_SEED);
+    sp.temp               = p.value("temperature", sp.temp);
+    sp.top_k              = p.value("top_k", sp.top_k);
+    sp.top_p              = p.value("top_p", sp.top_p);
+    sp.min_p              = p.value("min_p", sp.min_p);
+    sp.penalty_last_n     = p.value("penalty_last_n", sp.penalty_last_n);
+    sp.penalty_repeat     = p.value("penalty_repeat", sp.penalty_repeat);
+    sp.penalty_freq       = p.value("penalty_freq", sp.penalty_freq);
+    sp.penalty_present    = p.value("penalty_present", sp.penalty_present);
+    sp.dry_multiplier     = p.value("dry_multiplier", sp.dry_multiplier);
+    sp.dry_base           = p.value("dry_base", sp.dry_base);
+    sp.dry_allowed_length = p.value("dry_allowed_length", sp.dry_allowed_length);
+    sp.dry_penalty_last_n = p.value("dry_penalty_last_n", sp.dry_penalty_last_n);
+    if (p.contains("samplers")) {
+        std::vector<std::string> names;
+        std::string s = p["samplers"].get<std::string>();
+        for (size_t at = 0; at <= s.size();) {
+            const size_t e = std::min(s.find(';', at), s.size());
+            if (e > at) names.push_back(s.substr(at, e - at));
+            at = e + 1;
+        }
+        sp.samplers = common_sampler_types_from_names(names);
+    }
+    if (p.contains("grammar")) sp.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, p["grammar"].get<std::string>());
+    if (p.contains("allowed_tokens")) {
+        const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(ctx.model));
+        std::vector<char> ok((size_t) n_vocab, 0);
+        for (const auto & r : p["allowed_tokens"]) {
+            for (int t = std::max(0, r[0].get<int>()); t < std::min(n_vocab, r[1].get<int>()); ++t) ok[(size_t) t] = 1;
+        }
+        for (int t = 0; t < n_vocab; ++t) if (!ok[(size_t) t]) sp.logit_bias.push_back({t, -INFINITY});
+    }
+    ctx.penalize_prompt = p.value("penalize_prompt", false);
+}
 
 // Minimal mono 16-bit PCM WAV writer (no libsndfile dep).
 static bool write_wav_mono16(const std::string & path, const std::vector<float> & pcm, int sample_rate) {
@@ -96,6 +143,7 @@ int main(int argc, char ** argv) {
     int  n_predict = 0;      // 0: the model's frame cap
     int  threads   = 8;
     uint32_t seed  = 0;      // 0: the model's default
+    double lm_guidance = -1; // < 0: the model's default (0: no guidance pair)
     std::string out_wav;
     std::string cache_type;  // e.g. "q8_0" to mirror the example app's TTS init
     bool force_fa = false;
@@ -120,6 +168,7 @@ int main(int argc, char ** argv) {
         else if (is("--n-predict")    && i + 1 < argc) n_predict         = std::atoi(argv[++i]);
         else if (is("--threads")      && i + 1 < argc) threads           = std::atoi(argv[++i]);
         else if (is("--seed")         && i + 1 < argc) seed              = (uint32_t) std::atoll(argv[++i]);
+        else if (is("--lm-guidance")  && i + 1 < argc) lm_guidance       = std::atof(argv[++i]);
         else if (is("--out-wav")      && i + 1 < argc) out_wav           = argv[++i];
         else if (is("--cache-type")   && i + 1 < argc) cache_type        = argv[++i];
         else if (is("--fa"))                           force_fa          = true;
@@ -231,11 +280,15 @@ int main(int argc, char ** argv) {
     };
     auto synthesize = [&](const std::string & t, generation * g) {
         try {
-            const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct);
-            std::printf("[probe] flow=%s\n", formatted.flow.c_str());
+            json options = json::object();
+            if (seed > 0) options["seed"] = seed;
+            if (lm_guidance >= 0) options["lm_guidance"] = lm_guidance;
+            const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct, options);
+            std::printf("[probe] flow=%s completionParams=%s\n", formatted.flow.c_str(),
+                        formatted.completion_params.dump().substr(0, 400).c_str());
             ctx.completion->rewind();
-            ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
-            if (seed > 0) ctx.params.sampling.seed = seed;
+            apply_completion_params(ctx, formatted.completion_params);
+            if (n_predict > 0) ctx.params.n_predict = n_predict;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");
                 return false;

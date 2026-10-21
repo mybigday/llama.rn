@@ -2031,7 +2031,7 @@ namespace rnllama_jsi {
 
         auto getFormattedAudioCompletion = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetFormattedAudioCompletion"),
-            4,
+            6,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 // Speaker payload arrives as a JS object, or null when the
@@ -2046,19 +2046,22 @@ namespace rnllama_jsi {
                 std::string instruct = (count >= 5 && arguments[4].isString())
                     ? arguments[4].asString(runtime).utf8(runtime)
                     : "";
+                // Optional 6th arg: codec.cpp request options (snake_case).
+                json options = (count >= 6 && arguments[5].isObject()) ? toJson(runtime, arguments[5]) : json::object();
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId, instruct]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId, instruct, options]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId, instruct);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId, instruct, options);
                         json res = json::object({{"prompt", audio_result.prompt}});
                         if (!audio_result.grammar.empty()) {
                             res["grammar"] = audio_result.grammar;
                         }
                         res["embedding"] = audio_result.embedding;
                         res["flow"] = audio_result.flow;
+                        res["completionParams"] = audio_result.completion_params;
                         return [res](jsi::Runtime& rt) {
                             return fromJson(rt, res);
                         };
@@ -2123,76 +2126,6 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaDecodeAudioTokens", decodeAudioTokens);
-
-        // generateAudioCodes — drives the backbone + codec_lm AR loop for
-        // codec_lm-flow models (CSM, etc.).  Args:
-        //   (contextId, opts, onFrame?)
-        // opts: { prompt, maxFrames?, temperature?, topP?, topK?, seed? }
-        // onFrame:  optional (step:number, codes:number[]) => void — fired
-        //           per-frame as audio codes are produced.
-        // Returns { codes:number[], nCodebook, nFrames, stoppedOnEos, aborted }.
-        auto generateAudioCodes = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaGenerateAudioCodes"),
-            3,
-            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
-                int contextId = (int)arguments[0].asNumber();
-                auto opts = optionsFromJson<rnllama::llama_rn_audio_codes_options>(
-                    runtime, toJson(runtime, arguments[1]), "generateAudioCodes");
-
-                std::shared_ptr<jsi::Function> onFrame;
-                if (count >= 3 && arguments[2].isObject() &&
-                    arguments[2].asObject(runtime).isFunction(runtime)) {
-                    onFrame = std::make_shared<jsi::Function>(
-                        arguments[2].asObject(runtime).asFunction(runtime));
-                }
-                jsi::Runtime * runtimePtr = &runtime;
-
-                return createPromiseTask(runtime, callInvoker, [contextId, opts, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
-                    auto ctx = getContextOrThrow(contextId);
-                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
-                    if (opts.prompt.empty()) {
-                        throw std::runtime_error("generateAudioCodes: prompt is empty");
-                    }
-
-                    rnllama::llama_rn_audio_codes_progress_cb cb;
-                    if (onFrame) {
-                        // Fire-and-forget per-frame notification.  We never
-                        // block on the JS side, so the return value is
-                        // always "continue"; aborting from JS isn't wired
-                        // through here yet.
-                        cb = [onFrame, runtimePtr, callInvoker](int step, const std::vector<int32_t> &codes) -> bool {
-                            std::vector<int32_t> codes_copy = codes;
-                            callInvoker->invokeAsync([onFrame, runtimePtr, step, codes_copy]() {
-                                auto &rt = *runtimePtr;
-                                jsi::Array arr(rt, codes_copy.size());
-                                for (size_t i = 0; i < codes_copy.size(); ++i) {
-                                    arr.setValueAtIndex(rt, i, (double) codes_copy[i]);
-                                }
-                                onFrame->call(rt, jsi::Value((double) step), arr);
-                            });
-                            return true;
-                        };
-                    }
-
-                    try {
-                        auto r = ctx->tts_wrapper->generateAudioCodes(ctx, opts, cb);
-                        json res = json::object({
-                            {"codes", r.codes},
-                            {"nCodebook", r.n_codebook},
-                            {"nFrames", r.n_frames},
-                            {"stoppedOnEos", r.stopped_on_eos},
-                            {"aborted", r.aborted},
-                        });
-                        return [res](jsi::Runtime& rt) {
-                            return fromJson(rt, res);
-                        };
-                    } catch (const std::exception &e) {
-                        throw std::runtime_error(e.what());
-                    }
-                }, contextId);
-            }
-        );
-        runtime.global().setProperty(runtime, "llamaGenerateAudioCodes", generateAudioCodes);
 
         // llamaCreateSpeaker(ctxId, pcm, opts)
         //   pcm:  Float32Array | number[] (reference audio samples)

@@ -91,17 +91,3 @@ namespace rnllama_jsi {
     }
 }
 
-namespace rnllama {
-    // Key-mapping shim for generateAudioCodes: the public API uses camelCase
-    // while the core struct is snake_case. Found by ADL from json::get<>().
-    template <typename BasicJsonType>
-    void from_json(const BasicJsonType& j, llama_rn_audio_codes_options& o) {
-        const llama_rn_audio_codes_options d{};
-        o.prompt      = j.value("prompt",      d.prompt);
-        o.max_frames  = j.value("maxFrames",   d.max_frames);
-        o.temperature = j.value("temperature", d.temperature);
-        o.top_p       = j.value("topP",        d.top_p);
-        o.top_k       = j.value("topK",        d.top_k);
-        o.seed        = j.value("seed",        d.seed);
-    }
-}

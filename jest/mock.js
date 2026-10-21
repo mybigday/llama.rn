@@ -342,11 +342,12 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaGetFormattedAudioCompletion',
-      jest.fn(async () => ({
-        prompt: '',
+      jest.fn(async (_id, _speaker, text) => ({
+        prompt: text,
         grammar: '',
         embedding: false,
         flow: 'tokens',
+        completionParams: { prompt: text, embedding: false, n_predict: -1 },
       })),
     )
     setGlobal(
@@ -367,16 +368,6 @@ if (!NativeModules.RNLlama) {
     setGlobal(
       'llamaDecodeAudioTokens',
       jest.fn(async () => new Float32Array([0.25, -0.5])),
-    )
-    setGlobal(
-      'llamaGenerateAudioCodes',
-      jest.fn(async () => ({
-        codes: [],
-        nCodebook: 0,
-        nFrames: 0,
-        stoppedOnEos: false,
-        aborted: false,
-      })),
     )
     setGlobal(
       'llamaCreateSpeaker',

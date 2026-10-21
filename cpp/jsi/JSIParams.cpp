@@ -1,8 +1,10 @@
 #include "JSIParams.h"
 #if defined(RNLLAMA_USE_FRAMEWORK_HEADERS)
 #include <rnllama/speculative.h>
+#include <rnllama/sampling.h>
 #else
 #include "speculative.h"
+#include "sampling.h"
 #endif
 #include <cmath>
 #include <algorithm>
@@ -12,6 +14,7 @@
 #include <vector>
 #include <utility>
 #include <stdexcept>
+#include <sstream>
 
 namespace rnllama_jsi {
 
@@ -604,6 +607,37 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
                     sparams.logit_bias.push_back({ tok, -INFINITY });
                 }
             }
+        }
+
+        // Allowed tokens: [[begin, end), ...]; every other token is ruled out.
+        if (const json* allowed = findProperty(params, "allowed_tokens"); allowed && allowed->is_array() && !allowed->empty()) {
+            std::vector<char> ok((size_t) n_vocab, 0);
+            for (const auto& r : *allowed) {
+                if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number()) {
+                    throw std::runtime_error("allowed_tokens: expected [begin, end] pairs");
+                }
+                const int b = std::max(0, r[0].get<int>());
+                const int e = std::min(n_vocab, r[1].get<int>());
+                for (int t = b; t < e; ++t) ok[(size_t) t] = 1;
+            }
+            for (int t = 0; t < n_vocab; ++t) {
+                if (!ok[(size_t) t]) sparams.logit_bias.push_back({ t, -INFINITY });
+            }
+        }
+
+        ctx->penalize_prompt = getPropertyAsBool(params, "penalize_prompt", false);
+
+        // Sampler order: "penalties;top_k;..." or an array; llama.cpp's default when absent.
+        sparams.samplers = common_params_sampling().samplers;
+        if (const json* samplers = findProperty(params, "samplers"); samplers) {
+            std::vector<std::string> names;
+            if (samplers->is_string()) {
+                std::stringstream ss(samplers->get<std::string>());
+                for (std::string n; std::getline(ss, n, ';');) if (!n.empty()) names.push_back(n);
+            } else if (samplers->is_array()) {
+                for (const auto& n : *samplers) if (n.is_string()) names.push_back(n.get<std::string>());
+            }
+            if (!names.empty()) sparams.samplers = common_sampler_types_from_names(names);
         }
 
         ctx->params.antiprompt.clear();

@@ -434,13 +434,24 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
     // state out of the chat's checkpoint cache (see state_cache_capture_allowed).
     state_cache_capture_allowed = allow_state_cache;
 
-    // Text-to-speech: the request getFormattedAudioCompletion armed brings its
-    // own prompt (codec.cpp's codec_audio_lm), decoded from position 0, and the
-    // model's sampling.  nextToken then steps it.
+    // Text-to-speech: the request getFormattedAudioCompletion armed for this
+    // prompt brings codec.cpp's prompt (embedding rows among the tokens),
+    // decoded from position 0.  embd holds placeholders for those positions.
     if (!has_media && parent_ctx->isVocoderEnabled() && parent_ctx->tts_wrapper->isArmed()) {
+        llama_rn_context_tts * tts = parent_ctx->tts_wrapper;
+        if (parent_ctx->params.prompt != tts->armedText()) {
+            throw std::runtime_error("TTS: the completion prompt is not the one getFormattedAudioCompletion "
+                                     "armed; pass its completionParams.prompt");
+        }
         clearStateCheckpoints();
-        const int n = parent_ctx->tts_wrapper->beginGeneration(parent_ctx);
-        initSampling();
+        // The generation clears the KV cache; embd follows it.
+        embd.clear();
+        n_past = 0;
+        std::vector<llama_token> prompt_tokens;
+        const int n = tts->beginGeneration(parent_ctx, prompt_tokens);
+        if (parent_ctx->penalize_prompt) {
+            for (llama_token t : prompt_tokens) common_sampler_accept(ctx_sampling, t, false);
+        }
         embd.assign((size_t) n, 0);
         n_past = n;
         num_prompt_tokens = n;
@@ -675,6 +686,12 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         LOG_INFO("[DEBUG] T5 encoding complete, added decoder BOS token: %d", decode_bos);
     }
 
+    if (parent_ctx->penalize_prompt && !has_media) {
+        for (size_t i = 0; i < num_prompt_tokens && i < embd.size(); ++i) {
+            common_sampler_accept(ctx_sampling, embd[i], false);
+        }
+    }
+
     has_next_token = true;
 
     LOG_VERBOSE("loadPrompt: n_past=%d embd.size=%zu num_prompt_tokens=%zu has_media=%d",
@@ -707,8 +724,9 @@ void llama_rn_context_completion::endCompletion() {
         embd.resize(n_past);
     }
     if (isAudioGeneration()) {
-        // Keeps the decoder input so far and clears the KV cache, which embd
-        // no longer describes.  Latents come back as the result's embeddings.
+        // Keeps the decoder input and clears the KV cache, which embd (with
+        // its placeholders) does not describe.  Latents come back as the
+        // result's embeddings.
         llama_rn_context_tts * tts = parent_ctx->tts_wrapper;
         tts->endGeneration(parent_ctx);
         embd.clear();
@@ -740,7 +758,9 @@ void llama_rn_context_completion::updateGenerationTiming() {
 
 bool llama_rn_context_completion::shouldUseMTP() const {
     const auto & types = parent_ctx->params.speculative.types;
-    return std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
+    // TTS steps feed embedding rows a draft cannot predict.
+    return !isAudioGeneration() &&
+        std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
         parent_ctx->params.speculative.draft.n_max > 0;
 }
 
@@ -1038,53 +1058,6 @@ completion_token_output llama_rn_context_completion::nextTokenMTP() {
     return result;
 }
 
-// One text-to-speech step (llama_rn_context_tts::step): an audio frame comes
-// back as a token with no text.
-completion_token_output llama_rn_context_completion::nextAudioStep()
-{
-    llama_rn_context_tts * tts = parent_ctx->tts_wrapper;
-    completion_token_output result;
-    result.tok = -1;
-    if (n_past >= parent_ctx->params.n_ctx) {
-        has_next_token = false;
-        context_full = true;
-        return result;
-    }
-    startGenerationTiming();
-    const auto r = tts->step(parent_ctx, ctx_sampling, n_past);
-    if (r.fed) {
-        embd.push_back(r.tok >= 0 ? r.tok : 0);
-        ++n_past;
-    }
-    // A sampled backbone token is the step's token, as in the text loop (its
-    // piece goes to the text); codec-head models sample none.  The token that
-    // ends the generation is not returned, like EOS.
-    if (!r.stop && r.sampled >= 0) result.tok = r.sampled;
-    if (r.sampled >= 0 || r.audio) {
-        num_tokens_predicted++;
-        updateGenerationTiming();
-        --n_remain;
-    }
-    if (r.stop) {
-        const int n = tts->nextSegment(parent_ctx);
-        if (n < 0) {
-            has_next_token = false;
-            stopped_eos = tts->stop_reason != "max_frames";
-            stopped_limit = !stopped_eos;
-            return result;
-        }
-        initSampling();
-        embd.assign((size_t) n, 0);
-        n_past = n;
-    }
-    has_next_token = parent_ctx->params.n_predict == -1 || n_remain > 0;
-    if (!has_next_token) {
-        stopped_limit = true;
-        tts->stop_reason = "n_predict";
-    }
-    return result;
-}
-
 bool llama_rn_context_completion::isAudioGeneration() const {
     return parent_ctx->isVocoderEnabled() && parent_ctx->tts_wrapper->isGenerating();
 }
@@ -1098,17 +1071,20 @@ completion_token_output llama_rn_context_completion::nextToken()
     completion_token_output result;
     result.tok = -1;
 
-    if (isAudioGeneration()) {
-        return nextAudioStep();
-    }
+    // Text-to-speech: the hooks below report each step to codec.cpp
+    // (llama_rn_context_tts::observe), which may feed an embedding row instead
+    // of a token; the sampling, budget and stop handling stay this function's.
+    llama_rn_context_tts * tts = isAudioGeneration() ? parent_ctx->tts_wrapper : nullptr;
 
     if (embd.size() >= (size_t)parent_ctx->params.n_ctx)
     {
-        if (!parent_ctx->params.ctx_shift) {
+        // TTS positions hold embedding rows a shift cannot move.
+        if (!parent_ctx->params.ctx_shift || tts != nullptr) {
             // If context shifting is disabled, stop generation
             LOG_WARNING("context full, n_ctx: %d, tokens: %d", parent_ctx->params.n_ctx, embd.size());
             has_next_token = false;
             context_full = true;
+            if (tts != nullptr) tts->stop_reason = "context_full";
             return result;
         }
 
@@ -1140,8 +1116,8 @@ completion_token_output llama_rn_context_completion::nextToken()
 
     // A backbone with tokenizer.ggml.model=none (e.g. Chatterbox T3 — the codec
     // owns tokenization) has no text pieces, and token_to_piece asserts on a
-    // NONE vocab.  Such models only run TTS (llama_rn_context_tts::generate).
-    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) {
+    // NONE vocab.  Such models only run TTS, which samples no text from them.
+    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE && tts == nullptr) {
         LOG_ERROR("nextToken: backbone has no text vocab (tokenizer.ggml.model=none); "
                   "use it for text-to-speech (initVocoder + getFormattedAudioCompletion)");
         has_next_token = false;
@@ -1156,6 +1132,21 @@ completion_token_output llama_rn_context_completion::nextToken()
             : 0;
 
     bool tg = true;
+    // TTS: the embedding row(s) the last step asked for, one position.  A
+    // failing TTS step ends the generation (the KV cache holds its rows)
+    // before the error goes up.
+    try {
+        if (tts != nullptr && tts->decodeFeed(parent_ctx, n_past)) {
+            embd.push_back(0);
+            ++n_past;
+        }
+    } catch (...) {
+        tts->endGeneration(parent_ctx);
+        embd.clear();
+        n_past = 0;
+        has_next_token = false;
+        throw;
+    }
     while (n_past < embd.size())
     {
         llama_pos decode_to = (llama_pos) embd.size();
@@ -1239,11 +1230,52 @@ completion_token_output llama_rn_context_completion::nextToken()
         std::vector<llama_token_data> candidates;
         candidates.reserve(llama_vocab_n_tokens(vocab));
 
-        llama_token new_token_id = common_sampler_sample(ctx_sampling, parent_ctx->ctx, -1);
+        // TTS steps where codec.cpp reads only the hidden state sample nothing.
+        llama_token new_token_id = -1;
+        if (tts == nullptr || tts->samplesBackbone()) {
+            new_token_id = common_sampler_sample(ctx_sampling, parent_ctx->ctx, -1);
 
-        result.probs = get_token_probabilities(
-            parent_ctx->ctx, ctx_sampling, -1,
-            parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
+            result.probs = get_token_probabilities(
+                parent_ctx->ctx, ctx_sampling, -1,
+                parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
+        }
+
+        if (tts != nullptr) {
+            // codec.cpp sees every token, the end-of-speech one included, and
+            // says when the generation ends.
+            llama_rn_context_tts::verdict v;
+            try {
+                v = tts->observe(parent_ctx, new_token_id);
+            } catch (...) {
+                tts->endGeneration(parent_ctx);
+                embd.clear();
+                n_past = 0;
+                has_next_token = false;
+                throw;
+            }
+            if (new_token_id >= 0) common_sampler_accept(ctx_sampling, new_token_id, true);
+            if (tg) {
+                num_tokens_predicted++;
+                updateGenerationTiming();
+            }
+            if (v.stop) {
+                has_next_token = false;
+                stopped_eos = true;
+                return result;
+            }
+            if (new_token_id >= 0) {
+                result.tok = new_token_id;
+                if (llama_vocab_type(vocab) != LLAMA_VOCAB_TYPE_NONE) {
+                    result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
+                }
+            }
+            // An embedding row is decoded at the start of the next step.
+            if (v.feed >= 0) embd.push_back(v.feed);
+            --n_remain;
+            has_next_token = parent_ctx->params.n_predict == -1 || n_remain != 0;
+            if (!has_next_token) tts->stop_reason = "n_predict";
+            return result;
+        }
 
         if (llama_vocab_is_eog(vocab, new_token_id)) {
             has_next_token = false;
