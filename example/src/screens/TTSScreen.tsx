@@ -535,7 +535,15 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       // clone the bundled clip unless another clone is chosen.
       const voice = ttsParams?.voice ?? TTS_VOICE_DEFAULT
       const knownVoice = caps.builtinVoices.some((v) => v.name === voice)
-      const custom = ttsParams?.customVoices?.find((v) => v.id === voice)
+      // The chosen voice is shared by every model; one this model cannot use
+      // (a clone on a model that does not clone) falls back to its default,
+      // as TTS Parameters lists it.
+      const canClone = caps.canSpeakerFromAudio
+      const custom = ttsParams?.customVoices?.find(
+        (v) =>
+          v.id === voice &&
+          (v.kind === 'file' ? canClone || caps.family === 'outetts' : canClone),
+      )
       // Models that read phonemes (NeuTTS) take a clone's transcript as
       // phonemes too, like the text below.
       const transcript = (text: string) =>
@@ -554,7 +562,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           name: custom.speakerName?.trim() || undefined,
         })
       } else if (
-        (voice === TTS_VOICE_BUNDLED || caps.needsVoice) &&
+        ((voice === TTS_VOICE_BUNDLED && canClone) || caps.needsVoice) &&
         isVocoderReady
       ) {
         const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
