@@ -22,53 +22,32 @@ public:
         out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
         out->takes_ref_text  = out->takes_ref_audio && audio_lm_talker_has_projection(alm_);
         out->takes_instruct  = meta_true("codec.lm.qwen3tts.takes_instruct");
-        out->needs_voice     = audio_lm_talker_has_projection(alm_) && !talker_voice();
+        out->needs_voice     = audio_lm_talker_has_projection(alm_) && !talker_voice(audio_lm_decode_speaker(alm_));
         const char * sr = audio_lm_meta_str(alm_, "codec.sample_rate");
         out->sample_rate = sr ? std::atoi(sr) : 24000;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompts:
+    //   Qwen3-TTS talker: [<|im_start|>user\n{instruct}<|im_end|>\n]<|im_start|>assistant\n<__voice__>
+    //                     [{reference transcript}]<__codec:text__>{text}
+    //     (<__voice__>: the codec control rows with the voice's speaker / language
+    //     tags and x-vector; with a transcript, the reference frames follow the
+    //     prefix and the transcript leads the text lane: in-context voice)
+    //   others: [<__voice__> (an x-vector row)]{the GGUF's prefix}{text}{suffix} (BOS added)
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         if (!vocab.valid()) return fail("this model needs the backbone vocabulary");
-        if (!audio_lm_get_prompt_info(alm_, &pi_)) return fail_alm("prompt info");
-        hidden_ = audio_lm_hidden_dim(alm_);
-        n_cb_   = audio_lm_n_codebook(alm_);
-        frames_ = 0;
-        stop_reason_ = "max_frames";
-        talker_text_.clear();
-        talker_step_ = 0;
-
-        // A cloned Qwen3-TTS voice: the x-vector speaker row, and with the
-        // reference's codes + transcript the in-context prompt (ICL).
-        std::vector<float> speaker;
-        icl_codes_.clear();
-        std::string ref_text;
-        if (const codec_speaker * spk = audio_lm_decode_speaker(alm_)) {
-            codec_speaker_slot_type ty;
-            int64_t ne[4];
-            const void * d = nullptr;
-            if (codec_speaker_get_slot(spk, "xvector", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_F32) {
-                speaker.assign(static_cast<const float *>(d), static_cast<const float *>(d) + ne[0]);
-            }
-            if (codec_speaker_get_slot(spk, "ref_codes", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32 && ne[0] == n_cb_) {
-                icl_codes_.assign(static_cast<const int32_t *>(d), static_cast<const int32_t *>(d) + ne[0] * ne[1]);
-            }
-            if (const char * t = codec_speaker_ref_text(spk)) ref_text = t;
-        }
-        if (!speaker.empty() && (int32_t) speaker.size() != hidden_) return fail("the voice's x-vector does not fit this model");
-        if (ref_text.empty()) icl_codes_.clear();   // x_vector_only_mode
+        audio_lm_prompt_info pi;
+        if (!audio_lm_get_prompt_info(alm_, &pi)) return fail_alm("prompt info");
+        const int32_t hidden = audio_lm_hidden_dim(alm_);
+        voice_slots v;
+        if (!read_voice(req.voice, &v)) return false;
         const bool talker = audio_lm_talker_has_projection(alm_);
-        // The Qwen3-TTS Base model clones a voice: its reference refuses to
-        // run without one (CustomVoice codecs carry builtin voices).
-        if (talker && !talker_voice()) {
-            return fail("this is a voice-clone model and needs a voice (reference audio or a speaker file)");
-        }
-
-        audio_lm_set_uses_embed_override(alm_, true, 1);
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
-        out->n_embd = hidden_;
-        std::vector<alm_chunk> chunks;
         if (talker) {
+            // The Qwen3-TTS Base model clones a voice: its reference refuses to
+            // run without one (CustomVoice codecs carry builtin voices).
+            if (!talker_voice(req.voice)) {
+                return fail("this is a voice-clone model and needs a voice (reference audio or a speaker file)");
+            }
             // Instruct-capable talkers (CustomVoice 1.7B) take the instruction
             // as a text-only user turn ahead of the assistant header.
             std::string header = "<|im_start|>assistant\n";
@@ -79,12 +58,71 @@ public:
                     codec_log(CODEC_LOG_LEVEL_WARN, "note: the instruction is ignored (this model takes none)\n");
                 }
             }
+            out->prompt = header + CODEC_AUDIO_LM_MARKER_VOICE + (v.icl_codes.empty() ? "" : v.ref_text) +
+                          alm_codec_marker("text") + req.text;
+        } else {
+            std::string text = req.text;
+            // MOSS-TTSD dialogue tags: the processor maps [S1]/[S2] to <speaker1>/<speaker2>.
+            if (pi.model_kind == audio_lm_prompt_info::KIND_PARALLEL_HEADS_DELAY) {
+                text = replace_all(text, "[S1]", "<speaker1>");
+                text = replace_all(text, "[S2]", "<speaker2>");
+            }
+            out->prompt = ((int32_t) v.xvector.size() == hidden ? CODEC_AUDIO_LM_MARKER_VOICE : "") + pi.prompt_prefix +
+                          text + pi.prompt_suffix;
+        }
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
+        d.n_embd = hidden;
+        // The host samples every codebook.  Codebook 0, when a codec head, is
+        // its own group with the penalties (Qwen3-TTS: the talker's
+        // repetition_penalty over the frames' first codes); the depth codebooks
+        // share one group without them (the subtalker).
+        if (pi.cb0_from_backbone) d.head_groups = {alm_head_group{false, {}, {}}};
+        else                      d.head_groups = {alm_head_group{true, {}, {}}, alm_head_group{false, {}, {}}};
+        if (pi.cb0_from_backbone) {
+            // Codebook 0 is a backbone token: keep it to the speech range + end.
+            if (req.text_known) d.grammar = tts_auto_grammar(pi, req.text);
+            if (d.grammar.empty() && pi.audio_tok_offset >= 0) {
+                d.allowed = {{pi.audio_tok_offset, pi.audio_tok_offset + pi.audio_tok_count}};
+                if (pi.audio_tok_eos >= 0) d.allowed.push_back({pi.audio_tok_eos, pi.audio_tok_eos + 1});
+            }
+        }
+        d.needs_embeddings = true;
+        d.sample_first     = pi.cb0_from_backbone;
+        d.streamable       = true;
+        d.max_frames       = 512;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        if (!audio_lm_get_prompt_info(alm_, &pi_)) return fail_alm("prompt info");
+        hidden_ = audio_lm_hidden_dim(alm_);
+        n_cb_   = audio_lm_n_codebook(alm_);
+        frames_ = 0;
+        stop_reason_ = "max_frames";
+        talker_text_.clear();
+        talker_step_ = 0;
+        voice_slots v;
+        if (!read_voice(req.voice, &v)) return false;
+        const std::vector<float> & speaker = v.xvector;
+        audio_lm_set_uses_embed_override(alm_, true, 1);
+        std::vector<alm_chunk> chunks;
+        if (audio_lm_talker_has_projection(alm_)) {
+            const std::string header = prompt.text();
+            if (!prompt.voice()) return fail("the talker prompt has <__voice__> after the assistant header");
+            const std::string ref_text = prompt.text();
+            if (!prompt.codec("text")) return fail("the talker prompt has <__codec:text__> before the text");
             const std::vector<int32_t> role = vocab.tokenize(header, false, true);
-            talker_text_ = vocab.tokenize(req.text, false, false);
+            talker_text_ = vocab.tokenize(prompt.text(), false, false);
             if (talker_text_.empty()) return fail("empty text");
             // ICL (generate_icl_prompt, streaming text): the text lane is the
             // reference transcript followed by the text, and the codec lane
             // after codec_bos is the reference's frames; the text rides on.
+            icl_codes_.clear();
+            if (!ref_text.empty()) {
+                if (v.icl_codes.empty()) return fail("a reference transcript in the prompt, but the voice has no reference frames");
+                icl_codes_ = v.icl_codes;
+            }
             const int32_t n_icl = (int32_t) icl_codes_.size() / std::max(1, n_cb_);
             if (n_icl > 0) {
                 std::vector<int32_t> ids = vocab.tokenize(ref_text, false, false);
@@ -116,18 +154,15 @@ public:
             prefix.resize((size_t) n_rows * hidden_);
             chunks.push_back(alm_chunk::of_embd(std::move(prefix), n_rows));
         } else {
-            if ((int32_t) speaker.size() == hidden_) chunks.push_back(alm_chunk::of_embd(speaker, 1));
-            std::string text = req.text;
-            // MOSS-TTSD dialogue tags: the processor maps [S1]/[S2] to <speaker1>/<speaker2>.
-            if (pi_.model_kind == audio_lm_prompt_info::KIND_PARALLEL_HEADS_DELAY) {
-                text = replace_all(text, "[S1]", "<speaker1>");
-                text = replace_all(text, "[S2]", "<speaker2>");
+            if (prompt.voice()) {
+                if ((int32_t) speaker.size() != hidden_) return fail("the prompt has <__voice__> but the voice has no x-vector row");
+                chunks.push_back(alm_chunk::of_embd(speaker, 1));
             }
-            const std::vector<int32_t> toks = vocab.tokenize(pi_.prompt_prefix + text + pi_.prompt_suffix,
-                                                             pi_.add_bos, pi_.parse_special);
+            std::string text;
+            if (!prompt.rest_text(&text)) return fail("this model's prompt takes <__voice__> only at its start");
+            const std::vector<int32_t> toks = vocab.tokenize(text, pi_.add_bos, pi_.parse_special);
             if (toks.empty()) return fail("empty prompt after tokenize");
-            codec_log(CODEC_LOG_LEVEL_INFO, "prompt: \"%s%s%s\" -> %zu tokens\n", pi_.prompt_prefix.c_str(),
-                      req.text.c_str(), pi_.prompt_suffix.c_str(), toks.size());
+            codec_log(CODEC_LOG_LEVEL_INFO, "prompt: \"%s\" -> %zu tokens\n", text.c_str(), toks.size());
             if (audio_lm_prompt_needs_composed_embd(alm_)) {
                 // Merged text + speech cb0: each prompt row sums all codebook tables.
                 std::vector<float> rows(toks.size() * (size_t) hidden_);
@@ -142,25 +177,6 @@ public:
             }
         }
         out->seqs = {std::move(chunks)};
-
-        // The host samples every codebook.  Codebook 0, when a codec head, is
-        // its own group with the penalties (Qwen3-TTS: the talker's
-        // repetition_penalty over the frames' first codes); the depth codebooks
-        // share one group without them (the subtalker).
-        if (pi_.cb0_from_backbone) out->head_groups = {alm_head_group{false, {}, {}}};
-        else                       out->head_groups = {alm_head_group{true, {}, {}}, alm_head_group{false, {}, {}}};
-        if (pi_.cb0_from_backbone) {
-            // Codebook 0 is a backbone token: keep it to the speech range + end.
-            out->grammar = tts_auto_grammar(pi_, req.text);
-            if (out->grammar.empty() && pi_.audio_tok_offset >= 0) {
-                out->allowed = {{pi_.audio_tok_offset, pi_.audio_tok_offset + pi_.audio_tok_count}};
-                if (pi_.audio_tok_eos >= 0) out->allowed.push_back({pi_.audio_tok_eos, pi_.audio_tok_eos + 1});
-            }
-        }
-        out->needs_embeddings = true;
-        out->sample_first     = pi_.cb0_from_backbone;
-        out->streamable       = true;
-        out->max_frames       = 512;
         return true;
     }
 
@@ -204,7 +220,7 @@ private:
             }
             logits_.assign(lg, lg + n);
             const int32_t group = (!pi_.cb0_from_backbone && cb_ > 0) ? 1 : 0;   // head_groups above
-            *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, group, n};
+            *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, group, n};
             return true;
         }
         return finish_frame(v);
@@ -218,7 +234,7 @@ private:
             if (e && *e) return fail_alm("frame");
             stop_reason_ = "eos_code_c0";
             codec_log(CODEC_LOG_LEVEL_INFO, "AR loop done: %d frames, stop=eos_code_c0\n", frames_);
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1, 0, 0};
             return true;
         }
         ++frames_;
@@ -236,7 +252,7 @@ private:
             for (int32_t i = 0; i < hidden_; ++i) next_[(size_t) i] += tt[(size_t) i];
             ++talker_step_;
         }
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, pi_.cb0_from_backbone, true, -1, 0, 0};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, pi_.cb0_from_backbone, true, true, -1, 0, 0};
         return true;
     }
 
@@ -247,8 +263,7 @@ private:
         return v != nullptr && std::strcmp(v, "true") == 0;
     }
     // A talker voice: a CustomVoice builtin (spk_id) or a cloned one (xvector).
-    bool talker_voice() const {
-        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+    bool talker_voice(const codec_speaker * spk) const {
         codec_speaker_slot_type ty;
         int64_t ne[4];
         const void * data = nullptr;
@@ -284,6 +299,35 @@ public:
     }
 
 private:
+    // A cloned Qwen3-TTS voice: the x-vector speaker row, and with the
+    // reference's codes + transcript the in-context prompt (ICL).
+    struct voice_slots {
+        std::vector<float>   xvector;
+        std::vector<int32_t> icl_codes;   // empty without a transcript (x_vector_only_mode)
+        std::string          ref_text;
+    };
+    bool read_voice(const codec_speaker * spk, voice_slots * v) {
+        *v = voice_slots();
+        const int32_t n_cb = audio_lm_n_codebook(alm_);
+        if (spk != nullptr) {
+            codec_speaker_slot_type ty;
+            int64_t ne[4];
+            const void * d = nullptr;
+            if (codec_speaker_get_slot(spk, "xvector", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_F32) {
+                v->xvector.assign(static_cast<const float *>(d), static_cast<const float *>(d) + ne[0]);
+            }
+            if (codec_speaker_get_slot(spk, "ref_codes", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32 && ne[0] == n_cb) {
+                v->icl_codes.assign(static_cast<const int32_t *>(d), static_cast<const int32_t *>(d) + ne[0] * ne[1]);
+            }
+            if (const char * t = codec_speaker_ref_text(spk)) v->ref_text = t;
+        }
+        if (!v->xvector.empty() && (int32_t) v->xvector.size() != audio_lm_hidden_dim(alm_)) {
+            return fail("the voice's x-vector does not fit this model");
+        }
+        if (v->ref_text.empty()) v->icl_codes.clear();
+        return true;
+    }
+
     static std::string replace_all(std::string s, const std::string & from, const std::string & to) {
         for (size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size()) s.replace(pos, from.size(), to);
         return s;

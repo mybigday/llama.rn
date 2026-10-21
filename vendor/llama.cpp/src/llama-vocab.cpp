@@ -567,6 +567,12 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                 regex_exprs = { "\\p{N}", "\\s+|[\\p{L}\\p{N}_]+|[^\\p{L}\\p{N}_\\s]+" };
                 byte_encode = false;
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_CHATTERBOX:
+                // HF tokenizers' Whitespace pre-tokenizer (\w+|[^\w\s]+) over a
+                // raw-UTF-8 BPE (Chatterbox T3's text tokenizer)
+                regex_exprs = { "[\\p{L}\\p{M}\\p{N}_]+|[^\\p{L}\\p{M}\\p{N}_\\s]+" };
+                byte_encode = false;
+                break;
             case LLAMA_VOCAB_PRE_TYPE_WHITESPACE:
                 // whitespace pre-tokenizer (jinaai/jina-embeddings-v2-base-zh)
                 regex_exprs = {
@@ -678,6 +684,13 @@ struct llm_tokenizer_bpe_session {
         }
 
         for (const auto & word : word_collection) {
+            if (tok_pre == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX) {
+                // the Whitespace pre-tokenizer drops the whitespace between words
+                const auto cpts = unicode_cpts_from_utf8(word);
+                if (std::all_of(cpts.begin(), cpts.end(), [](uint32_t c) { return unicode_cpt_flags_from_cpt(c).is_whitespace; })) {
+                    continue;
+                }
+            }
             work_queue = llm_bigram_bpe::queue();
             symbols.clear();
 
@@ -768,7 +781,8 @@ struct llm_tokenizer_bpe_session {
                 const std::string str = std::string(symbol.text, symbol.n);
                 const auto token = vocab.text_to_token(str);
 
-                if (token == LLAMA_TOKEN_NULL && tok_pre == LLAMA_VOCAB_PRE_TYPE_SOPRANO) {
+                if (token == LLAMA_TOKEN_NULL && (tok_pre == LLAMA_VOCAB_PRE_TYPE_SOPRANO ||
+                                                  tok_pre == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX)) {
                     output.push_back(vocab.token_unk());
                 } else if (token == LLAMA_TOKEN_NULL) {
                     for (auto j = str.begin(); j != str.end(); ++j) {
@@ -1105,17 +1119,29 @@ struct llm_tokenizer_ugm_session {
         }
 
         // now backtrack from the end to gather token ids of the best tokenization
-        // merge sequences of consecutive unknown tokens into single unknown tokens
+        // merge sequences of consecutive unknown tokens into single unknown tokens;
+        // with byte-fallback pieces (<0xXX>), an unknown span is its UTF-8 bytes
+        // instead, as SentencePiece's byte_fallback does
+        const bool byte_fallback = vocab.text_to_token("<0x00>") != LLAMA_TOKEN_NULL;
         bool is_prev_unknown = false;
+        size_t end_offset = input_len;
         for (struct best_tokenization & tokenization = tokenization_results[input_len]; ; tokenization = tokenization_results[tokenization.input_offset]) {
             bool is_unknown = tokenization.token_id == vocab.token_unk();
-            if (!(is_prev_unknown && is_unknown)) {
+            if (is_unknown && byte_fallback) {
+                for (size_t i = end_offset; i > tokenization.input_offset; --i) {
+                    char piece[8];
+                    snprintf(piece, sizeof(piece), "<0x%02X>", (uint8_t) normalized[i - 1]);
+                    output.push_back(vocab.text_to_token(piece));
+                }
+                is_unknown = false;
+            } else if (!(is_prev_unknown && is_unknown)) {
                 output.push_back(tokenization.token_id);
             }
             if (tokenization.input_offset == 0) {
                 break;
             }
             is_prev_unknown = is_unknown;
+            end_offset = tokenization.input_offset;
         }
 
         // reverse the output since we added tokens starting from the end of the input
@@ -2364,6 +2390,10 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_SOPRANO;
                 special_unk_id = 0;
                 special_eos_id = 3;
+                add_bos = false;
+            } else if (
+                    tokenizer_pre == "chatterbox") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_CHATTERBOX;
                 add_bos = false;
             } else if (
                     tokenizer_pre == "jais-2") {
@@ -3900,7 +3930,7 @@ int32_t llama_vocab::impl::token_to_piece(llama_token token, char * buf, int32_t
                     return _try_copy(token_text.data(), token_text.size());
                 }
                 if (attr & LLAMA_TOKEN_ATTR_NORMAL) {
-                    if (pre_type == LLAMA_VOCAB_PRE_TYPE_SOPRANO) {
+                    if (pre_type == LLAMA_VOCAB_PRE_TYPE_SOPRANO || pre_type == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX) {
                         return _try_copy(token_text.data(), token_text.size());
                     }
                     if (escape_whitespaces) {

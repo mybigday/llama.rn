@@ -79,14 +79,15 @@ public:
         return segments_;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt (prompt.py; the four reference delimiters have no vocab piece):
+    //   <__voice__> (position 0: the speaker's lm_cond row)
+    //   [<__codec:ref_text_start__>{transcript}<__codec:ref_text_end__>
+    //    <__codec:ref_speech_start__><|a_N|>...<__codec:ref_speech_end__>]
+    //   [{emo: 1}]<|text_start|>{text}[<final_seg>]<|speech_start|>
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         if (!vocab.valid()) return fail("KittenTTS needs the backbone vocabulary");
         const kitten_config & c = cfg_;
-        codes_.clear();
-        stop_reason_ = "max_frames";
-        cfg_run_ = c;
-
-        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+        const codec_speaker * spk = req.voice;
         int64_t ne[4] = {0};
         codec_speaker_slot_type ty;
         const void * data = nullptr;
@@ -94,61 +95,90 @@ public:
             return fail("KittenTTS speaker has no lm_cond row");
         }
         const int32_t n_embd = (int32_t) ne[0];
-        const auto * lm_cond = static_cast<const float *>(data);
-
-        // In-context reference: [START] <ref_text_start> transcript <ref_text_end>
-        // <ref_speech_start> audio <ref_speech_end>.  Needs the transcript;
-        // without it only the speaker embedding identifies the voice (prompt.py).
-        std::vector<int32_t> toks;   // after position 0 ([START] -> lm_cond row)
+        std::string prompt = CODEC_AUDIO_LM_MARKER_VOICE;
+        // In-context reference: needs the transcript; without it only the
+        // speaker embedding identifies the voice (prompt.py).
         const char * ref_text = codec_speaker_ref_text(spk);
         if (c.use_reference_prompt && ref_text != nullptr &&
             codec_speaker_get_slot(spk, "ref_tokens", &ty, ne, &data) && ty == CODEC_SPEAKER_SLOT_I32) {
             const auto * rt = static_cast<const int32_t *>(data);
-            const auto text_ids = vocab.tokenize(strip_copy(ref_text), false, false);
-            toks.push_back(c.ref_text_start);
-            toks.insert(toks.end(), text_ids.begin(), text_ids.end());
-            toks.push_back(c.ref_text_end);
-            toks.push_back(c.ref_speech_start);
-            for (int64_t i = 0; i < ne[0]; ++i) toks.push_back(c.audio_base + rt[i]);
-            toks.push_back(c.ref_speech_end);
-        } else {
-            codec_log(CODEC_LOG_LEVEL_INFO, "kitten: no reference transcript/tokens — speaker embedding only\n");
+            prompt += alm_codec_marker("ref_text_start") + strip_copy(ref_text) + alm_codec_marker("ref_text_end") +
+                      alm_codec_marker("ref_speech_start");
+            for (int64_t i = 0; i < ne[0]; ++i) prompt += vocab.piece(c.audio_base + rt[i]);
+            prompt += alm_codec_marker("ref_speech_end");
         }
-        const std::string spoken = kitten_prepare_text(req.text);
-        if (strip_copy(spoken).empty()) return fail("no text to speak");
+        const std::string spoken = strip_copy(kitten_prepare_text(req.text));
+        if (spoken.empty() && req.text_known) return fail("no text to speak");
         // A segment of the last split takes the whole text's settings; any
         // other text stands alone.
         const bool of_split = std::find(segments_.begin(), segments_.end(), req.text) != segments_.end();
-        const int32_t n_segments = of_split ? n_segments_ : 1;
-        if (of_split ? full_has_tag_ : kitten_has_expression_tag(req.text)) {
-            const auto emo = vocab.tokenize(c.emotion_control, false, false);
-            toks.insert(toks.end(), emo.begin(), emo.end());
-        }
-        toks.push_back(c.text_start);
-        const auto text_ids = vocab.tokenize(strip_copy(spoken), false, false);
-        toks.insert(toks.end(), text_ids.begin(), text_ids.end());
-        if (c.final_seg) toks.push_back(c.final_seg);
-        toks.push_back(c.speech_start);
-
-        // Per-chunk budget sized from the chunk's length (model.py::_chunk_budget).
-        int32_t budget = c.max_new_tokens;
-        if (n_segments > 1) {
-            const int32_t expected = (int32_t) ((double) strip_copy(spoken).size() / 20.0 * 25.0 * 1.8);
-            budget = std::max(200, std::min(c.max_new_tokens, expected));
-        }
-        codec_log(CODEC_LOG_LEVEL_INFO, "kitten: voice=%s\n", codec_speaker_name(spk));
-
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_TOKENS;
-        out->n_embd = n_embd;
-        out->seqs   = {{alm_chunk::of_embd(std::vector<float>(lm_cond, lm_cond + n_embd), 1),
-                        alm_chunk::of_tokens(std::move(toks))}};
+        if (of_split ? full_has_tag_ : kitten_has_expression_tag(req.text)) prompt += c.emotion_control;
+        prompt += vocab.piece(c.text_start) + spoken;
+        if (c.final_seg) prompt += vocab.piece(c.final_seg);
+        prompt += vocab.piece(c.speech_start);
+        out->prompt = std::move(prompt);
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_TOKENS;
+        d.n_embd = n_embd;
         // The penalties should never touch the end and silence tokens (logits.py).
-        out->penalty_exempt = {c.speech_end, c.stop, c.audio_base + c.silence};
+        d.penalty_exempt = {c.speech_end, c.stop, c.audio_base + c.silence};
         // Speech is audio tokens until <speech_end> / [STOP]: keep a quantized
         // backbone from drifting into the Qwen3 text vocabulary.
-        out->allowed = {{c.audio_base, c.audio_base + c.n_audio}, {c.speech_end, c.speech_end + 1}, {c.stop, c.stop + 1}};
-        out->max_frames = budget;
+        d.allowed = {{c.audio_base, c.audio_base + c.n_audio}, {c.speech_end, c.speech_end + 1}, {c.stop, c.stop + 1}};
+        d.max_frames = budget(spoken);
+        return true;
+    }
+
+    // Per-chunk budget sized from the chunk's length (model.py::_chunk_budget)
+    // when the text is one segment of the last split.
+    int32_t budget(const std::string & spoken) const {
+        bool of_split = false;
+        for (const std::string & s : segments_) of_split = of_split || strip_copy(kitten_prepare_text(s)) == spoken;
+        if (!of_split || n_segments_ <= 1) return cfg_.max_new_tokens;
+        const int32_t expected = (int32_t) ((double) spoken.size() / 20.0 * 25.0 * 1.8);
+        return std::max(200, std::min(cfg_.max_new_tokens, expected));
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        const kitten_config & c = cfg_;
+        codes_.clear();
+        stop_reason_ = "max_frames";
+        cfg_run_ = c;
+        const codec_speaker * spk = req.voice;
+        int64_t ne[4] = {0};
+        codec_speaker_slot_type ty;
+        const void * data = nullptr;
+        if (!prompt.voice()) return fail("KittenTTS's prompt starts with <__voice__>");
+        if (spk == nullptr || !codec_speaker_get_slot(spk, "lm_cond", &ty, ne, &data) || ty != CODEC_SPEAKER_SLOT_F32) {
+            return fail("KittenTTS speaker has no lm_cond row");
+        }
+        const auto * lm_cond = static_cast<const float *>(data);
+        const std::pair<const char *, int32_t> rows[] = {{"ref_text_start", c.ref_text_start}, {"ref_text_end", c.ref_text_end},
+                                                         {"ref_speech_start", c.ref_speech_start}, {"ref_speech_end", c.ref_speech_end}};
+        std::vector<int32_t> toks;   // after position 0
+        std::string last_text;
+        while (!prompt.done()) {
+            const std::string t = prompt.text();
+            if (!t.empty()) {
+                last_text = t;
+                const auto ids = vocab.tokenize(t, false, true);
+                toks.insert(toks.end(), ids.begin(), ids.end());
+                continue;
+            }
+            bool known = false;
+            for (const auto & r : rows) {
+                if (prompt.codec(r.first)) { toks.push_back(r.second); known = true; break; }
+            }
+            if (!known) break;   // the caller reports the unexpected marker
+        }
+        // The spoken text: between <|text_start|> and <final_seg> / <|speech_start|>.
+        const std::string ts = vocab.piece(c.text_start), te = vocab.piece(c.final_seg ? c.final_seg : c.speech_start);
+        const size_t a = last_text.rfind(ts);
+        const size_t e = a == std::string::npos ? std::string::npos : last_text.find(te, a + ts.size());
+        out->max_frames = budget(e == std::string::npos ? "" : last_text.substr(a + ts.size(), e - a - ts.size()));
+        codec_log(CODEC_LOG_LEVEL_INFO, "kitten: voice=%s\n", codec_speaker_name(spk));
+        out->seqs = {{alm_chunk::of_embd(std::vector<float>(lm_cond, lm_cond + out->n_embd), 1),
+                      alm_chunk::of_tokens(std::move(toks))}};
         return true;
     }
 
@@ -158,11 +188,11 @@ public:
         if (t == cfg_run_.speech_end || t == cfg_run_.stop) {
             stop_reason_ = "eos";
             codec_log(CODEC_LOG_LEVEL_INFO, "KittenTTS AR done: %zu frames, stop=eos\n", codes_.size());
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1};
             return true;
         }
         codes_.push_back(t - cfg_run_.audio_base);
-        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, true, true, -1};
         return true;
     }
 

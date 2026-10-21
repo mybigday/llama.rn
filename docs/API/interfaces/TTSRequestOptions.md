@@ -23,4 +23,4 @@ Shortest generation, in audio frames, before the end token may end it (in the gr
 
 #### Defined in
 
-[tts.ts:93](https://github.com/mybigday/llama.rn/blob/e7ab17bd/src/tts.ts#L93)
+[tts.ts:93](https://github.com/mybigday/llama.rn/blob/83447e50/src/tts.ts#L93)

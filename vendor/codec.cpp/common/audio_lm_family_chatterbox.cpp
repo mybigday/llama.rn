@@ -35,30 +35,67 @@ public:
         return true;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt: <__voice__>{text} (<__voice__>: T3's conditioning rows, the
+    // speaker's or the GGUF's builtin conds; the text normalized: punc_norm,
+    // and for T3's own tokenizer ' ' spelt as its [SPACE] token).  The
+    // guidance pair's second sequence is the same prompt with the text rows zeroed.
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
+        const bool turbo = ci_->is_turbo != 0;
+        if (turbo && !vocab.valid()) return fail("Chatterbox Turbo needs the backbone vocabulary");
+        std::vector<char> normed(req.text.size() * 2 + 64);
+        if (codec_lm_chatterbox_normalize_text(lm_, req.text.c_str(), normed.data(), (int32_t) normed.size()) !=
+            CODEC_STATUS_SUCCESS) {
+            return fail(std::string("text normalization: ") + codec_lm_get_last_error(lm_));
+        }
+        std::string text = normed.data();
+        if (!turbo) {
+            std::string spaced;
+            for (char ch : text) spaced += ch == ' ' ? std::string("[SPACE]") : std::string(1, ch);
+            text = spaced;
+        }
+        out->prompt = CODEC_AUDIO_LM_MARKER_VOICE + text;
+        out->n_seq  = guidance(req) > 0.0f ? 2 : 1;
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
+        d.n_embd = audio_lm_hidden_dim(alm_);
+        // The host samples the speech head (one group).  T3's penalty history
+        // starts with the start-of-speech token (sample_t3); Turbo's covers the
+        // generated tokens only.
+        d.head_groups = {alm_head_group{true, turbo ? std::vector<int32_t>{} : std::vector<int32_t>{ci_->start_speech_token}, {}}};
+        d.needs_embeddings = true;
+        d.sample_first     = false;
+        d.max_frames       = 512;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
         const bool turbo = ci_->is_turbo != 0;
         hidden_ = audio_lm_hidden_dim(alm_);
         codes_.clear();
         frames_ = 0;
         stop_reason_ = "max_frames";
-        // Guidance of the T3 pair: the request's, else the GGUF's.  Turbo has none.
-        cfg_ = turbo ? 0.0f : (req.lm_guidance >= 0.0f ? req.lm_guidance : (ci_->cfg_weight >= 0.0f ? ci_->cfg_weight : 0.5f));
+        cfg_ = guidance(req);
+        if (!prompt.voice()) return fail("Chatterbox's prompt starts with <__voice__>");
+        std::string text;
+        if (!prompt.rest_text(&text)) return fail("Chatterbox's prompt takes <__voice__> only at its start");
 
+        // The backbone's vocab tokenizes: Turbo's GPT-2 BPE, or T3's own
+        // tokenizer in a backbone converted with it (tokenizer.ggml.pre = chatterbox).
         std::vector<int32_t> text_ids;
-        if (ci_->backbone_tokenizer) {
-            // Turbo: punc_norm on the codec side, then the backbone's GPT-2 BPE
-            // (paralinguistic tags such as "[laugh]" are added tokens).
-            if (!vocab.valid()) return fail("Chatterbox Turbo needs the backbone vocabulary");
-            std::vector<char> normed(req.text.size() * 2 + 64);
-            if (codec_lm_chatterbox_normalize_text(lm_, req.text.c_str(), normed.data(), (int32_t) normed.size()) !=
-                CODEC_STATUS_SUCCESS) {
-                return fail(std::string("text normalization: ") + codec_lm_get_last_error(lm_));
+        if (vocab.valid()) text_ids = vocab.tokenize(text, false, true);   // nothing from a backbone without a vocab
+        if (text_ids.empty() && turbo) return fail("Chatterbox Turbo needs the backbone vocabulary");
+        if (text_ids.empty()) {
+            // Deprecated: a backbone GGUF without T3's vocab (converted before it
+            // carried one) falls back to the codec GGUF's copy of the tokenizer.
+            static bool warned = false;
+            if (!warned) {
+                codec_log(CODEC_LOG_LEVEL_WARN, "chatterbox: this backbone GGUF has no text vocabulary; tokenizing in "
+                                                "codec.cpp (deprecated: reconvert / redownload the backbone)\n");
+                warned = true;
             }
-            text_ids = vocab.tokenize(normed.data(), false, true);
-        } else {
-            text_ids.resize(req.text.size() + 64);
+            text_ids.resize(text.size() + 64);
             int32_t n = 0;
-            if (codec_lm_chatterbox_tokenize(lm_, req.text.c_str(), text_ids.data(), (int32_t) text_ids.size(), &n) !=
+            if (codec_lm_chatterbox_tokenize(lm_, text.c_str(), text_ids.data(), (int32_t) text_ids.size(), &n) !=
                 CODEC_STATUS_SUCCESS) {
                 return fail(std::string("tokenize: ") + codec_lm_get_last_error(lm_));
             }
@@ -72,7 +109,7 @@ public:
         const float * t3_emb = nullptr;
         const int32_t * t3_tok = nullptr;
         int32_t n_t3_emb = 0, n_t3_tok = 0;
-        if (const codec_speaker * spk = audio_lm_decode_speaker(alm_)) {
+        if (const codec_speaker * spk = req.voice) {
             codec_speaker_slot_type ty_e, ty_t;
             int64_t ne_e[4], ne_t[4];
             const void * d_e = nullptr, * d_t = nullptr;
@@ -98,21 +135,17 @@ public:
         codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox: prompt seq_len=%d n_seq=%d (%d rows total)\n", seq_len, n_seq, seq_len * n_seq);
         n_seq_ = n_seq;
 
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
-        out->n_embd = hidden_;
         for (int32_t s = 0; s < n_seq; ++s) {
             const float * b = rows.data() + (size_t) s * seq_len * hidden_;
             out->seqs.push_back({alm_chunk::of_embd(std::vector<float>(b, b + (size_t) seq_len * hidden_), seq_len)});
         }
-        // The host samples the speech head (one group).  T3's penalty history
-        // starts with the start-of-speech token (sample_t3); Turbo's covers the
-        // generated tokens only.
-        out->head_groups = {alm_head_group{true, turbo ? std::vector<int32_t>{} : std::vector<int32_t>{ci_->start_speech_token}, {}}};
-        out->needs_embeddings = true;
-        out->sample_first     = false;
-        out->max_frames       = 512;
         return true;
+    }
+
+    // Guidance of the T3 pair: the request's, else the GGUF's.  Turbo has none.
+    float guidance(const alm_tts_request & req) const {
+        if (ci_->is_turbo) return 0.0f;
+        return req.lm_guidance >= 0.0f ? req.lm_guidance : (ci_->cfg_weight >= 0.0f ? ci_->cfg_weight : 0.5f);
     }
 
     bool observe(const int32_t *, const float * hiddens, codec_audio_lm_verdict * v) override {
@@ -126,7 +159,7 @@ public:
         for (int32_t i = 0; i < n; ++i) {
             logits_[(size_t) i] = n_seq_ == 2 ? cond[(size_t) i] + cfg_ * (cond[(size_t) i] - uncond[(size_t) i]) : cond[(size_t) i];
         }
-        *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, 0, n};
+        *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, 0, n};
         return true;
     }
 
@@ -138,7 +171,7 @@ public:
             stop_reason_ = "eos_code_c0";
             codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox AR done: %d frames, %zu speech codes, stop=eos_code_c0\n", frames_,
                       codes_.size());
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1, 0, 0};
             return true;
         }
         if (code < ci_->start_speech_token) codes_.push_back(code);
@@ -147,7 +180,7 @@ public:
         if (codec_lm_chatterbox_compose_speech_embd(lm_, code, frames_, next_.data(), hidden_) != CODEC_STATUS_SUCCESS) {
             return fail(std::string("speech embedding: ") + codec_lm_get_last_error(lm_));
         }
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1, 0, 0};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, true, -1, 0, 0};
         return true;
     }
 

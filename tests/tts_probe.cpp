@@ -290,6 +290,9 @@ int main(int argc, char ** argv) {
                         formatted.completion_params.dump().substr(0, 400).c_str());
             ctx.completion->rewind();
             apply_completion_params(ctx, formatted.completion_params, formatted.logit_bias);
+            // The completion's voice, as JSIParams sets it.
+            ctx.tts_wrapper->pending_speaker_id = speaker_id;
+            ctx.tts_wrapper->pending_voice = voice;
             ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");
@@ -297,13 +300,15 @@ int main(int argc, char ** argv) {
             }
             ctx.completion->beginCompletion();
             const auto t3 = std::chrono::steady_clock::now();
-            ctx.completion->loadPrompt({});
+            ctx.tts_wrapper->loadPrompt(&ctx);
             while (ctx.completion->has_next_token) (void) ctx.completion->doCompletion();
             ctx.completion->endCompletion();
             const auto t4 = std::chrono::steady_clock::now();
+            // As the JSI completion result does.
+            ctx.tts_wrapper->collectGeneration();
             g->tokens = ctx.tts_wrapper->audio_tokens;
-            g->latents = ctx.completion->embeddings;
-            g->latent_dim = ctx.completion->embedding_dim;
+            g->latents = ctx.tts_wrapper->audio_latents;
+            g->latent_dim = ctx.tts_wrapper->audio_latent_dim;
             std::printf("\n[probe] === GENERATION ===\n");
             std::printf("  frames                : %d\n", ctx.tts_wrapper->n_frames);
             std::printf("  decoder input         : %s (%zu values)\n", g->latents.empty() ? "codes" : "latents",

@@ -168,17 +168,23 @@ namespace rnllama_jsi {
         res["stopping_word"] = c.stopping_word;
         res["tokens_cached"] = c.n_past;
 
-        if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
-            const auto * tts = ctx->tts_wrapper;
+        // A text-to-speech completion (a step hook): its decoder input, codec
+        // codes or latents (as the embeddings), and why it ended.
+        if (c.step_hook != nullptr && ctx->isVocoderEnabled()) {
+            auto * tts = ctx->tts_wrapper;
+            tts->collectGeneration();
             result.audio_tokens = tts->audio_tokens;
-            if (!tts->audio_tokens.empty() || !tts->audio_latents.empty()) {
-                // codec.cpp's frame count and why the generation ended.
-                res["audio_frames"] = tts->n_frames;
-                res["audio_stop_reason"] = tts->stop_reason;
-            }
             if (!tts->audio_tokens.empty()) res["audio_tokens_width"] = tts->getCodeWidth();
-        }
-        if (!c.embeddings.empty()) {
+            if (!tts->audio_latents.empty()) {
+                result.embeddings = tts->audio_latents;
+                res["embedding_dim"] = tts->audio_latent_dim;
+            }
+            res["audio_frames"] = tts->n_frames;
+            res["audio_stop_reason"] = !tts->stop_reason.empty() ? tts->stop_reason
+                : c.context_full ? "context_full"
+                : c.is_interrupted ? "interrupted"
+                : "n_predict";
+        } else if (!c.embeddings.empty()) {
             result.embeddings = c.embeddings;
             res["embedding_dim"] = c.embedding_dim;
         }

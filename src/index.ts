@@ -914,18 +914,22 @@ export class LlamaContext {
   }
 
   async completion(
-    params: CompletionParams & { speaker?: LlamaSpeaker },
+    // `speaker` (with a vocoder): the voice that fills the prompt's voice
+    // markers — a LlamaSpeaker or a builtin voice name; the model's default
+    // when omitted.
+    params: CompletionParams & { speaker?: string | LlamaSpeaker },
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
+    const { speaker, ...rest } = params
     const nativeParams: NativeCompletionRequestParams & {
       speakerId?: number
+      voice?: string
     } = {
-      ...params,
+      ...rest,
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
-      ...(params.speaker !== undefined
-        ? { speakerId: params.speaker.id }
-        : {}),
+      ...(speaker instanceof LlamaSpeaker ? { speakerId: speaker.id } : {}),
+      ...(typeof speaker === 'string' ? { voice: speaker } : {}),
     }
 
     if (params.messages) {
@@ -1238,7 +1242,10 @@ export class LlamaContext {
    *
    * - `prompt` — text to speak. Phonemized if `phonemizer` is supplied.
    * - `speaker` — a builtin voice name of the codec (`builtinVoices`), a
-   *   `LlamaSpeaker`, or `undefined` for the model's default voice.
+   *   `LlamaSpeaker`, or `undefined` for the model's default voice. A voice
+   *   written as text (OuteTTS / NeuTTS references) goes into the prompt;
+   *   an embedding voice becomes a `<__voice__>` marker, filled by the
+   *   `speaker` given to `completion()` — pass the same one there.
    * - `phonemizer` — optional `(text, language) => string | Promise<string>`,
    *   for models with `requiresPhonemes`.
    * - `language` — phonemizer hint; defaults to capabilities.defaultLanguage.

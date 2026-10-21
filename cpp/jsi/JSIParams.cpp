@@ -657,10 +657,11 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 #endif
         }
 
-        // TTS speaker id from the completion options: a registry speaker that
-        // overrides the one getFormattedAudioCompletion armed (-1 = none).
+        // TTS voice from the completion options: a registry speaker id (-1 =
+        // none) or a builtin voice name; it fills the prompt's voice markers.
         if (ctx->tts_wrapper != nullptr) {
             ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(params, "speakerId", -1);
+            ctx->tts_wrapper->pending_voice = getPropertyAsString(params, "voice");
         }
     }
 }

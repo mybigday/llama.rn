@@ -25,8 +25,10 @@ extern "C" {
 //   voice = codec_audio_lm_get_voice / create_voice / load_voice   // NULL = default
 //   n = codec_audio_lm_tts_split(ctx, text, 0)                 // optional segmentation
 //   for each segment i (codec_audio_lm_tts_segment(ctx, i)):
-//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, seed}, &vocab)
-//       codec_audio_lm_get_completion(ctx, &c)
+//       req = {segment_text, voice, instruct}
+//       codec_audio_lm_tts_format(ctx, &req, &vocab, &f)      // the prompt as text (+ constraints)
+//       codec_audio_lm_tts_build(ctx, &req, f.prompt, &vocab, &c)   // its chunks (MTMD-style)
+//       codec_audio_lm_set_seed(ctx, seed)                    // the model's own noise
 //       if c.flow == SELF_CONTAINED: codec_audio_lm_generate_self_contained(ctx)
 //       else:
 //           build the host's llama.cpp sampler (+ c.grammar / c.allowed / c.penalty_exempt)
@@ -45,8 +47,8 @@ extern "C" {
 // Everything model-specific (prompt formats, conditioning, codec heads,
 // their sampling, stop rules) lives behind these calls; the API carries no
 // model names.  Text-to-speech is the first prompt builder
-// (codec_audio_lm_tts_prompt); other tasks (audio-to-audio) add their own
-// builders that produce the same completion description.
+// (codec_audio_lm_tts_format / tts_build); other tasks (audio-to-audio) add
+// their own builders that produce the same completion description.
 //
 // Strings / arrays returned by the library are owned by the context and
 // stay valid until the next call that refills them (or free).
@@ -173,7 +175,7 @@ bool codec_audio_lm_backbone_requirements(struct codec_audio_lm * ctx, const str
 // llama.cpp's sampler and its settings (the backbone GGUF's general.sampling.*
 // recommends them).  codec_audio_lm only suggests constraints (grammar,
 // allowed ranges, penalty_exempt, head groups) and masks a head's logits.
-#define CODEC_AUDIO_LM_DEFAULT_SEED 0xFFFFFFFFu   // random
+#define CODEC_AUDIO_LM_DEFAULT_SEED 0xFFFFFFFFu   // random (also llama.cpp's LLAMA_DEFAULT_SEED)
 
 struct codec_audio_lm_tts_request {
     const char * text;          // required: one text (one segment)
@@ -181,9 +183,6 @@ struct codec_audio_lm_tts_request {
     // the generation is decoded (decode / stream_finish) or the next prompt.
     const struct codec_speaker * voice;
     const char * instruct;      // instruction text, for models that take it (may be NULL)
-    // Seed of the model's own randomness (flow / CFM init noise; not token
-    // sampling); CODEC_AUDIO_LM_DEFAULT_SEED = random.
-    uint32_t     seed;
     // Generation length: at least min_frames audio frames before the model's
     // end (< 0: the model's own minimum), at most max_frames (<= 0: the
     // model's default).
@@ -197,10 +196,12 @@ struct codec_audio_lm_tts_request {
 
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void);
 
-// Prompt for one request.  `vocab` may be NULL for self-contained models.
-// Resets the per-generation state.
-bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
-                               const struct codec_audio_lm_vocab * vocab);
+// Seed of the model's own randomness in the prepared generation: the init
+// noise of a codec-side flow / CFM head (Pocket-TTS, BlueMagpie), not token
+// sampling.  Call after tts_build, before the first prefill / observe (or
+// generate_self_contained); not called (or CODEC_AUDIO_LM_DEFAULT_SEED) = random.
+// Hosts pass the seed the user gave the completion.
+bool codec_audio_lm_set_seed(struct codec_audio_lm * ctx, uint32_t seed);
 
 // ── TTS segmentation ─────────────────────────────────────────────────
 // Splits long text into segments generated one by one, at sentence and
@@ -278,14 +279,66 @@ struct codec_audio_lm_completion {
     bool    sample_first;                  // the first step samples a backbone token
     bool    streamable;                    // stream_poll works during this generation (else
                                            // only the whole generation decodes)
-    int32_t max_frames;                    // audio frames to stop after (verdicts with is_audio)
+    int32_t max_frames;                    // audio frames to stop after (verdicts with frame_done)
     // Codec-side head groups (n_head_groups = 0: no SAMPLE_HEAD verdicts).
     const struct codec_audio_lm_head_group * head_groups;
     int32_t n_head_groups;
 };
 
-// The completion for the prepared prompt.
+// The completion for the built prompt.
 bool codec_audio_lm_get_completion(struct codec_audio_lm * ctx, struct codec_audio_lm_completion * out);
+
+// ── Text to speech: the prompt ───────────────────────────────────────
+
+// The prompt is text, as llama.cpp's MTMD has it: the model's template with
+// the request filled in (roles, instruction, the normalized text, text-form
+// voices such as reference tokens written as their vocab pieces), tokenized by
+// the backbone vocab with parse_special, and markers where the backbone takes
+// input the vocab cannot spell:
+//   <__voice__>         the voice's embedding-form conditioning (x-vector,
+//                       reference frames, speaker conditioning); a model may
+//                       take it at more than one place
+//   <__codec:NAME__>    a model row (an embedding row or a token without a
+//                       piece), or <__codec:text__>: the text to speak starts
+//                       here (models that tokenize it apart from what precedes)
+// docs/codec_common_api.md lists each model's prompt.
+#define CODEC_AUDIO_LM_MARKER_VOICE "<__voice__>"
+
+// What codec_audio_lm_tts_format returns: the prompt and what the host's
+// completion needs before the prompt is built (the same values the
+// completion of tts_build carries).
+struct codec_audio_lm_format {
+    const char * prompt;
+    enum codec_audio_lm_flow flow;
+    int32_t n_seq;                         // backbone sequences (2: guidance pair)
+    const char * grammar;                  // GBNF for the backbone's tokens ("" = none)
+    const int32_t * penalty_exempt;
+    int32_t n_penalty_exempt;
+    const struct codec_audio_lm_token_range * allowed;
+    int32_t n_allowed;
+    bool    needs_embeddings;
+    bool    needs_prompt_hidden;
+    bool    sample_first;
+    bool    streamable;
+    int32_t max_frames;
+};
+
+// Format one request (text in, text out; no generation state).  `vocab` may
+// be NULL for self-contained models.  The result is valid until the next
+// format.
+bool codec_audio_lm_tts_format(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
+                               const struct codec_audio_lm_vocab * vocab, struct codec_audio_lm_format * out);
+
+// Build a formatted prompt (format's, or the host's edit of it) for `req`, the
+// request it was formatted from: its chunks, sampling plan and the generation
+// state.  Everything the generation needs comes from the prompt, the voice and
+// the decoder settings; req->text / instruct may be NULL (a host that kept only
+// the prompt), and then the completion leaves out the constraints that depend
+// on the text (the format's grammar; take that one from the format).  Resets the per-generation state: a context holds one built prompt.
+// `out` is what codec_audio_lm_get_completion returns.
+bool codec_audio_lm_tts_build(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
+                              const char * prompt, const struct codec_audio_lm_vocab * vocab,
+                              struct codec_audio_lm_completion * out);
 
 // Every prompt position's hidden state of sequence 0, row-major
 // [n_pos x n_embd] (only when needs_prompt_hidden).
@@ -305,7 +358,10 @@ enum codec_audio_lm_action {
 struct codec_audio_lm_verdict {
     enum codec_audio_lm_action action;
     bool sample_backbone;              // sample a backbone token before the next observe
-    bool is_audio;                     // this step produced audio (for progress / streaming)
+    bool is_audio;                     // this step's token belongs to the audio (codes, and the markup
+                                       // between the model's audio start and end); the host emits the
+                                       // fed-back tokens of the other steps as text
+    bool frame_done;                   // this step completed an audio frame (progress / max_frames / streaming)
     int32_t token;                     // FEED_TOKEN: the token to decode when the model picked it
                                        // itself (-1 = the token the host sampled)
     int32_t head_group;                // SAMPLE_HEAD: the group to sample with
@@ -367,7 +423,7 @@ bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct 
                                       const struct codec_speaker * voice, struct codec_pcm_buffer * out);
 
 // Streaming.  Call codec_audio_lm_stream_poll after every observe whose
-// verdict has is_audio; it returns (in `out`, possibly empty) the audio that
+// verdict has frame_done; it returns (in `out`, possibly empty) the audio that
 // became final since the last call, at most every `chunk_ms` of new audio.
 // It re-decodes the generation from its first frame (causal decoders need the
 // whole left context), holds back the right edge the decoder may still

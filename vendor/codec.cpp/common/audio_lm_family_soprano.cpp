@@ -22,12 +22,9 @@ public:
         out->sample_rate = 32000;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
-        const std::string & text = req.text;
+    // Prompt: [STOP][TEXT]{text}[START]
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         if (!vocab.valid()) return fail("Soprano needs the backbone vocabulary");
-        hiddens_.clear();
-        n_embd_ = 0;
-        stop_reason_ = "max_frames";
         // The speech tokens are the contiguous pieces "[0]".."[N-1]"; the rest
         // of the vocab is the text BPE.
         int32_t off = -1, count = 0;
@@ -37,17 +34,27 @@ public:
             else if (off >= 0) break;
         }
         if (off < 0) return fail("Soprano: no [N] speech tokens in the backbone vocab");
-        eos_ = vocab.eos();
+        const int32_t eos = vocab.eos();
+        out->prompt = "[STOP][TEXT]" + req.text + "[START]";
+        alm_completion & d = out->desc;
+        d.flow = CODEC_AUDIO_LM_FLOW_HIDDEN;
+        d.allowed = {{off, off + count}};
+        if (eos >= 0) d.allowed.push_back({eos, eos + 1});
+        d.needs_embeddings = true;
+        d.sample_first = true;
+        d.max_frames = 512;
+        if (req.min_frames > 0) d.grammar = alm_min_length_grammar(eos, req.min_frames);
+        return true;
+    }
 
-        *out = alm_completion();
-        out->flow = CODEC_AUDIO_LM_FLOW_HIDDEN;
-        out->seqs = {{alm_chunk::of_text("[STOP][TEXT]" + text + "[START]", false, true)}};
-        out->allowed = {{off, off + count}};
-        if (eos_ >= 0) out->allowed.push_back({eos_, eos_ + 1});
-        out->needs_embeddings = true;
-        out->sample_first = true;
-        out->max_frames = 512;
-        if (req.min_frames > 0) out->grammar = alm_min_length_grammar(eos_, req.min_frames);
+    bool tts_build(const alm_tts_request &, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        std::string text;
+        if (!prompt.rest_text(&text)) return fail("Soprano's prompt takes no markers");
+        hiddens_.clear();
+        n_embd_ = 0;
+        stop_reason_ = "max_frames";
+        eos_ = vocab.eos();
+        out->seqs = {{alm_chunk::of_tokens(vocab.tokenize(text, false, true))}};
         return true;
     }
 
@@ -59,11 +66,11 @@ public:
             stop_reason_ = "eos";
             codec_log(CODEC_LOG_LEVEL_INFO, "soprano AR done: %zu frames, stop=eos\n",
                       hiddens_.size() / (size_t) n_embd_);
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1};
             return true;
         }
         hiddens_.insert(hiddens_.end(), hiddens, hiddens + n_embd_);
-        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, true, true, -1};
         return true;
     }
 

@@ -210,12 +210,12 @@ export const MODELS = {
   CHATTERBOX_MULTILINGUAL: {
     name: 'Chatterbox Multilingual T3 (Q4_K_M) + S3G + codec_lm (Q4_K_M)',
     repo: 'BricksDisplay/Chatterbox-Multilingual-TTS-GGUF',
-    filename: 'chatterbox-mtl-t3-q4_k_m.gguf',
+    filename: 'chatterbox-mtl-q4_k_m.gguf',
     mmproj: undefined,
     size: '289MB (T3) + 178MB (codec+codec_lm)',
     vocoder: {
       repo: 'BricksDisplay/Chatterbox-Multilingual-TTS-GGUF',
-      filename: 'chatterbox-mtl-codec-q4_k_m.gguf',
+      filename: 'codec-q4_k_m.gguf',
       size: '178MB',
     },
   },

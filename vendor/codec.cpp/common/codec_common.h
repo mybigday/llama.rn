@@ -177,6 +177,8 @@ bool            audio_lm_save_speaker      (audio_lm_context * ctx, const codec_
 // The voice the generation uses (the model default when none was set;
 // NULL when the codec has none), e.g. to read model-specific slots.
 const codec_speaker * audio_lm_decode_speaker(const audio_lm_context * ctx);
+// `spk`, else the model's default voice (may be NULL); sets nothing.
+const codec_speaker * audio_lm_resolve_speaker(const audio_lm_context * ctx, const codec_speaker * spk);
 
 struct audio_lm_speaker_entry {
     std::string name;

@@ -1,0 +1,20 @@
+TTS backbone tokenizers, ported from codec.cpp's llama.cpp patches:
+- soprano (patches/soprano-llamacpp.patch): lowercase + whitespace collapse,
+  per-digit split, raw UTF-8 BPE with [UNK] fallback, [STOP] as eos
+  (BricksDisplay/Soprano-1.1-80M-GGUF since 2026-10-20).
+- chatterbox (patches/chatterbox-tokenizer-llamacpp.patch): Chatterbox T3's
+  text BPE behind HF's Whitespace pre-tokenizer
+  (BricksDisplay/Chatterbox-Multilingual-TTS-GGUF since 2026-10-21).
+- UGM byte fallback (patches/ugm-byte-fallback-llamacpp.patch): Pocket-TTS's
+  SentencePiece vocab.
+--- a/src/llama-vocab.h
++++ b/src/llama-vocab.h
+@@ -70,6 +70,8 @@
+     LLAMA_VOCAB_PRE_TYPE_UFAKZEKA          = 59,
+     LLAMA_VOCAB_PRE_TYPE_MMBERT            = 60,
+     LLAMA_VOCAB_PRE_TYPE_K2_HORIZON        = 61,
++    LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 62,
++    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 63,
+ };
+ 
+ struct LLM_KV;

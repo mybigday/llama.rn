@@ -560,7 +560,8 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const genStartTime = Date.now()
 
       const result = await context.completion(
-        ttsCompletion,
+        // The voice fills the prompt's voice markers (embedding voices).
+        { ...ttsCompletion, speaker: resolvedSpeaker },
         (data) => {
           // Token-flow families (e.g. OuteTTS) stream one callback per audio
           // token; continuous-latent families (e.g. BlueMagpie) don't stream,

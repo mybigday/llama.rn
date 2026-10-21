@@ -15,8 +15,6 @@ struct codec_audio_lm;
 struct codec_audio_lm_generation;
 struct codec_audio_lm_completion;
 struct codec_speaker;
-struct common_sampler;
-struct common_params_sampling;
 
 namespace rnllama {
 
@@ -117,8 +115,10 @@ struct llama_rn_context_tts {
     int n_frames = 0;               // audio frames of the last generation
     std::string stop_reason;
 
-    // Speaker id from the completion params (JSIParams); -1 = none.
+    // The completion's voice (JSIParams): a registry speaker id (-1 = none) or
+    // a builtin voice name ("" = the model's default).
     int pending_speaker_id = -1;
+    std::string pending_voice;
 
     std::unordered_map<int, rn_speaker> speakers;
     int next_speaker_id = 1;
@@ -132,7 +132,7 @@ struct llama_rn_context_tts {
     ~llama_rn_context_tts();
 
     // Per-completion state (rewind): the speaker id and the last generation's
-    // data, which its completion result holds; the armed request survives.
+    // data, which its completion result holds.
     void reset();
 
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
@@ -150,35 +150,15 @@ struct llama_rn_context_tts {
                                                                  const std::string &text_to_speak, int speakerId = -1,
                                                                  const std::string &instruct = "",
                                                                  const json &options = json::object());
-    bool isArmed() const { return armed; }
-    const std::string & armedText() const { return armed_text; }
-
-    // ── Hooks of the completion (rn-completion.cpp) ──────────────────────
-    bool isGenerating() const { return generating; }
-    // Starts the armed request: decodes its prompt from position 0 and returns
-    // the KV position after it.  `prompt_tokens` receives the prompt's tokens
-    // (they count for the penalties).  Throws on failure.
-    int beginGeneration(llama_rn_context* main_ctx, std::vector<llama_token> &prompt_tokens);
-    // Whether this step samples a backbone token (else codec.cpp reads only
-    // the hidden state).
-    bool samplesBackbone() const { return sample_next; }
-    struct verdict {
-        bool stop = false;
-        bool audio = false;         // this step produced an audio frame
-        llama_token feed = -1;      // the token the backbone reads next; -1: an embedding row (decodeFeed)
-    };
-    // Reports one step: `sampled` is the token the completion sampled (-1
-    // when samplesBackbone() was false).  Throws on failure.
-    verdict observe(llama_rn_context* main_ctx, llama_token sampled);
-    // The last observe asked for embedding row(s) (decodeFeed).
-    bool hasFeed() const { return !feed_rows.empty(); }
-    // Decodes the embedding row(s) the last observe asked for at `n_past`.
-    // Returns false when none is pending.  Throws on failure.
-    bool decodeFeed(llama_rn_context* main_ctx, int n_past);
-    // Keeps the generation's decoder input and clears the KV cache (it holds
-    // embedding rows the completion's token history does not describe).
-    // Safe to call when not generating; never throws.
-    void endGeneration(llama_rn_context* main_ctx);
+    // Loads the completion's prompt (getFormattedAudioCompletion's, or the
+    // caller's edit of it) MTMD-style: codec.cpp builds its chunks, tokens and
+    // embedding rows, with the completion's voice (pending_speaker_id /
+    // pending_voice, else the model's default) filling the <__voice__>
+    // markers, and its step hook takes part in every step.  Throws on failure.
+    void loadPrompt(llama_rn_context* main_ctx);
+    // The last generation's decoder input into audio_tokens / audio_latents.
+    // Throws on failure.
+    void collectGeneration();
 
     // ── Speaker registry ─────────────────────────────────────────────────
     int createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
@@ -203,48 +183,18 @@ struct llama_rn_context_tts {
     int getCodeWidth() const { return code_width; }
 
 private:
-    struct armed_voice {
-        std::string voice;      // builtin voice name ("" = default)
-        int speaker_id = -1;    // registry speaker
-    };
-
-    // The codec voice for `v`; null for the model's default when it has none.
-    // Throws on an unknown voice.
-    rn_voice resolveVoice(const armed_voice &v);
-    // codec_audio_lm_tts_prompt + get_completion for the armed request.
-    void prompt(llama_rn_context* main_ctx, const rn_voice &voice, ::codec_audio_lm_completion &c);
+    // A registry speaker, else a builtin voice by name ("" = the default).
+    // Null for the model's default when it has none.  Throws on an unknown voice.
+    rn_voice resolveVoice(int speaker_id, const std::string &voice_name);
     std::vector<float> decodeGeneration(const codec_audio_lm_generation &gen, const char * what);
     int code_width = 0;             // codebooks per frame of this model's codes (0: none seen yet)
 
-    bool armed = false;
-    std::string armed_text;
-    std::string armed_instruct;
-    armed_voice armed_v;
-    json armed_options = json::object();
-    // The voice of the generation in progress, or of the last one (decode).
+    // The voice of the last completion, kept for decoding its generation later.
     rn_voice gen_voice;
 
-    // The generation in progress.
-    bool generating = false;
-    int32_t n_seq = 1;
-    int32_t n_embd = 0;
-    bool needs_hidden = false;
-    bool sample_next = false;
-    std::vector<float> feed_rows;   // n_seq embedding rows for the next decode
-
-    // A head group's llama.cpp common sampler (common_sampler_init_logits).
-    struct head_sampler {
-        std::unique_ptr<::common_params_sampling> params;
-        ::common_sampler * smpl = nullptr;
-        int32_t n_vocab = 0;
-        std::vector<llama_token> history;
-        explicit head_sampler(std::unique_ptr<::common_params_sampling> p);
-        head_sampler(head_sampler && o) noexcept;
-        head_sampler(const head_sampler &) = delete;
-        ~head_sampler();
-    };
-    std::vector<head_sampler> head_samplers;
-    llama_token sampleHead(int32_t group, const float * logits, int32_t n_vocab);
+    // codec.cpp's part in the completion's steps (rn-tts.cpp).
+    struct step_hook;
+    std::unique_ptr<step_hook> hook;
 };
 
 }

@@ -30,6 +30,7 @@ llama_rn_context_completion::~llama_rn_context_completion() {
         common_sampler_free(ctx_sampling);
         ctx_sampling = nullptr;
     }
+    for (auto * smpl : aux_sampling) common_sampler_free(smpl);
 }
 
 std::vector<completion_token_output::token_prob> get_token_probabilities(
@@ -110,7 +111,13 @@ void llama_rn_context_completion::rewind() {
     n_remain = 0;
     n_past = 0;
     parent_ctx->params.sampling.n_prev = parent_ctx->n_ctx;
-    tts_prefill_pending = false;
+    step_hook = nullptr;
+    for (auto * smpl : aux_sampling) common_sampler_free(smpl);
+    aux_sampling.clear();
+    aux_params.clear();
+    aux_history.clear();
+    pending_embd.clear();
+    pending_embd_width = 0;
     if (parent_ctx->isVocoderEnabled()) {
         parent_ctx->tts_wrapper->reset();
     }
@@ -443,26 +450,9 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
     if (!has_media) {
         std::vector<llama_token> text_tokens;
 
-        // Text-to-speech: the request getFormattedAudioCompletion armed brings
-        // codec.cpp's prompt (embedding rows among the tokens).  Leave embd
-        // empty; the TTS prefill block in nextToken() decodes it.
-        if (parent_ctx->isVocoderEnabled() && parent_ctx->tts_wrapper->isArmed()) {
-            if (parent_ctx->params.prompt != parent_ctx->tts_wrapper->armedText()) {
-                throw std::runtime_error("TTS: the completion prompt is not the one getFormattedAudioCompletion "
-                                         "armed; pass its completionParams.prompt");
-            }
-            clearStateCheckpoints();
-            embd.clear();
-            n_past = 0;
-            num_prompt_tokens = 0;
-            tts_prefill_pending = true;
-            has_next_token = true;
-            return;
-        }
-
         // Backbones with no text tokenizer (e.g. Chatterbox T3, tokenizer.ggml.model=none)
-        // must not call llama_tokenize — it asserts.  Leave embd empty and stop
-        // in nextToken(): such a backbone only runs text-to-speech.
+        // must not call llama_tokenize — it asserts.  Leave embd empty; the TTS prefill
+        // block in nextToken() will take over from n_past = -1 (normalized to 0).
         if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) {
             embd.clear();
             n_past = -1;
@@ -685,6 +675,122 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
                n_past, (size_t)embd.size(), num_prompt_tokens, has_media ? 1 : 0);
 }
 
+void llama_rn_context_completion::loadPrompt(const std::vector<completion_prompt_chunk> &chunks,
+                                             completion_step_hook *hook) {
+    llama_context * lctx = parent_ctx->ctx;
+    const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
+    const int32_t n_seq = hook ? std::max(1, hook->nSeq()) : 1;
+    const int32_t n_batch = std::max(1, parent_ctx->params.n_batch);
+    const bool want_hiddens = hook && hook->wantsPromptHiddens();
+    const int32_t hidden_dim = llama_model_n_embd(parent_ctx->model);
+    if ((int32_t) llama_n_seq_max(lctx) < n_seq) {
+        throw std::runtime_error("the prompt decodes " + std::to_string(n_seq) +
+                                 " sequences; create the context with n_parallel >= " + std::to_string(n_seq));
+    }
+    int32_t n_total = 0;
+    for (const auto & ch : chunks) n_total += ch.n;
+    if (n_total + 1 >= n_ctx) {
+        throw std::runtime_error("the prompt (" + std::to_string(n_total) + " positions) does not fit the context (" +
+                                 std::to_string(n_ctx) + ")");
+    }
+
+    // A chunk prompt starts from an empty context; embd marks its embedding
+    // rows LLAMA_TOKEN_NULL, which no later prompt's token matches.
+    clearStateCheckpoints();
+    llama_memory_clear(llama_get_memory(lctx), true);
+    embd.clear();
+    n_past = 0;
+    step_hook = hook;
+    std::vector<float> hiddens;
+    for (const auto & ch : chunks) {
+        if (ch.n <= 0) continue;
+        const bool is_embd = !ch.embd.empty();
+        for (int32_t at = 0; at < ch.n;) {
+            const int32_t m = std::min(std::max(1, n_batch / n_seq), ch.n - at);
+            llama_batch b = llama_batch_init(m * n_seq, is_embd ? ch.n_embd : 0, 1);
+            b.n_tokens = m * n_seq;
+            for (int32_t q = 0, i = 0; q < n_seq; ++q) {
+                for (int32_t r = 0; r < m; ++r, ++i) {
+                    if (is_embd) {
+                        std::memcpy(b.embd + (size_t) i * ch.n_embd,
+                                    ch.embd.data() + ((size_t) q * ch.n + at + r) * ch.n_embd,
+                                    (size_t) ch.n_embd * sizeof(float));
+                    } else {
+                        b.token[i] = ch.tokens[(size_t) q * ch.n + at + r];
+                    }
+                    b.pos[i] = n_past + r;
+                    b.n_seq_id[i] = 1;
+                    b.seq_id[i][0] = q;
+                    b.logits[i] = want_hiddens || (n_total == n_past + r + 1) ? 1 : 0;
+                }
+            }
+            const int rc = llama_decode(lctx, b);
+            llama_batch_free(b);
+            if (rc != 0) {
+                embd.resize(n_past);
+                throw std::runtime_error("failed to eval the prompt at " + std::to_string(n_past));
+            }
+            for (int32_t r = 0; r < m; ++r) {
+                const llama_token t = is_embd ? LLAMA_TOKEN_NULL : ch.tokens[(size_t) at + r];
+                embd.push_back(t);
+                if (t != LLAMA_TOKEN_NULL) common_sampler_accept(ctx_sampling, t, false);
+                if (want_hiddens) {
+                    const float * h = llama_get_embeddings_ith(lctx, r);
+                    if (h == nullptr) throw std::runtime_error("the context returned no prompt hidden state");
+                    hiddens.insert(hiddens.end(), h, h + hidden_dim);
+                }
+            }
+            n_past += m;
+            at += m;
+        }
+    }
+    num_prompt_tokens = (size_t) n_past;
+
+    // The hook's auxiliary samplers, from this completion's sampling.  The
+    // backbone's grammar, token mask and DRY apply to its own vocabulary only.
+    for (auto * smpl : aux_sampling) common_sampler_free(smpl);
+    aux_sampling.clear();
+    aux_params.clear();
+    aux_history.clear();
+    if (hook) {
+        const auto groups = hook->samplerGroups();
+        for (size_t g = 0; g < groups.size(); ++g) {
+            aux_params.push_back(parent_ctx->params.sampling);
+            common_params_sampling & p = aux_params.back();
+            p.grammar = {};
+            p.logit_bias.clear();
+            p.dry_multiplier = 0.0f;
+            if (p.seed != LLAMA_DEFAULT_SEED) p.seed += 1u + (uint32_t) g;
+            if (!groups[g].penalties) {
+                p.penalty_last_n = 0;
+                p.penalty_repeat = 1.0f;
+                p.penalty_freq = 0.0f;
+                p.penalty_present = 0.0f;
+            }
+            aux_history.push_back(groups[g].history);
+        }
+        aux_sampling.assign(groups.size(), nullptr);
+        if (want_hiddens) hook->onPrompt(parent_ctx, hiddens.data(), n_past);
+    }
+    has_next_token = true;
+}
+
+llama_token llama_rn_context_completion::sampleAux(int32_t group, const float * logits, int32_t n_vocab) {
+    if (group < 0 || group >= (int32_t) aux_sampling.size() || logits == nullptr || n_vocab <= 0) {
+        throw std::runtime_error("a step asked for an auxiliary sampler it did not describe");
+    }
+    common_sampler *& smpl = aux_sampling[(size_t) group];
+    // Built on the group's first draw, when its vocabulary width is known.
+    if (smpl == nullptr) {
+        smpl = common_sampler_init_logits(aux_params[(size_t) group], n_vocab);
+        if (smpl == nullptr) throw std::runtime_error("the completion's sampling cannot sample these logits");
+        for (llama_token t : aux_history[(size_t) group]) common_sampler_accept(smpl, t, false);
+    }
+    const llama_token id = common_sampler_sample_logits(smpl, logits, n_vocab);
+    common_sampler_accept(smpl, id, true);
+    return id;
+}
+
 void llama_rn_context_completion::beginCompletion() {
     beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE);
 }
@@ -710,20 +816,6 @@ void llama_rn_context_completion::endCompletion() {
     if (n_past > 0 && n_past < (llama_pos) embd.size()) {
         embd.resize(n_past);
     }
-    if (parent_ctx->isVocoderEnabled() && (tts_prefill_pending || isAudioGeneration())) {
-        // Keeps the decoder input and clears the KV cache, which embd (with
-        // its placeholders) does not describe.  Latents come back as the
-        // result's embeddings.
-        llama_rn_context_tts * tts = parent_ctx->tts_wrapper;
-        tts_prefill_pending = false;
-        tts->endGeneration(parent_ctx);
-        embd.clear();
-        n_past = 0;
-        if (!tts->audio_latents.empty()) {
-            embeddings = tts->audio_latents;
-            embedding_dim = tts->audio_latent_dim;
-        }
-    }
     is_predicting = false;
 }
 
@@ -746,14 +838,10 @@ void llama_rn_context_completion::updateGenerationTiming() {
 
 bool llama_rn_context_completion::shouldUseMTP() const {
     const auto & types = parent_ctx->params.speculative.types;
-    // TTS steps feed embedding rows a draft cannot predict.
-    return !isAudioGeneration() &&
+    // A step hook's embedding rows are not something a draft predicts.
+    return step_hook == nullptr &&
         std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
         parent_ctx->params.speculative.draft.n_max > 0;
-}
-
-bool llama_rn_context_completion::isAudioGeneration() const {
-    return parent_ctx->isVocoderEnabled() && parent_ctx->tts_wrapper->isGenerating();
 }
 
 void llama_rn_context_completion::resetSpeculative() {
@@ -1059,21 +1147,14 @@ completion_token_output llama_rn_context_completion::nextToken()
     completion_token_output result;
     result.tok = -1;
 
-    // Text-to-speech (codec.cpp's codec_audio_lm): the hooks below decode
-    // the request's prompt, inject the embedding rows it feeds and report each
-    // step (observe); sampling, budget and stops stay this function's.
-    llama_rn_context_tts * tts =
-        (tts_prefill_pending || isAudioGeneration()) ? parent_ctx->tts_wrapper : nullptr;
-
     if (embd.size() >= (size_t)parent_ctx->params.n_ctx)
     {
-        // TTS positions hold embedding rows a shift cannot move.
-        if (!parent_ctx->params.ctx_shift || tts != nullptr) {
+        // A step hook's embedding rows cannot be shifted.
+        if (!parent_ctx->params.ctx_shift || step_hook != nullptr) {
             // If context shifting is disabled, stop generation
             LOG_WARNING("context full, n_ctx: %d, tokens: %d", parent_ctx->params.n_ctx, embd.size());
             has_next_token = false;
             context_full = true;
-            if (tts != nullptr) tts->stop_reason = "context_full";
             return result;
         }
 
@@ -1101,31 +1182,19 @@ completion_token_output llama_rn_context_completion::nextToken()
         LOG_VERBOSE("context shifted, new n_past: %d, new size: %d", n_past, embd.size());
     }
 
-    // vocab pointer needed in the TTS blocks and the termination logic below.
+    // vocab pointer needed in the sampling and termination logic below.
     const llama_vocab * vocab = llama_model_get_vocab(parent_ctx->model);
 
     // A backbone with tokenizer.ggml.model=none (e.g. Chatterbox T3 — the codec
     // owns tokenization) has no text pieces: the normal sampling path below calls
     // token_to_piece, which asserts on a NONE vocab (llama-vocab.cpp).  Such a
-    // backbone only runs text-to-speech, which samples no text from it.
-    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE && tts == nullptr) {
+    // backbone runs only with a step hook (text-to-speech), which samples no
+    // text from it.
+    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE && step_hook == nullptr) {
         LOG_ERROR("nextToken: backbone has no text vocab (tokenizer.ggml.model=none); "
                   "use it for text-to-speech (initVocoder + getFormattedAudioCompletion)");
         has_next_token = false;
         return result;
-    }
-
-    // TTS prefill: decode the request's prompt (codec.cpp's chunks, on every
-    // sequence of a guidance pair) from position 0, then grow embd to n_past
-    // with placeholders so the decode loop below is skipped.  The prompt's
-    // tokens count for the penalties (codec.cpp's contract, as llama-server).
-    if (tts_prefill_pending) {
-        tts_prefill_pending = false;
-        std::vector<llama_token> prompt_tokens;
-        n_past = tts->beginGeneration(parent_ctx, prompt_tokens);
-        for (llama_token t : prompt_tokens) common_sampler_accept(ctx_sampling, t, false);
-        num_prompt_tokens = (size_t) n_past;
-        embd.assign((size_t) n_past, llama_vocab_bos(vocab));
     }
 
     // Interval fallback (0 = off): only for cold prompts with no message
@@ -1161,20 +1230,29 @@ completion_token_output llama_rn_context_completion::nextToken()
         {
             n_eval = parent_ctx->params.n_batch;
         }
-        // Standard path: token batch via llama_batch_get_one.  TTS injects
-        // the embedding row(s) codec.cpp asked for in place of the
-        // placeholder token (one position, on every sequence of a guidance
-        // pair).  A failing TTS step ends the generation (the KV cache holds
-        // its rows) before the error goes up.
-        if (tts != nullptr && n_eval == 1 && tts->hasFeed()) {
-            try {
-                tts->decodeFeed(parent_ctx, n_past);
-            } catch (...) {
-                tts->endGeneration(parent_ctx);
-                embd.clear();
-                n_past = 0;
+        // Standard path: token batch via llama_batch_get_one.  A step hook's
+        // embedding rows (one position, on each of its sequences) take their
+        // placeholder's place.
+        if (!pending_embd.empty() && n_eval == 1) {
+            const int32_t n_seq = (int32_t) (pending_embd.size() / (size_t) pending_embd_width);
+            llama_batch b = llama_batch_init(n_seq, pending_embd_width, 1);
+            b.n_tokens = n_seq;
+            b.token = nullptr;
+            std::memcpy(b.embd, pending_embd.data(), pending_embd.size() * sizeof(float));
+            for (int32_t q = 0; q < n_seq; ++q) {
+                b.pos[q] = n_past;
+                b.n_seq_id[q] = 1;
+                b.seq_id[q][0] = q;
+                b.logits[q] = 1;
+            }
+            const int rc = llama_decode(parent_ctx->ctx, b);
+            llama_batch_free(b);
+            pending_embd.clear();
+            if (rc) {
+                LOG_ERROR("failed to eval an embedding row, n_past: %d", n_past);
+                embd.resize(n_past);
                 has_next_token = false;
-                throw;
+                return result;
             }
         } else {
             if (llama_decode(parent_ctx->ctx, llama_batch_get_one(&embd[n_past], n_eval)))
@@ -1194,9 +1272,8 @@ completion_token_output llama_rn_context_completion::nextToken()
         }
         n_past += n_eval;
 
-        // TTS reads the hidden state in its step below; the completion's own
-        // embeddings capture stays off for it.
-        if (tts == nullptr && parent_ctx->params.embedding && tg && n_past > (llama_pos)num_prompt_tokens) {
+        // A step hook reads the hidden states itself.
+        if (step_hook == nullptr && parent_ctx->params.embedding && tg && n_past > (llama_pos)num_prompt_tokens) {
             const float *embedding = llama_get_embeddings_ith(parent_ctx->ctx, -1);
             const int dim = llama_model_n_embd(parent_ctx->model);
             if (embedding != nullptr && dim > 0) {
@@ -1247,9 +1324,9 @@ completion_token_output llama_rn_context_completion::nextToken()
         std::vector<llama_token_data> candidates;
         candidates.reserve(llama_vocab_n_tokens(vocab));
 
-        // TTS steps where codec.cpp reads only the hidden state sample nothing.
+        // A step hook's step may read only the hidden state: nothing to sample.
         llama_token new_token_id = -1;
-        if (tts == nullptr || tts->samplesBackbone()) {
+        if (step_hook == nullptr || step_hook->samplesToken()) {
             new_token_id = common_sampler_sample(ctx_sampling, parent_ctx->ctx, -1);
 
             result.probs = get_token_probabilities(
@@ -1257,43 +1334,43 @@ completion_token_output llama_rn_context_completion::nextToken()
                 parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
         }
 
-        // TTS: codec.cpp sees every step, the end-of-speech token included,
-        // has the tokens of its own heads drawn (head samplers built from the
-        // same sampling), and says what the backbone reads next and when the
-        // speech ends.
-        if (tts != nullptr) {
-            llama_rn_context_tts::verdict v;
-            try {
-                v = tts->observe(parent_ctx, new_token_id);
-            } catch (...) {
-                tts->endGeneration(parent_ctx);
-                embd.clear();
-                n_past = 0;
-                has_next_token = false;
-                throw;
-            }
+        // The step hook sees every step, the end token included, has its own
+        // tokens drawn by the auxiliary samplers, and says what the model
+        // reads next and when the generation ends.
+        if (step_hook != nullptr) {
+            const auto step = step_hook->onStep(parent_ctx, new_token_id,
+                [this](int32_t group, const float * logits, int32_t n_vocab) {
+                    return sampleAux(group, logits, n_vocab);
+                });
             if (new_token_id >= 0) common_sampler_accept(ctx_sampling, new_token_id, true);
             if (tg) {
                 num_tokens_predicted++;
                 updateGenerationTiming();
             }
-            if (v.stop) {
+            if (step.stop) {
                 has_next_token = false;
                 stopped_eos = true;
                 return result;
             }
-            if (new_token_id >= 0) {
-                result.tok = new_token_id;
+            // The text: every token fed back on a step that isn't the hook's
+            // (a sampled token, or one the hook picked); the hook's own steps
+            // (audio) are never text.
+            if (!step.audio && step.feed >= 0) {
+                result.tok = step.feed;
                 if (llama_vocab_type(vocab) != LLAMA_VOCAB_TYPE_NONE) {
-                    result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
+                    result.text = common_token_to_piece(parent_ctx->ctx, step.feed);
                 }
             }
-            // An embedding row takes a placeholder's position; the decode
-            // loop injects it.
-            embd.push_back(v.feed >= 0 ? v.feed : llama_vocab_bos(vocab));
+            if (step.feed >= 0) {
+                embd.push_back(step.feed);
+            } else {
+                // Embedding rows: a placeholder position the decode loop fills.
+                pending_embd = step.embd;
+                pending_embd_width = (int32_t) (step.embd.size() / (size_t) std::max(1, step_hook->nSeq()));
+                embd.push_back(LLAMA_TOKEN_NULL);
+            }
             --n_remain;
             has_next_token = parent_ctx->params.n_predict == -1 || n_remain != 0;
-            if (!has_next_token) tts->stop_reason = "n_predict";
             return result;
         }
 

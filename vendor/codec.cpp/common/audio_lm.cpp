@@ -2041,8 +2041,12 @@ bool audio_lm_save_speaker(audio_lm_context * ctx, const codec_speaker * spk, co
 }
 
 const codec_speaker * audio_lm_decode_speaker(const audio_lm_context * ctx) {
+    return ctx ? audio_lm_resolve_speaker(ctx, ctx->decode_speaker) : nullptr;
+}
+
+const codec_speaker * audio_lm_resolve_speaker(const audio_lm_context * ctx, const codec_speaker * spk) {
     if (ctx == nullptr) return nullptr;
-    return ctx->decode_speaker ? ctx->decode_speaker : codec_get_speaker(ctx->model, nullptr);
+    return spk ? spk : codec_get_speaker(ctx->model, nullptr);
 }
 
 static audio_lm_speaker_entry speaker_entry(const codec_speaker * spk, const codec_speaker * def) {

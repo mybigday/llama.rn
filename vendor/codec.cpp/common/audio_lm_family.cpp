@@ -69,8 +69,66 @@ alm_chunk alm_chunk::of_embd(std::vector<float> e, int32_t n_rows) {
     return c;
 }
 
-uint32_t alm_tts_request::seed() const {
-    return seed_ == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : seed_;
+std::string alm_codec_marker(const std::string & name) { return "<__codec:" + name + "__>"; }
+
+bool alm_prompt::parse(const std::string & prompt, std::string * err) {
+    pieces_.clear();
+    pos_ = 0;
+    static const std::string voice = CODEC_AUDIO_LM_MARKER_VOICE, codec = "<__codec:";
+    size_t at = 0;
+    while (at < prompt.size()) {
+        const size_t v = prompt.find(voice, at), c = prompt.find(codec, at);
+        const size_t m = std::min(v, c);
+        if (m > at) pieces_.push_back({false, prompt.substr(at, m == std::string::npos ? std::string::npos : m - at)});
+        if (m == std::string::npos) break;
+        if (m == v) {
+            pieces_.push_back({true, "voice"});
+            at = m + voice.size();
+        } else {
+            const size_t e = prompt.find("__>", m + codec.size());
+            if (e == std::string::npos || e == m + codec.size()) {
+                if (err) *err = "malformed <__codec:NAME__> marker in the prompt";
+                return false;
+            }
+            pieces_.push_back({true, "codec:" + prompt.substr(m + codec.size(), e - m - codec.size())});
+            at = e + 3;
+        }
+    }
+    return true;
+}
+
+std::string alm_prompt::text() {
+    if (done() || pieces_[pos_].marker) return "";
+    return pieces_[pos_++].s;
+}
+
+bool alm_prompt::voice() {
+    if (next_marker() != "voice") return false;
+    ++pos_;
+    return true;
+}
+
+bool alm_prompt::codec(const char * name) {
+    if (next_marker() != std::string("codec:") + name) return false;
+    ++pos_;
+    return true;
+}
+
+std::string alm_prompt::next_marker() const {
+    return !done() && pieces_[pos_].marker ? pieces_[pos_].s : "";
+}
+
+bool alm_prompt::rest_text(std::string * out) {
+    out->clear();
+    for (; !done(); ++pos_) {
+        if (pieces_[pos_].marker) return false;
+        *out += pieces_[pos_].s;
+    }
+    return true;
+}
+
+uint32_t alm_resolve_seed(uint32_t seed) {
+    return seed == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : seed;
 }
 
 std::string alm_min_length_grammar(int32_t end, int32_t min_tokens, const std::string & body) {

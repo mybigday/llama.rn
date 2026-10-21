@@ -83,7 +83,12 @@ std::string alm_error(const codec_audio_lm * alm, const char * what) {
 
 int32_t vocab_tokenize(void * ud, const char * text, int32_t len, int32_t * out, int32_t cap, bool add_special,
                        bool parse_special) {
-    return llama_tokenize((const llama_vocab *) ud, text, len, out, cap, add_special, parse_special);
+    // A backbone without a vocabulary (old Chatterbox GGUFs) tokenizes
+    // nothing: codec.cpp falls back to its own tokenizer.  llama_tokenize
+    // would assert.
+    const llama_vocab * vocab = (const llama_vocab *) ud;
+    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) return 0;
+    return llama_tokenize(vocab, text, len, out, cap, add_special, parse_special);
 }
 int32_t vocab_piece(void * ud, int32_t token, char * buf, int32_t cap) {
     return llama_token_to_piece((const llama_vocab *) ud, token, buf, cap, 0, true);
@@ -115,68 +120,6 @@ std::vector<llama_token> tokenize(const llama_vocab * vocab, const std::string &
     return toks;
 }
 
-// ── Backbone decode ────────────────────────────────────────────────────
-// Prompts are decoded in pieces of at most n_batch positions per call.
-
-struct decoder {
-    llama_context * lctx;
-    int32_t n_batch;
-    int32_t n_past = 0;
-
-    // Tokens on sequence 0.  `hiddens` (may be null) receives every
-    // position's hidden state; otherwise only the last position outputs.
-    void tokens(const std::vector<llama_token> & toks, std::vector<float> * hiddens, int32_t n_embd) {
-        for (size_t at = 0; at < toks.size();) {
-            const int32_t n = (int32_t) std::min<size_t>((size_t) n_batch, toks.size() - at);
-            llama_batch b = llama_batch_init(n, 0, 1);
-            for (int32_t i = 0; i < n; ++i) {
-                b.token[i] = toks[at + i];
-                b.pos[i] = n_past + i;
-                b.n_seq_id[i] = 1;
-                b.seq_id[i][0] = 0;
-                b.logits[i] = (hiddens != nullptr || at + i + 1 == toks.size()) ? 1 : 0;
-            }
-            b.n_tokens = n;
-            const int rc = llama_decode(lctx, b);
-            llama_batch_free(b);
-            if (rc != 0) throw std::runtime_error("TTS: backbone decode failed");
-            for (int32_t i = 0; hiddens != nullptr && i < n; ++i) {
-                const float * h = llama_get_embeddings_ith(lctx, i);
-                if (h == nullptr) throw std::runtime_error("TTS: backbone returned no prompt hidden state");
-                hiddens->insert(hiddens->end(), h, h + n_embd);
-            }
-            n_past += n;
-            at += (size_t) n;
-        }
-    }
-
-    // `n` rows per sequence, sequences side by side (row r of sequence q at
-    // rows[(q * n + r) * dim]); outputs on each sequence's last row.
-    void embd(const float * rows, int32_t dim, int32_t n, int32_t n_seq) {
-        const int32_t step = std::max(1, n_batch / std::max(1, n_seq));
-        for (int32_t at = 0; at < n;) {
-            const int32_t m = std::min(step, n - at);
-            llama_batch b = llama_batch_init(m * n_seq, dim, 1);
-            b.token = nullptr;
-            b.n_tokens = m * n_seq;
-            for (int32_t q = 0, i = 0; q < n_seq; ++q) {
-                std::memcpy(b.embd + (size_t) i * dim, rows + ((size_t) q * n + at) * dim,
-                            (size_t) m * dim * sizeof(float));
-                for (int32_t r = 0; r < m; ++r, ++i) {
-                    b.pos[i] = n_past + r;
-                    b.n_seq_id[i] = 1;
-                    b.seq_id[i][0] = q;
-                    b.logits[i] = (at + r + 1 == n) ? 1 : 0;
-                }
-            }
-            const int rc = llama_decode(lctx, b);
-            llama_batch_free(b);
-            if (rc != 0) throw std::runtime_error("TTS: backbone decode failed");
-            n_past += m;
-            at += m;
-        }
-    }
-};
 
 bool meta_true(const codec_audio_lm * alm, const char * key) {
     const char * v = codec_audio_lm_meta_str(alm, key);
@@ -218,14 +161,9 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
     }
 }
 
-llama_rn_context_tts::~llama_rn_context_tts() {
-    speakers.clear();
-    gen_voice.reset();
-    if (alm != nullptr) codec_audio_lm_free(alm);
-}
-
 void llama_rn_context_tts::reset() {
     pending_speaker_id = -1;
+    pending_voice.clear();
     // The completion result has taken the last generation's data.
     audio_tokens.clear();
     audio_latents.clear();
@@ -325,48 +263,26 @@ std::string llama_rn_context_tts::checkBackbone(llama_rn_context* main_ctx) {
 
 // ── Requests ──────────────────────────────────────────────────────────
 
-rn_voice llama_rn_context_tts::resolveVoice(const armed_voice &v) {
-    if (v.speaker_id >= 0) {
-        const rn_speaker * spk = getSpeaker(v.speaker_id);
-        if (spk == nullptr) throw std::runtime_error("TTS: speaker " + std::to_string(v.speaker_id) + " not found");
+rn_voice llama_rn_context_tts::resolveVoice(int speaker_id, const std::string &voice_name) {
+    if (speaker_id >= 0) {
+        const rn_speaker * spk = getSpeaker(speaker_id);
+        if (spk == nullptr) throw std::runtime_error("TTS: speaker " + std::to_string(speaker_id) + " not found");
         return spk->voice;
     }
     // Builtin voices belong to the model: borrowed, never freed.
-    const codec_speaker * builtin = codec_audio_lm_get_voice(alm, v.voice.empty() ? nullptr : v.voice.c_str());
-    if (builtin == nullptr && !v.voice.empty()) throw std::runtime_error("TTS: no voice '" + v.voice + "'");
+    const codec_speaker * builtin = codec_audio_lm_get_voice(alm, voice_name.empty() ? nullptr : voice_name.c_str());
+    if (builtin == nullptr && !voice_name.empty()) throw std::runtime_error("TTS: no voice '" + voice_name + "'");
     return rn_voice(builtin, [](const codec_speaker *) {});
 }
 
-void llama_rn_context_tts::prompt(llama_rn_context* main_ctx, const rn_voice &voice, codec_audio_lm_completion &c) {
-    const json &o = armed_options;
-    codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
-    req.text       = armed_text.c_str();
-    req.voice      = voice.get();
-    req.instruct   = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
-    req.min_frames = o.contains("min_frames") && o["min_frames"].is_number() ? o["min_frames"].get<int32_t>() : -1;
-    // The model's own randomness (flow / CFM noise) follows the completion's seed.
-    req.seed       = main_ctx->params.sampling.seed;
+namespace {
 
-    const codec_audio_lm_vocab cv = host_vocab(llama_model_get_vocab(main_ctx->model));
-    codec_affinity_scope affinity(main_ctx);
-    if (!codec_audio_lm_tts_prompt(alm, &req, &cv)) throw std::runtime_error(alm_error(alm, "TTS prompt"));
-    if (!codec_audio_lm_get_completion(alm, &c)) throw std::runtime_error(alm_error(alm, "TTS completion"));
-    if (c.flow == CODEC_AUDIO_LM_FLOW_SELF_CONTAINED) {
-        throw std::runtime_error("TTS: this model runs without a backbone; llama.rn does not host it");
-    }
-    if (std::max(1, c.n_seq) > 1 && c.sample_first) {
-        throw std::runtime_error("TTS: backbone sampling over several sequences is not supported");
-    }
-    if ((int32_t) llama_n_seq_max(main_ctx->ctx) < c.n_seq) {
-        throw std::runtime_error("TTS: the model's guidance decodes " + std::to_string(c.n_seq) +
-                                 " sequences; create the context with n_parallel >= " + std::to_string(c.n_seq) +
-                                 " or turn the guidance off with the codec's kv_overrides");
-    }
-    // llama.rn's llama.cpp has no penalty exemption; no hosted model asks for it.
-    bool exempt = c.n_penalty_exempt > 0;
-    for (int32_t g = 0; g < c.n_head_groups; ++g) exempt = exempt || c.head_groups[g].n_penalty_exempt > 0;
-    if (exempt) throw std::runtime_error("TTS: this model needs penalty-exempt tokens, which llama.rn does not support");
+// llama.rn's llama.cpp has no penalty exemption; no hosted model asks for it.
+void check_exempt(int32_t n_exempt) {
+    if (n_exempt > 0) throw std::runtime_error("TTS: this model needs penalty-exempt tokens, which llama.rn does not support");
 }
+
+}  // namespace
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
         llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId,
@@ -378,49 +294,64 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         codec_audio_lm_get_caps(alm, &caps);
         if (!caps.takes_instruct) throw std::runtime_error("TTS: this model takes no instruct");
     }
-
-    armed_voice v;
-    v.speaker_id = speakerId;
+    std::string voice_name;
     if (speakerId < 0 && speaker.is_object() && speaker.contains("codec_voice") && speaker["codec_voice"].is_string()) {
-        v.voice = speaker["codec_voice"].get<std::string>();
+        voice_name = speaker["codec_voice"].get<std::string>();
     } else if (speakerId < 0 && speaker.is_object() && !speaker.empty()) {
         throw std::runtime_error("TTS: speaker payloads are not used; pass a builtin voice name or a LlamaSpeaker");
     }
-    armed = false;
-    armed_text = text_to_speak;
-    armed_instruct = instruct;
-    armed_v = v;
-    armed_options = options.is_object() ? options : json::object();
+    // A voice written as text (OuteTTS / NeuTTS references) goes into the
+    // prompt; an embedding voice becomes a <__voice__> marker that the
+    // completion's speaker fills.
+    const rn_voice voice = resolveVoice(speakerId, voice_name);
 
-    // The request's completion, for what the completion runs it with.
-    codec_audio_lm_completion c{};
-    prompt(main_ctx, resolveVoice(v), c);
-    armed = true;
+    codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
+    req.text       = text_to_speak.c_str();
+    req.voice      = voice.get();
+    req.instruct   = instruct.empty() ? nullptr : instruct.c_str();
+    req.min_frames = options.contains("min_frames") && options["min_frames"].is_number()
+        ? options["min_frames"].get<int32_t>() : -1;
+    const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
+    const codec_audio_lm_vocab cv = host_vocab(vocab);
+    codec_audio_lm_format f{};
+    {
+        codec_affinity_scope affinity(main_ctx);
+        if (!codec_audio_lm_tts_format(alm, &req, &cv, &f)) throw std::runtime_error(alm_error(alm, "TTS format"));
+    }
+    if (f.flow == CODEC_AUDIO_LM_FLOW_SELF_CONTAINED) {
+        throw std::runtime_error("TTS: this model runs without a backbone; llama.rn does not host it");
+    }
+    if ((int32_t) llama_n_seq_max(main_ctx->ctx) < std::max(1, f.n_seq)) {
+        throw std::runtime_error("TTS: the model's guidance decodes " + std::to_string(f.n_seq) +
+                                 " sequences; create the context with n_parallel >= " + std::to_string(f.n_seq) +
+                                 " or turn the guidance off with the codec's kv_overrides");
+    }
+    check_exempt(f.n_penalty_exempt);
 
     // What the request's format needs, as completion() params: the prompt,
     // the grammar or token mask, and hidden states.  Sampling and length are
     // the caller's.
     json p = json::object();
-    p["prompt"]    = text_to_speak;
-    p["embedding"] = c.needs_embeddings || c.needs_prompt_hidden;
+    p["prompt"]    = f.prompt ? f.prompt : "";
+    p["embedding"] = f.needs_embeddings || f.needs_prompt_hidden;
     // The grammar and the allowed ranges say the same; the grammar wins.
     // The ranges become a logit bias table: -Infinity outside them.
-    const std::string grammar = c.grammar ? c.grammar : "";
+    const std::string grammar = f.grammar ? f.grammar : "";
     std::vector<float> bias;
     if (!grammar.empty()) {
         p["grammar"] = grammar;
-    } else if (c.n_allowed > 0) {
-        const int32_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(main_ctx->model));
+    } else if (f.n_allowed > 0) {
+        const int32_t n_vocab = llama_vocab_n_tokens(vocab);
         bias.assign((size_t) n_vocab, -INFINITY);
-        for (int32_t i = 0; i < c.n_allowed; ++i) {
-            for (int32_t t = std::max(0, c.allowed[i].begin); t < std::min(n_vocab, c.allowed[i].end); ++t) {
+        for (int32_t i = 0; i < f.n_allowed; ++i) {
+            for (int32_t t = std::max(0, f.allowed[i].begin); t < std::min(n_vocab, f.allowed[i].end); ++t) {
                 bias[(size_t) t] = 0.0f;
             }
         }
     }
 
     llama_rn_audio_completion_result res;
-    res.prompt = text_to_speak;
+    res.prompt = p["prompt"].get<std::string>();
     res.grammar = grammar;
     res.embedding = p["embedding"].get<bool>();
     res.flow = "tokens";
@@ -429,212 +360,171 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     return res;
 }
 
-int llama_rn_context_tts::beginGeneration(llama_rn_context* main_ctx, std::vector<llama_token> &prompt_tokens) {
-    if (!armed) throw std::runtime_error("TTS: no request; call getFormattedAudioCompletion first");
-    // One completion per request: the context runs text completions again after it.
-    armed = false;
-    audio_tokens.clear();
-    audio_latents.clear();
-    audio_latent_dim = 0;
-    n_frames = 0;
-    stop_reason.clear();
-    feed_rows.clear();
+// codec.cpp's part in each completion step.
+struct llama_rn_context_tts::step_hook : completion_step_hook {
+    llama_rn_context_tts & tts;
+    int32_t n_seq = 1;
+    int32_t n_embd = 0;
+    bool needs_hidden = false;
+    bool needs_prompt_hidden = false;
+    bool sample_next = false;
+    std::vector<sampler_group> groups;
 
-    armed_voice v = armed_v;
-    if (pending_speaker_id >= 0) v = armed_voice{"", pending_speaker_id};
-    gen_voice = resolveVoice(v);
+    explicit step_hook(llama_rn_context_tts & t) : tts(t) {}
+
+    int32_t nSeq() const override { return n_seq; }
+    bool wantsPromptHiddens() const override { return needs_prompt_hidden; }
+    std::vector<sampler_group> samplerGroups() const override { return groups; }
+    bool samplesToken() const override { return sample_next; }
+
+    void onPrompt(llama_rn_context * ctx, const float * hiddens, int32_t n_pos) override {
+        codec_affinity_scope affinity(ctx);
+        if (!codec_audio_lm_prefill(tts.alm, hiddens, n_pos)) throw std::runtime_error(alm_error(tts.alm, "TTS prefill"));
+    }
+
+    step onStep(llama_rn_context * ctx, llama_token sampled, const sample_fn & sample) override {
+        std::vector<float> hiddens;
+        if (needs_hidden) {
+            // Sequence q's last output is -(n_seq - q) from the end.
+            const int32_t dim = llama_model_n_embd(ctx->model);
+            hiddens.resize((size_t) n_seq * dim);
+            for (int32_t q = 0; q < n_seq; ++q) {
+                const float * hq = llama_get_embeddings_ith(ctx->ctx, -(n_seq - q));
+                if (hq == nullptr) throw std::runtime_error("TTS: backbone returned no hidden state");
+                std::memcpy(hiddens.data() + (size_t) q * dim, hq, (size_t) dim * sizeof(float));
+            }
+        }
+        codec_audio_lm_verdict v{};
+        step r;
+        {
+            codec_affinity_scope affinity(ctx);
+            if (!codec_audio_lm_observe(tts.alm, sampled >= 0 ? &sampled : nullptr,
+                                        needs_hidden ? hiddens.data() : nullptr, &v)) {
+                throw std::runtime_error(alm_error(tts.alm, "TTS step"));
+            }
+            // codec.cpp's own heads: the completion draws each token.
+            while (v.action == CODEC_AUDIO_LM_SAMPLE_HEAD) {
+                if (v.frame_done) ++tts.n_frames;
+                const llama_token id = sample(v.head_group, codec_audio_lm_head_logits(tts.alm), v.n_vocab);
+                if (!codec_audio_lm_head_token(tts.alm, id, &v)) throw std::runtime_error(alm_error(tts.alm, "TTS head"));
+            }
+            if (v.action == CODEC_AUDIO_LM_FEED_EMBD) {
+                r.embd.resize((size_t) n_seq * n_embd);
+                for (int32_t q = 0; q < n_seq; ++q) {
+                    std::memcpy(r.embd.data() + (size_t) q * n_embd, codec_audio_lm_next_embd(tts.alm, q),
+                                (size_t) n_embd * sizeof(float));
+                }
+            }
+        }
+        if (v.frame_done) ++tts.n_frames;
+        r.audio = v.is_audio;
+        if (v.action == CODEC_AUDIO_LM_STOP) {
+            tts.stop_reason = codec_audio_lm_stop_reason(tts.alm);
+            r.stop = true;
+            return r;
+        }
+        if (v.action == CODEC_AUDIO_LM_FEED_TOKEN) {
+            if (n_seq > 1) throw std::runtime_error("TTS: token feeds over several sequences are not supported");
+            r.feed = v.token >= 0 ? v.token : sampled;
+            if (r.feed < 0) throw std::runtime_error("TTS: the model asked to feed a token none was sampled for");
+        }
+        sample_next = v.sample_backbone;
+        return r;
+    }
+};
+
+void llama_rn_context_tts::loadPrompt(llama_rn_context* main_ctx) {
+    // The completion's voice fills the prompt's <__voice__> markers (the
+    // model's default without one); codec.cpp builds the prompt's chunks.
+    gen_voice = resolveVoice(pending_speaker_id, pending_voice);
+    codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
+    req.voice = gen_voice.get();
+    const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
+    const codec_audio_lm_vocab cv = host_vocab(vocab);
     codec_audio_lm_completion c{};
-    prompt(main_ctx, gen_voice, c);
+    {
+        codec_affinity_scope affinity(main_ctx);
+        if (!codec_audio_lm_tts_build(alm, &req, main_ctx->params.prompt.c_str(), &cv, &c)) {
+            throw std::runtime_error(alm_error(alm, "TTS prompt"));
+        }
+        // codec.cpp's own noise follows the completion's seed (the one its sampler drew).
+        if (!codec_audio_lm_set_seed(alm, common_sampler_get_seed(main_ctx->completion->ctx_sampling))) {
+            throw std::runtime_error(alm_error(alm, "TTS seed"));
+        }
+    }
+    if (c.flow == CODEC_AUDIO_LM_FLOW_SELF_CONTAINED) {
+        throw std::runtime_error("TTS: this model runs without a backbone; llama.rn does not host it");
+    }
+    const int32_t n_seq = std::max(1, c.n_seq);
+    if (n_seq > 1 && c.sample_first) {
+        throw std::runtime_error("TTS: backbone sampling over several sequences is not supported");
+    }
+    bool exempt = c.n_penalty_exempt > 0;
+    for (int32_t g = 0; g < c.n_head_groups; ++g) exempt = exempt || c.head_groups[g].n_penalty_exempt > 0;
+    check_exempt(exempt ? 1 : 0);
 
-    llama_context * lctx = main_ctx->ctx;
+    // Chunks: sequence q of chunk i is chunks[q * n_chunks + i].
+    std::vector<completion_prompt_chunk> chunks;
+    for (int32_t i = 0; i < c.n_chunks; ++i) {
+        const codec_audio_lm_chunk & ch = c.chunks[i];
+        completion_prompt_chunk out;
+        if (ch.type == CODEC_AUDIO_LM_CHUNK_EMBD) {
+            if (ch.n <= 0) continue;
+            if (c.needs_prompt_hidden) throw std::runtime_error("TTS: prompt hidden states over embedding chunks are not supported");
+            out.n = ch.n;
+            out.n_embd = c.n_embd;
+            for (int32_t q = 0; q < n_seq; ++q) {
+                const codec_audio_lm_chunk & cq = c.chunks[q * c.n_chunks + i];
+                if (cq.type != CODEC_AUDIO_LM_CHUNK_EMBD || cq.n != ch.n) {
+                    throw std::runtime_error("TTS: the sequences' prompt chunks differ");
+                }
+                out.embd.insert(out.embd.end(), cq.embd, cq.embd + (size_t) cq.n * c.n_embd);
+            }
+        } else {
+            if (n_seq > 1) throw std::runtime_error("TTS: several sequences take embedding prompts only");
+            if (ch.type == CODEC_AUDIO_LM_CHUNK_TEXT) {
+                if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) {
+                    throw std::runtime_error("TTS: the backbone has no vocabulary to tokenize the prompt");
+                }
+                out.tokens = tokenize(vocab, ch.text ? ch.text : "", ch.add_special, ch.parse_special);
+            } else {
+                out.tokens.assign(ch.tokens, ch.tokens + ch.n);
+            }
+            out.n = (int32_t) out.tokens.size();
+            if (out.n == 0) continue;
+        }
+        chunks.push_back(std::move(out));
+    }
+
+    if (!hook) hook = std::make_unique<step_hook>(*this);
+    hook->n_seq = n_seq;
+    hook->n_embd = c.n_embd;
+    hook->needs_hidden = c.needs_embeddings;
+    hook->needs_prompt_hidden = c.needs_prompt_hidden;
+    hook->sample_next = c.sample_first;
+    hook->groups.clear();
+    for (int32_t g = 0; g < c.n_head_groups; ++g) {
+        const codec_audio_lm_head_group & hg = c.head_groups[g];
+        completion_step_hook::sampler_group sg;
+        sg.penalties = hg.penalties;
+        sg.history.assign(hg.history, hg.history + std::max(0, hg.n_history));
+        hook->groups.push_back(std::move(sg));
+    }
+    stop_reason.clear();
+    n_frames = 0;
     if ((c.needs_embeddings || c.needs_prompt_hidden) && !main_ctx->params.embedding) {
         throw std::runtime_error("TTS: this model reads hidden states; pass embedding: true "
                                  "(getFormattedAudioCompletion's completionParams)");
     }
-    n_seq        = std::max(1, c.n_seq);
-    n_embd       = c.n_embd;
-    needs_hidden = c.needs_embeddings;
-    sample_next  = c.sample_first;
-
-    // One sampler per head group, from the completion's sampling (llama.cpp's
-    // common sampler over the head's logits): seeded seed + 1 + g so groups
-    // draw independently; a group without penalties drops them.  Grammar,
-    // the token mask and DRY belong to the backbone's text vocabulary.
-    head_samplers.clear();
-    for (int32_t g = 0; g < c.n_head_groups; ++g) {
-        const codec_audio_lm_head_group & hg = c.head_groups[g];
-        common_params_sampling hp = main_ctx->params.sampling;
-        hp.grammar = {};
-        hp.logit_bias.clear();
-        hp.dry_multiplier = 0.0f;
-        if (hp.seed != LLAMA_DEFAULT_SEED) hp.seed += 1u + (uint32_t) g;
-        if (!hg.penalties) {
-            hp.penalty_last_n = 0;
-            hp.penalty_repeat = 1.0f;
-            hp.penalty_freq = 0.0f;
-            hp.penalty_present = 0.0f;
-        }
-        head_samplers.emplace_back(std::make_unique<common_params_sampling>(std::move(hp)));
-        head_samplers.back().history.assign(hg.history, hg.history + std::max(0, hg.n_history));
-    }
-
-    // The prompt starts from an empty context.
-    llama_memory_clear(llama_get_memory(lctx), true);
-    const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
-    const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
-    decoder dec{lctx, std::max(1, main_ctx->params.n_batch)};
-    const int32_t hidden_dim = llama_model_n_embd(main_ctx->model);
-    std::vector<float> prompt_hidden;
-    prompt_tokens.clear();
-    // From here the KV cache holds TTS rows: a failure ends the generation.
-    generating = true;
-    try {
-    for (int32_t i = 0; i < c.n_chunks; ++i) {
-        const codec_audio_lm_chunk & ch = c.chunks[i];
-        if (ch.type == CODEC_AUDIO_LM_CHUNK_EMBD) {
-            if (ch.n <= 0) continue;
-            if (c.needs_prompt_hidden) throw std::runtime_error("TTS: prompt hidden states over embedding chunks are not supported");
-            if (dec.n_past + ch.n + 1 >= n_ctx) throw std::runtime_error("TTS: the prompt does not fit the context");
-            std::vector<float> rows;
-            const float * src = ch.embd;
-            if (n_seq > 1) {
-                for (int32_t q = 0; q < n_seq; ++q) {
-                    const codec_audio_lm_chunk & cq = c.chunks[q * c.n_chunks + i];
-                    if (cq.type != CODEC_AUDIO_LM_CHUNK_EMBD || cq.n != ch.n) {
-                        throw std::runtime_error("TTS: the sequences' prompt chunks differ");
-                    }
-                    rows.insert(rows.end(), cq.embd, cq.embd + (size_t) cq.n * c.n_embd);
-                }
-                src = rows.data();
-            }
-            dec.embd(src, c.n_embd, ch.n, n_seq);
-            continue;
-        }
-        if (n_seq > 1) throw std::runtime_error("TTS: several sequences take embedding prompts only");
-        const std::vector<llama_token> toks = ch.type == CODEC_AUDIO_LM_CHUNK_TEXT
-            ? tokenize(vocab, ch.text ? ch.text : "", ch.add_special, ch.parse_special)
-            : std::vector<llama_token>(ch.tokens, ch.tokens + ch.n);
-        if (toks.empty()) continue;
-        if (dec.n_past + (int32_t) toks.size() + 1 >= n_ctx) {
-            throw std::runtime_error("TTS: the prompt (" + std::to_string(dec.n_past + toks.size()) +
-                                     " tokens) does not fit the context (" + std::to_string(n_ctx) + ")");
-        }
-        prompt_tokens.insert(prompt_tokens.end(), toks.begin(), toks.end());
-        dec.tokens(toks, c.needs_prompt_hidden ? &prompt_hidden : nullptr, hidden_dim);
-    }
-    if (c.needs_prompt_hidden) {
-        codec_affinity_scope affinity(main_ctx);
-        if (!codec_audio_lm_prefill(alm, prompt_hidden.data(), (int32_t) (prompt_hidden.size() / (size_t) hidden_dim))) {
-            throw std::runtime_error(alm_error(alm, "TTS prefill"));
-        }
-    }
-    } catch (...) {
-        endGeneration(main_ctx);
-        throw;
-    }
-    return dec.n_past;
+    main_ctx->completion->loadPrompt(chunks, hook.get());
 }
 
-llama_rn_context_tts::head_sampler::head_sampler(std::unique_ptr<common_params_sampling> p) : params(std::move(p)) {}
-llama_rn_context_tts::head_sampler::head_sampler(head_sampler && o) noexcept
-    : params(std::move(o.params)), smpl(o.smpl), n_vocab(o.n_vocab), history(std::move(o.history)) {
-    o.smpl = nullptr;
-}
-llama_rn_context_tts::head_sampler::~head_sampler() {
-    if (smpl != nullptr) common_sampler_free(smpl);
-}
-
-llama_token llama_rn_context_tts::sampleHead(int32_t group, const float * logits, int32_t n_vocab) {
-    if (group < 0 || group >= (int32_t) head_samplers.size() || logits == nullptr || n_vocab <= 0) {
-        throw std::runtime_error("TTS: codec.cpp asked for a head sample it did not describe");
-    }
-    head_sampler & h = head_samplers[(size_t) group];
-    // A group's heads share one vocabulary width; the sampler is built on the first draw.
-    if (h.smpl == nullptr || h.n_vocab != n_vocab) {
-        if (h.smpl != nullptr) common_sampler_free(h.smpl);
-        h.smpl = common_sampler_init_logits(*h.params, n_vocab);
-        if (h.smpl == nullptr) throw std::runtime_error("TTS: the completion's sampling cannot sample a codec head");
-        h.n_vocab = n_vocab;
-        for (llama_token t : h.history) common_sampler_accept(h.smpl, t, false);
-    }
-    const llama_token id = common_sampler_sample_logits(h.smpl, logits, n_vocab);
-    common_sampler_accept(h.smpl, id, true);
-    return id;
-}
-
-llama_rn_context_tts::verdict llama_rn_context_tts::observe(llama_rn_context* main_ctx, llama_token sampled) {
-    llama_context * lctx = main_ctx->ctx;
-    std::vector<float> hiddens;
-    if (needs_hidden) {
-        // Sequence q's last output is -(n_seq - q) from the end.
-        const int32_t dim = llama_model_n_embd(main_ctx->model);
-        hiddens.resize((size_t) n_seq * dim);
-        for (int32_t q = 0; q < n_seq; ++q) {
-            const float * hq = llama_get_embeddings_ith(lctx, -(n_seq - q));
-            if (hq == nullptr) throw std::runtime_error("TTS: backbone returned no hidden state");
-            std::memcpy(hiddens.data() + (size_t) q * dim, hq, (size_t) dim * sizeof(float));
-        }
-    }
-    codec_audio_lm_verdict v{};
-    verdict r;
-    {
-        codec_affinity_scope affinity(main_ctx);
-        if (!codec_audio_lm_observe(alm, sampled >= 0 ? &sampled : nullptr, needs_hidden ? hiddens.data() : nullptr, &v)) {
-            throw std::runtime_error(alm_error(alm, "TTS step"));
-        }
-        // codec.cpp's own heads: the host draws each token.
-        while (v.action == CODEC_AUDIO_LM_SAMPLE_HEAD) {
-            const llama_token id = sampleHead(v.head_group, codec_audio_lm_head_logits(alm), v.n_vocab);
-            if (!codec_audio_lm_head_token(alm, id, &v)) throw std::runtime_error(alm_error(alm, "TTS head"));
-        }
-        if (v.action == CODEC_AUDIO_LM_FEED_EMBD) {
-            feed_rows.resize((size_t) n_seq * n_embd);
-            for (int32_t q = 0; q < n_seq; ++q) {
-                std::memcpy(feed_rows.data() + (size_t) q * n_embd, codec_audio_lm_next_embd(alm, q),
-                            (size_t) n_embd * sizeof(float));
-            }
-        }
-    }
-    if (v.is_audio) {
-        r.audio = true;
-        ++n_frames;
-    }
-    if (v.action == CODEC_AUDIO_LM_STOP) {
-        stop_reason = codec_audio_lm_stop_reason(alm);
-        r.stop = true;
-        return r;
-    }
-    if (v.action == CODEC_AUDIO_LM_FEED_TOKEN) {
-        if (n_seq > 1) throw std::runtime_error("TTS: token feeds over several sequences are not supported");
-        r.feed = v.token >= 0 ? v.token : sampled;
-        if (r.feed < 0) throw std::runtime_error("TTS: the model asked to feed a token none was sampled for");
-    }
-    sample_next = v.sample_backbone;
-    return r;
-}
-
-bool llama_rn_context_tts::decodeFeed(llama_rn_context* main_ctx, int n_past) {
-    if (feed_rows.empty()) return false;
-    decoder dec{main_ctx->ctx, std::max(1, main_ctx->params.n_batch), n_past};
-    dec.embd(feed_rows.data(), n_embd, 1, n_seq);
-    feed_rows.clear();
-    return true;
-}
-
-void llama_rn_context_tts::endGeneration(llama_rn_context* main_ctx) {
-    if (!generating) return;
-    generating = false;
-    feed_rows.clear();
-    head_samplers.clear();
-    // The KV cache holds TTS rows; text completions start over.
-    llama_memory_clear(llama_get_memory(main_ctx->ctx), true);
-    if (stop_reason.empty()) stop_reason = "interrupted";
-    // Runs from error paths too: report, never throw.
+void llama_rn_context_tts::collectGeneration() {
+    audio_tokens.clear();
+    audio_latents.clear();
+    audio_latent_dim = 0;
     codec_audio_lm_generation gen{};
-    if (!codec_audio_lm_get_generation(alm, &gen)) {
-        LOG_ERROR("%s", alm_error(alm, "TTS generation").c_str());
-        return;
-    }
+    if (!codec_audio_lm_get_generation(alm, &gen)) throw std::runtime_error(alm_error(alm, "TTS generation"));
     if (gen.n_frames <= 0) return;
     const size_t n = (size_t) gen.n_frames * (size_t) gen.width;
     if (gen.kind == CODEC_AUDIO_LM_DATA_LATENTS) {
@@ -644,6 +534,14 @@ void llama_rn_context_tts::endGeneration(llama_rn_context* main_ctx) {
         code_width = gen.width;
         audio_tokens.assign(gen.codes, gen.codes + n);
     }
+}
+
+// After step_hook, which the unique_ptr needs complete.
+llama_rn_context_tts::~llama_rn_context_tts() {
+    hook.reset();
+    speakers.clear();
+    gen_voice.reset();
+    if (alm != nullptr) codec_audio_lm_free(alm);
 }
 
 // ── Speakers ──────────────────────────────────────────────────────────

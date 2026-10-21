@@ -53,19 +53,37 @@ public:
         out->sample_rate = sr ? std::atoi(sr) : 24000;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab &, alm_completion * out) override {
-        const int32_t ldim = fi_->ldim, hidden = fi_->d_model;
+    // Prompt: {prepared text}<__voice__><__codec:bos__> (the voice's prefix
+    // rows, then the first frame input: input_linear(BOS)).
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         std::string text = req.text;
+        flow_prepare_text(text);
+        std::vector<int32_t> ids;
+        if (req.text_known && !tokenize(text, vocab, &ids)) return false;
+        out->prompt = text + CODEC_AUDIO_LM_MARKER_VOICE + alm_codec_marker("bos");
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
+        d.n_embd = fi_->d_model;
+        d.needs_embeddings = true;
+        d.sample_first     = false;
+        d.max_frames = max_frames_for(ids);
+        return true;
+    }
+
+    // _estimate_max_gen_len: 12.5 frames/s for ~3 tokens/s + 2 s.
+    static int32_t max_frames_for(const std::vector<int32_t> & ids) {
+        return std::max(8, (int32_t) std::ceil(((double) ids.size() / 3.0 + 2.0) * 12.5));
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        const int32_t ldim = fi_->ldim, hidden = fi_->d_model;
+        std::string text = prompt.text();
         const int32_t fae_guess = flow_prepare_text(text) + 2;   // the reference adds 2
         fae_ = fi_->frames_after_eos >= 0 ? fi_->frames_after_eos : fae_guess;
-        std::vector<int32_t> ids(text.size() + 16);
-        int32_t n_tok = 0;
-        if (codec_lm_flow_tokenize(lm_, text.c_str(), ids.data(), (int32_t) ids.size(), &n_tok) != CODEC_STATUS_SUCCESS ||
-            n_tok <= 0) {
-            return fail(std::string("tokenize: ") + codec_lm_get_last_error(lm_));
-        }
-        ids.resize((size_t) n_tok);
-        codec_log(CODEC_LOG_LEVEL_INFO, "pocket: text=\"%s\" -> %d tokens\n", text.c_str(), n_tok);
+        std::vector<int32_t> ids;
+        if (!tokenize(text, vocab, &ids)) return false;
+        codec_log(CODEC_LOG_LEVEL_INFO, "pocket: text=\"%s\" -> %zu tokens\n", text.c_str(), ids.size());
+        if (!prompt.voice()) return fail("Pocket-TTS's prompt has <__voice__> after the text");
 
         // Voice conditioning: the speaker's reference latents -> [bos_before_voice | speaker_proj] rows.
         std::vector<float> rows;
@@ -73,7 +91,7 @@ public:
         codec_speaker_slot_type ty;
         int64_t ne[4];
         const void * mu = nullptr;
-        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+        const codec_speaker * spk = req.voice;
         if (spk != nullptr && codec_speaker_get_slot(spk, "latents", &ty, ne, &mu)) {
             if (ty != CODEC_SPEAKER_SLOT_F32 || ne[1] != ldim) return fail("Pocket-TTS speaker latents have the wrong shape");
             const int32_t n_voice = (int32_t) ne[0];
@@ -85,6 +103,7 @@ public:
             rows.resize((size_t) n_rows * hidden);
             codec_log(CODEC_LOG_LEVEL_INFO, "pocket: voice conditioning -> %d rows\n", n_rows);
         }
+        if (!prompt.codec("bos")) return fail("Pocket-TTS's prompt ends with <__codec:bos__>");
 
         if (st_) codec_lm_state_free(st_);
         st_ = codec_lm_state_new(lm_);
@@ -97,26 +116,23 @@ public:
         // CFM init noise ~ N(0, temperature) (the GGUF's codec.lm.temperature): Box-Muller on a uniform mt19937
         // stream (std::normal_distribution's polar method gives poor early
         // draws; the FlowLM is very sensitive to the first frames' noise).
-        std::seed_seq seq{ req.seed(), 0x9E3779B9u, 0x243F6A88u, 0xB7E15162u };
+        set_seed(CODEC_AUDIO_LM_DEFAULT_SEED);   // random unless the host sets one (codec_audio_lm_set_seed)
         flow_steps_  = req.flow_steps > 0 ? req.flow_steps : 0;   // 0: the GGUF's lsd_decode_steps
-        rng_.seed(seq);
         min_len_ = req.min_frames >= 0 ? req.min_frames : 0;   // ignore the EOS head before this frame
         eos_step_ = -1;
         step_ = 0;
         latents_.clear();
         n_frames_ = 0;
         stop_reason_ = "max_frames";
-
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
-        out->n_embd = hidden;
-        out->seqs   = {{alm_chunk::of_tokens(ids), alm_chunk::of_embd(std::move(rows), n_rows),
-                        alm_chunk::of_embd(std::move(first), 1)}};
-        out->needs_embeddings = true;
-        out->sample_first     = false;
-        // _estimate_max_gen_len: 12.5 frames/s for ~3 tokens/s + 2 s.
-        out->max_frames = std::max(8, (int32_t) std::ceil(((double) n_tok / 3.0 + 2.0) * 12.5));
+        out->max_frames = max_frames_for(ids);
+        out->seqs = {{alm_chunk::of_tokens(ids), alm_chunk::of_embd(std::move(rows), n_rows),
+                      alm_chunk::of_embd(std::move(first), 1)}};
         return true;
+    }
+
+    void set_seed(uint32_t seed) override {
+        std::seed_seq seq{ alm_resolve_seed(seed), 0x9E3779B9u, 0x243F6A88u, 0xB7E15162u };
+        rng_.seed(seq);
     }
 
     bool observe(const int32_t *, const float * hiddens, codec_audio_lm_verdict * v) override {
@@ -139,7 +155,7 @@ public:
         if (eos_step_ >= 0 && step >= eos_step_ + fae_) {
             stop_reason_ = "eos_head";
             codec_log(CODEC_LOG_LEVEL_INFO, "pocket AR done: %d frames, eos_step=%d, stop=eos_head\n", n_frames_, eos_step_);
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1};
             return true;
         }
         latents_.insert(latents_.end(), lat.begin(), lat.end());
@@ -148,7 +164,7 @@ public:
         if (codec_lm_step_feedback_embd(st_, next_.data()) != CODEC_STATUS_SUCCESS) {
             return fail(std::string("frame input: ") + codec_lm_state_get_last_error(st_));
         }
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, true, -1};
         return true;
     }
 
@@ -165,6 +181,29 @@ public:
     }
 
 private:
+    // The backbone's vocab (the SentencePiece model as llama.cpp's UGM)
+    // tokenizes; a backbone without one falls back to the codec GGUF's copy
+    // (deprecated).
+    bool tokenize(const std::string & text, const alm_vocab & vocab, std::vector<int32_t> * ids) {
+        ids->clear();
+        if (vocab.valid()) *ids = vocab.tokenize(text, false, false);   // nothing from a backbone without a vocab
+        if (ids->empty()) {
+            static bool warned = false;
+            if (!warned) {
+                codec_log(CODEC_LOG_LEVEL_WARN, "pocket: this backbone GGUF has no text vocabulary; tokenizing in "
+                                                "codec.cpp (deprecated: reconvert the backbone)\n");
+                warned = true;
+            }
+            ids->resize(text.size() + 16);
+            int32_t n = 0;
+            if (codec_lm_flow_tokenize(lm_, text.c_str(), ids->data(), (int32_t) ids->size(), &n) != CODEC_STATUS_SUCCESS) {
+                return fail(std::string("tokenize: ") + codec_lm_get_last_error(lm_));
+            }
+            ids->resize((size_t) std::max(0, n));
+        }
+        return !ids->empty() || fail("the text tokenized to nothing");
+    }
+
     codec_lm * lm_;
     const codec_lm_flow_info * fi_;
     int32_t flow_steps_ = 0;

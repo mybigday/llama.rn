@@ -124,6 +124,7 @@ struct codec_audio_lm {
     std::unique_ptr<alm_family> family;
     std::string                 error;
 
+    alm_format                        format;   // codec_audio_lm_tts_format
     alm_completion                    completion;
     std::vector<codec_audio_lm_chunk> chunks;   // views into `completion`
     std::vector<codec_audio_lm_head_group> head_groups;   // views into `completion`
@@ -253,33 +254,90 @@ bool codec_audio_lm_save_voice(struct codec_audio_lm * ctx, const struct codec_s
 
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void) {
     codec_audio_lm_tts_request r{};
-    r.seed = CODEC_AUDIO_LM_DEFAULT_SEED;
     r.lm_guidance = r.flow_guidance = -1.0f;
     r.min_frames = r.flow_steps = -1;
     r.max_frames = 0;
     return r;
 }
 
-bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
-                               const struct codec_audio_lm_vocab * vocab) {
-    if (ctx == nullptr) return false;
-    if (req == nullptr || req->text == nullptr) return ctx->fail("text is required");
+static bool alm_request(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req, alm_tts_request * r,
+                        bool text_optional = false) {
+    if (req == nullptr || (req->text == nullptr && !text_optional)) return ctx->fail("text is required");
+    r->text_known = req->text != nullptr;
+    if (req->text) r->text = req->text;
+    if (req->instruct) r->instruct = req->instruct;
+    r->voice = audio_lm_resolve_speaker(ctx->alm, req->voice);
+    r->min_frames = req->min_frames;
+    r->lm_guidance = req->lm_guidance;
+    r->flow_guidance = req->flow_guidance;
+    r->flow_steps = req->flow_steps;
+    r->max_frames = req->max_frames;
+    return true;
+}
+
+static bool alm_formatted(struct codec_audio_lm * ctx, const alm_tts_request & r, const alm_vocab & v, alm_format * f) {
+    *f = alm_format();
+    if (!ctx->family->tts_format(r, v, f)) return ctx->fail_family();
+    if (r.max_frames > 0) f->desc.max_frames = r.max_frames;   // build applies it again after its own estimate
+    return true;
+}
+
+bool codec_audio_lm_tts_format(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
+                               const struct codec_audio_lm_vocab * vocab, struct codec_audio_lm_format * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    alm_tts_request r;
+    if (!alm_request(ctx, req, &r) || !alm_formatted(ctx, r, alm_vocab{vocab}, &ctx->format)) return false;
+    const alm_format & f = ctx->format;
+    const alm_completion & d = f.desc;
+    *out = codec_audio_lm_format{};
+    out->prompt              = f.prompt.c_str();
+    out->flow                = d.flow;
+    out->n_seq               = f.n_seq;
+    out->grammar             = d.grammar.c_str();
+    out->penalty_exempt      = d.penalty_exempt.empty() ? nullptr : d.penalty_exempt.data();
+    out->n_penalty_exempt    = (int32_t) d.penalty_exempt.size();
+    out->allowed             = d.allowed.empty() ? nullptr : d.allowed.data();
+    out->n_allowed           = (int32_t) d.allowed.size();
+    out->needs_embeddings    = d.needs_embeddings;
+    out->needs_prompt_hidden = d.needs_prompt_hidden;
+    out->sample_first        = d.sample_first;
+    out->streamable          = d.streamable;
+    out->max_frames          = d.max_frames;
+    return true;
+}
+
+bool codec_audio_lm_tts_build(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
+                              const char * prompt, const struct codec_audio_lm_vocab * vocab,
+                              struct codec_audio_lm_completion * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    if (prompt == nullptr) return ctx->fail("build: no prompt");
+    alm_tts_request r;
+    if (!alm_request(ctx, req, &r, true)) return false;
+    const alm_vocab v{vocab};
+    alm_format f;   // the request's constraints (the prompt may be the host's edit; without text, those that don't need it)
+    if (!alm_formatted(ctx, r, v, &f)) return false;
+    alm_prompt p;
+    std::string err;
+    if (!p.parse(prompt, &err)) return ctx->fail(err);
     audio_lm_reset(ctx->alm);
     audio_lm_use_decode_speaker(ctx->alm, req->voice);
     ctx->streamer.reset();
     ctx->chunks.clear();
-    alm_tts_request r;
-    r.text = req->text;
-    if (req->instruct) r.instruct = req->instruct;
-    r.seed_ = req->seed;
-    r.min_frames = req->min_frames;
-    r.lm_guidance = req->lm_guidance;
-    r.flow_guidance = req->flow_guidance;
-    r.flow_steps = req->flow_steps;
-    r.max_frames = req->max_frames;
-    alm_vocab v{vocab};
-    if (!ctx->family->tts_prompt(r, v, &ctx->completion)) return ctx->fail_family();
+    ctx->completion = std::move(f.desc);
+    if (!ctx->family->tts_build(r, p, v, &ctx->completion)) return ctx->fail_family();
     if (r.max_frames > 0) ctx->completion.max_frames = r.max_frames;
+    if (!p.done()) {
+        const std::string m = p.next_marker();
+        return ctx->fail("build: the prompt has " + (m.empty() ? std::string("text") : "<__" + m + "__>") +
+                         " where this model's prompt ends");
+    }
+    if (ctx->completion.flow != CODEC_AUDIO_LM_FLOW_SELF_CONTAINED && ctx->completion.seqs.size() != (size_t) f.n_seq) return ctx->fail("build: sequence count differs from the format's");
+    return codec_audio_lm_get_completion(ctx, out);
+}
+
+bool codec_audio_lm_set_seed(struct codec_audio_lm * ctx, uint32_t seed) {
+    if (ctx == nullptr) return false;
+    ctx->family->set_seed(seed);
     return true;
 }
 

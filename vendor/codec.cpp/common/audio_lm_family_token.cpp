@@ -26,11 +26,11 @@ public:
         if (act == OBSERVE_STOP) {
             stop_reason_ = "eos";
             codec_log(CODEC_LOG_LEVEL_INFO, "%s AR done: %d frames, stop=eos\n", log_name(), audio_lm_codes_n_frames(alm_));
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1};
             return true;
         }
         if (act == OBSERVE_CONSUMED_EMBED) return fail("unexpected embedding feedback for a token model");
-        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, audio_lm_codes_n_frames(alm_) > before, -1};
+        *v = {CODEC_AUDIO_LM_FEED_TOKEN, true, true, audio_lm_codes_n_frames(alm_) > before, -1};
         return true;
     }
 
@@ -82,12 +82,15 @@ public:
         return token_family::create_voice(pcm, n_samples, sample_rate, ref_text);
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt (phoneme mode, in-context reference; the reference codes as their
+    // <|speech_N|> pieces):
+    //   user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref phonemes} {phonemes}<|TEXT_PROMPT_END|>
+    //   assistant:<|SPEECH_GENERATION_START|><|speech_N|>...
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         const std::string & text = req.text;
         if (!vocab.valid()) return fail("NeuTTS needs the backbone vocabulary");
         if (vocab.find_piece("<|TEXT_PROMPT_START|>") < 0) return fail("the backbone is not a NeuTTS model");
-        begin(vocab);
-        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+        const codec_speaker * spk = req.voice;
         codec_speaker_slot_type ty;
         int64_t ne[4];
         const void * data = nullptr;
@@ -101,28 +104,36 @@ public:
 
         int32_t off = -1, count = 0, eos = -1;
         if (!neutts_range(vocab, &off, &count, &eos)) return fail("NeuTTS: <|speech_N|> / end tokens not in the vocab");
-        // In-context reference, phoneme mode (neuphonic/neutts).
-        std::vector<int32_t> toks = vocab.tokenize(
-            "user: Convert the text to speech:<|TEXT_PROMPT_START|>" + ref_text + " " + text +
-            "<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>", false, true);
-        if (toks.empty()) return fail("NeuTTS: the prompt tokenized to nothing");
+        std::string prompt = "user: Convert the text to speech:<|TEXT_PROMPT_START|>" + ref_text + " " + text +
+                             "<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>";
         const auto * codes = static_cast<const int32_t *>(data);
         for (int64_t i = 0; i < ne[0]; ++i) {
             if (codes[i] < 0 || codes[i] >= count) return fail("NeuTTS: reference code out of range");
-            toks.push_back(off + codes[i]);
+            prompt += "<|speech_" + std::to_string(codes[i]) + "|>";
         }
-        audio_lm_set_audio_token_range(alm_, off, count, eos);
-        codec_log(CODEC_LOG_LEVEL_INFO, "[neutts] ICL prompt: %d ref codes, %zu prompt tokens\n", (int) ne[0], toks.size());
-
-        *out = alm_completion();
-        out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
-        out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        out->allowed = {{off, off + count}, {eos, eos + 1}};
+        out->prompt = std::move(prompt);
+        alm_completion & d = out->desc;
+        d.flow = CODEC_AUDIO_LM_FLOW_TOKENS;
+        d.allowed = {{off, off + count}, {eos, eos + 1}};
         // Some seeds sample the end token first at temp 1 / top-k 50; by
         // default it stays out for the first 25 frames (~0.3 s).
-        out->grammar = alm_min_length_grammar(eos, req.min_frames >= 0 ? req.min_frames : 25);
-        out->max_frames = 512;
-        out->streamable = true;
+        d.grammar = alm_min_length_grammar(eos, req.min_frames >= 0 ? req.min_frames : 25);
+        d.max_frames = 512;
+        d.streamable = true;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request &, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        std::string text;
+        if (!prompt.rest_text(&text)) return fail("NeuTTS's prompt takes no markers");
+        int32_t off = -1, count = 0, eos = -1;
+        if (!neutts_range(vocab, &off, &count, &eos)) return fail("NeuTTS: <|speech_N|> / end tokens not in the vocab");
+        begin(vocab);
+        std::vector<int32_t> toks = vocab.tokenize(text, false, true);
+        if (toks.empty()) return fail("NeuTTS: the prompt tokenized to nothing");
+        audio_lm_set_audio_token_range(alm_, off, count, eos);
+        codec_log(CODEC_LOG_LEVEL_INFO, "[neutts] prompt: %zu tokens\n", toks.size());
+        out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
         return true;
     }
 
@@ -248,19 +259,19 @@ public:
         return true;
     }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt: <|im_start|>\n<|text_start|>{speaker text + words}<|text_end|>\n<|audio_start|>\n
+    // {the speaker's audio section, as its vocab pieces}[<|word_start|> (1.0)]
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         const std::string & text = req.text;
         if (!vocab.valid()) return fail("OuteTTS needs the backbone vocabulary");
         outetts_version v{};
         if (!outetts_detect(vocab, &v)) return fail("the backbone is not an OuteTTS model");
-        begin(vocab);
-        const char * ver = v == outetts_version::V1 ? "0.2" : v == outetts_version::V2 ? "0.3" : "1.0";
         const std::string in_words = outetts_input_words(v, text);
-        if (in_words.empty()) return fail("OuteTTS: no words in the input text");
+        if (in_words.empty() && req.text_known) return fail("OuteTTS: no words in the input text");
 
         // Speaker: ref_text (text section) + audio_prompt (this model's token
         // ids for the audio section), baked into the codec GGUF.
-        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+        const codec_speaker * spk = req.voice;
         codec_speaker_slot_type ty;
         int64_t ne[4];
         const void * data = nullptr;
@@ -278,19 +289,35 @@ public:
         if (v == outetts_version::V1)      body = sep_join(std::string(ref_text) + " " + in_words, "<|text_sep|>");
         else if (v == outetts_version::V2) body = sep_join(std::string(ref_text) + " " + in_words, "<|space|>");
         else                               body = outetts_v3_merge(ref_text, in_words);
-        std::vector<int32_t> toks = vocab.tokenize("<|im_start|>\n<|text_start|>" + body + "<|text_end|>\n<|audio_start|>\n",
-                                                   false, true);
+        std::string prompt = "<|im_start|>\n<|text_start|>" + body + "<|text_end|>\n<|audio_start|>\n";
         const auto * ids = static_cast<const int32_t *>(data);
         for (int64_t i = 0; i < ne[0]; ++i) {
             if (ids[i] < 0 || ids[i] >= vocab.n_tokens()) {
                 return fail("OuteTTS: speaker audio_prompt token out of the backbone vocab (codec GGUF baked for another model?)");
             }
-            toks.push_back(ids[i]);
+            prompt += vocab.piece(ids[i]);
         }
-        if (v == outetts_version::V3) {
-            const std::vector<int32_t> ws = vocab.tokenize("<|word_start|>", false, true);
-            toks.insert(toks.end(), ws.begin(), ws.end());
-        }
+        if (v == outetts_version::V3) prompt += "<|word_start|>";
+        out->prompt = std::move(prompt);
+        alm_completion & d = out->desc;
+        d.flow = CODEC_AUDIO_LM_FLOW_TOKENS;
+        // Free generation (word blocks interleave with the codes) kept well
+        // formed by the prompt-derived grammar: only the input's words,
+        // complete headers, in-range codes.
+        if (req.text_known) d.grammar = outetts_build_grammar(v, in_words);
+        d.max_frames = INT32_MAX;   // the context bounds it
+        d.streamable = true;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request &, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
+        std::string text;
+        if (!prompt.rest_text(&text)) return fail("OuteTTS's prompt takes no markers");
+        outetts_version v{};
+        if (!outetts_detect(vocab, &v)) return fail("the backbone is not an OuteTTS model");
+        begin(vocab);
+        const char * ver = v == outetts_version::V1 ? "0.2" : v == outetts_version::V2 ? "0.3" : "1.0";
+        std::vector<int32_t> toks = vocab.tokenize(text, false, true);
 
         // Codec token ranges: 1.0 = c1 / c2 with a <|code|> frame sentinel;
         // 0.2 / 0.3 = <|0|>.. (WavTokenizer codebook 4096).
@@ -315,16 +342,7 @@ public:
         }
         audio_lm_set_audio_token_ranges(alm_, offs, cnts, n_q, sentinel, eos);
         codec_log(CODEC_LOG_LEVEL_INFO, "[outetts] %s: %zu prompt tokens\n", ver, toks.size());
-
-        *out = alm_completion();
-        out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        // Free generation (word blocks interleave with the codes) kept well
-        // formed by the prompt-derived grammar: only the input's words,
-        // complete headers, in-range codes.
-        out->grammar    = outetts_build_grammar(v, in_words);
-        out->max_frames = INT32_MAX;   // the context bounds it
-        out->streamable = true;
         return true;
     }
 

@@ -719,8 +719,8 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 
 codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. The flow is `getFormattedAudioCompletion()` → `completion()` → `decodeAudioTokens()` / `decodeAudioEmbeddings()`:
 
-- `getFormattedAudioCompletion()` arms a request and, like `getFormattedChat()`, returns what its format needs as `completionParams`: the prompt, the grammar (the tokens the model may emit and its minimum length) or a `logit_bias` table (`Float32Array`, one bias per token) ruling out tokens the model never samples, and `embedding` when the model reads hidden states.
-- `completion()` is the regular completion, run with those params plus your own. Its sampling is the completion's: the backbone GGUF's recommended `general.sampling.*` unless you set values, and codec.cpp's own samplers (e.g. Qwen3-TTS's codebook heads) use the same settings. It hands each step to codec.cpp, which says what the backbone reads next (a token or an embedding row) and when the speech ends; `n_predict` is yours to cap it (by default it runs until the model stops or the context is full). The result carries the decoder input — `audio_tokens` (codec codes, `audio_tokens_width` per frame), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — plus `audio_frames` and `audio_stop_reason`.
+- `getFormattedAudioCompletion()` is like `getFormattedChat()`: it keeps no state and returns the request's `completionParams` — the complete text `prompt` (the model's template, the instruct, the normalized text, a voice written as text such as OuteTTS / NeuTTS references, and MTMD-style `<__voice__>` / `<__codec:NAME__>` markers where the model needs embedding rows), the grammar (the tokens the model may emit and its minimum length) or a `logit_bias` table (`Float32Array`, one bias per token), and `embedding` when the model reads hidden states. The prompt is plain text: inspect or edit it.
+- `completion()` is the regular completion. On a context with a vocoder, codec.cpp builds its prompt the way MTMD builds media: text is tokenized, the markers become embedding rows, and the `speaker` given to `completion()` (a `LlamaSpeaker` or a builtin voice name; the model's default without one) fills `<__voice__>`. codec.cpp then takes part in every step: it says what the backbone reads next (a token or an embedding row), which steps are audio (never emitted as text; other tokens come out as text, for models that interleave both) and when the speech ends. The sampling is the completion's own, for the backbone and codec.cpp's codebook heads alike: the backbone GGUF's recommended `general.sampling.*` unless you set values; its `seed` also seeds codec.cpp's own noise. `n_predict` is yours to cap it (by default it runs until the model stops or the context is full). The result carries the decoder input — `audio_tokens` (codec codes, `audio_tokens_width` per frame), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — plus `audio_frames` and `audio_stop_reason`.
 - The decoder input decodes to PCM at any later time, in any order.
 
 One request speaks one text. Long text is the app's to split (by sentence, say), one request and one completion per piece.
@@ -748,9 +748,9 @@ const { completionParams } = await ctx.getFormattedAudioCompletion({
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
 
-// Run it with your sampling / length (the GGUF's recommended sampling applies to what you leave out),
-// then decode its result to PCM float samples (now or later)
-const result = await ctx.completion({ ...completionParams, seed: 42, n_predict: 2048 })
+// Run it with the same speaker and your sampling / length (the GGUF's recommended sampling applies
+// to what you leave out), then decode its result to PCM float samples (now or later)
+const result = await ctx.completion({ ...completionParams, speaker: 'ryan', seed: 42, n_predict: 2048 })
 const sampleRate = await ctx.getAudioSampleRate()
 const pcm = new Float32Array(
   result.embeddings?.length
@@ -771,12 +771,12 @@ const spk = await ctx.createSpeaker({
   refAudioSampleRate: 24000,
   refText: 'reference transcript',
 })
-await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
-// ...run the completion as above...
+const { completionParams } = await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
+const result = await ctx.completion({ ...completionParams, speaker: spk })
 await spk.release()         // free the native speaker when done
 ```
 
-`createSpeaker` clones the voice once (`caps.canSpeakerFromAudio`): it computes everything the model conditions on, the backbone prompt (x-vector, reference codes, transcript), the decoder, or both, and every request with that speaker reuses it. Decoding uses the voice of the latest text-to-speech completion, so decode a result before generating with another voice when the decoder depends on it (Chatterbox, CosyVoice, Qwen3-TTS Base with `refText`). Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone; re-convert them for that.
+`createSpeaker` clones the voice once (`caps.canSpeakerFromAudio`): it computes everything the model conditions on, the backbone prompt (x-vector, reference codes, transcript), the decoder, or both, and every request with that speaker reuses it. Decoding uses the voice of the latest text-to-speech completion, so decode a result before generating with another voice when the decoder depends on it (Chatterbox, CosyVoice, Qwen3-TTS Base with `refText`). Decoding is deterministic. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone; re-convert them for that.
 
 A speaker can be saved to a speaker file of the same model and reloaded without the reference audio; the reloaded voice is identical:
 
@@ -803,7 +803,7 @@ await ctx.initVocoder({
 - **Qwen3-TTS CustomVoice**: the codec GGUFs in the `BricksDisplay/Qwen3-TTS-12Hz-*-CustomVoice-GGUF` repos carry the builtin voices (`caps.builtinVoices`, default `vivian`); pick one with `getFormattedAudioCompletion({ prompt, speaker: 'ryan' })`. A `LlamaSpeaker` wins over the builtin voice. The 1.7B takes an `instruct` (how to speak, e.g. `'Speak slowly in a sad, quiet whisper.'`); `caps.canTakeInstruct` says whether a model does.
 - **Soprano**: `Soprano-1.1-80M-soprano-tok.*.gguf` declares the `soprano` pre-tokenizer, which llama.rn patches into llama.cpp and which matches the upstream tokenizer; the plain `Soprano-1.1-80M.*.gguf` files keep the `gpt-2` pre-tokenizer for older llama.rn releases.
 - **CSM**: codec GGUFs downloaded from `BricksDisplay/CSM-1B-GGUF` before 2026-10-20 lack the audio-end metadata and run to the frame cap; download them again, or pass `kv_overrides: ['codec.lm.eos_code_c0=int:0', 'codec.lm.eos_min_step=int:1']` to `initVocoder`.
-- **Chatterbox (T3)** decodes a guidance pair: create the context with `n_parallel` >= 2, or turn the guidance off at load with `initVocoder({ kv_overrides: ['codec.lm.chatterbox.sampling.cfg_weight=float:0'] })`; otherwise `getFormattedAudioCompletion` throws. Turbo needs one sequence.
+- **Chatterbox (T3)** decodes a guidance pair: create the context with `n_parallel` >= 2, or turn the guidance off at load with `initVocoder({ kv_overrides: ['codec.lm.chatterbox.sampling.cfg_weight=float:0'] })`; otherwise `getFormattedAudioCompletion` throws. Turbo needs one sequence. The Multilingual backbones in `BricksDisplay/Chatterbox-Multilingual-TTS-GGUF` since 2026-10-21 (`chatterbox-mtl-<q>.gguf` with `codec-<q>.gguf`) carry T3's text tokenizer as their vocab (`tokenizer.ggml.pre = chatterbox`), so llama.rn tokenizes the prompt; the older vocab-less files still work through codec.cpp's own tokenizer. `[lang]` tags and other language preparation stay the caller's.
 - **CosyVoice / BreezyVoice** always needs a decoder speaker: a builtin voice (`caps.builtinVoices`, e.g. `zh_female`) or a `LlamaSpeaker`. A `LlamaSpeaker` with `refText` (the clip's transcript) runs zero-shot cloning; without it, cross-lingual. Zero-shot puts the reference's speech tokens in the backbone context ahead of the text (BreezyVoice: 50 per second, so a 10 s clip is about 500 positions and a 30 s clip about 1500), so `n_ctx` has to cover the reference plus the output. Sampling is the completion's (the backbone GGUF's `general.sampling.*` unless set); upstream's repetition-aware sampling is approximated by a repetition penalty over the last 10 tokens.
 - **BreezyVoice** reads Mandarin with 注音 (bopomofo) annotations that upstream adds with g2pw. `caps.requiresPhonemes` is true for it, and the `phonemizer` hook is where to add them; plain text works but polyphones may be misread.
 - CosyVoice-300M / BreezyVoice use a llama.cpp arch (`cosyvoice`) whose relative positions are a KQ bias, which flash attention does not take. Use an F16 KV cache with them; a quantized V cache forces flash attention.

@@ -71,16 +71,55 @@ struct alm_completion {
 struct alm_tts_request {
     std::string text;
     std::string instruct;
-    uint32_t seed_ = CODEC_AUDIO_LM_DEFAULT_SEED;   // the model's own randomness
+    const codec_speaker * voice = nullptr;   // resolved: the request's, else the model's default (may be null)
+    // false: a build without the request's text (the host kept only the
+    // prompt); format then skips what depends on the text (its grammar,
+    // length estimates) and must not fail on the empty text.
+    bool text_known = true;
     int32_t min_frames = -1;         // < 0 = the model's own minimum
     int32_t max_frames = 0;          // <= 0 = model default
     float   lm_guidance = -1.0f;     // < 0 = the model's (likewise below)
     float   flow_guidance = -1.0f;
     int32_t flow_steps = -1;
 
-    // The seed of the model's own random stream (random when unset).
-    uint32_t seed() const;
 };
+
+// A formatted prompt (codec_audio_lm_tts_format) and what the completion of
+// its build carries apart from the chunks.
+struct alm_format {
+    std::string    prompt;
+    int32_t        n_seq = 1;
+    alm_completion desc;   // seqs empty
+};
+
+// The marker of a model row / boundary in a prompt: <__codec:NAME__>.
+std::string alm_codec_marker(const std::string & name);
+
+// A prompt split at its markers, read front to back by a family's build.
+class alm_prompt {
+public:
+    // false (err set) on a malformed marker.
+    bool parse(const std::string & prompt, std::string * err);
+    bool done() const { return pos_ >= pieces_.size(); }
+    // The next piece when it is text (consumed), else "" (nothing consumed).
+    std::string text();
+    // Consume a <__voice__> / <__codec:NAME__> marker when it is next.
+    bool voice();
+    bool codec(const char * name);
+    // The next piece's marker name ("voice" / "codec:NAME"), or "" for text / the end.
+    std::string next_marker() const;
+    // Text of a markerless prompt: the remaining pieces, false when a marker remains.
+    bool rest_text(std::string * out);
+
+private:
+    struct piece { bool marker; std::string s; };   // s: the text, or "voice" / "codec:NAME"
+    std::vector<piece> pieces_;
+    size_t pos_ = 0;
+};
+
+// The seed of a model-owned random stream: `seed`, or a random one for
+// CODEC_AUDIO_LM_DEFAULT_SEED.
+uint32_t alm_resolve_seed(uint32_t seed);
 
 // GBNF for a minimum length on backbone-sampled tokens: `min_tokens` tokens
 // other than `end` before `end` (an end-of-generation token or not) may follow.  `body` is the grammar of one
@@ -135,8 +174,16 @@ public:
     virtual join_params  segment_join() const { return {}; }
     virtual std::vector<std::string> split(const std::string & text, int32_t max_bytes);
     virtual int32_t join(std::vector<float> & pcm, int32_t sample_rate, int32_t i, int32_t n);
-    virtual bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) = 0;
+    // Text to speech: the prompt as text with markers, plus the completion's
+    // constraints and flags (alm_format.desc), without generation state; then
+    // its build: `out` arrives as the format's desc and gets the chunks, while
+    // the family sets up the generation.  `prompt` must be read to its end.
+    virtual bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) = 0;
+    virtual bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab,
+                           alm_completion * out) = 0;
     virtual bool prefill(const float * hiddens, int32_t n_pos);
+    // codec_audio_lm_set_seed: the model's own noise (flow / CFM heads).
+    virtual void set_seed(uint32_t) {}
     virtual bool observe(const int32_t * tokens, const float * hiddens, codec_audio_lm_verdict * v) = 0;
     // After a SAMPLE_HEAD verdict: the head's logits, and the id the host drew.
     virtual const float * head_logits() const { return nullptr; }

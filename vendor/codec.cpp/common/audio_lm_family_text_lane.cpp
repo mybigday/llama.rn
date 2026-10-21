@@ -79,7 +79,7 @@ protected:
             const float * lg = audio_lm_step_logits(alm_, &idx, &n);
             if (lg == nullptr) return fail_alm("step logits");
             logits_.assign(lg, lg + n);
-            *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, group_of(cb_), n};
+            *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, group_of(cb_), n};
             return true;
         }
         std::vector<int32_t> codes((size_t) n_cb_, 0);
@@ -89,7 +89,7 @@ protected:
             if (e && *e) return fail_alm("frame");
             stop_reason_ = "eos_code_c0";
             codec_log(CODEC_LOG_LEVEL_INFO, "AR loop done: %d frames, stop=eos_code_c0\n", frames_);
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1, 0, 0};
             return true;
         }
         ++frames_;
@@ -110,10 +110,30 @@ public:
     using text_lane_family::text_lane_family;
     const char * name() const override { return "realtime"; }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt: {the GGUF's context}<__codec:text__>{text} (BOS added; the text
+    // streams into the assistant turn, one token per frame).
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
+        if (!vocab.valid()) return fail("this model needs the backbone vocabulary");
+        audio_lm_prompt_info pi;
+        if (!audio_lm_get_prompt_info(alm_, &pi)) return fail_alm("prompt info");
+        out->prompt = pi.prompt_prefix + pi.prompt_suffix + alm_codec_marker("text") + req.text;
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
+        d.n_embd = audio_lm_hidden_dim(alm_);
+        // One head group per codebook, each with its own penalty history.
+        d.head_groups.assign((size_t) audio_lm_n_codebook(alm_), alm_head_group{true, {}, {}});
+        d.needs_embeddings = true;
+        d.sample_first     = false;
+        d.streamable       = true;
+        d.max_frames       = 512;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
         if (!begin(req, vocab)) return false;
-        const std::vector<int32_t> ctx_toks = vocab.tokenize(pi_.prompt_prefix + pi_.prompt_suffix, pi_.add_bos, pi_.parse_special);
-        text_ = vocab.tokenize(req.text, false, false);
+        const std::vector<int32_t> ctx_toks = vocab.tokenize(prompt.text(), pi_.add_bos, pi_.parse_special);
+        if (!prompt.codec("text")) return fail("this model's prompt has <__codec:text__> before the text");
+        text_ = vocab.tokenize(prompt.text(), false, false);
         if (ctx_toks.empty() || text_.empty()) return fail("empty context or text tokens");
         const int32_t prefill_n = std::min<int32_t>(pi_.prefill_text_len, (int32_t) text_.size());
         const std::vector<int32_t> pad((size_t) n_cb_, pi_.audio_pad_code);
@@ -128,17 +148,7 @@ public:
             if (!compose(text_[(size_t) i], codes.data(), rows.data() + r++ * hidden_)) return false;
         }
         text_idx_ = prefill_n;
-
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
-        out->n_embd = hidden_;
-        out->seqs   = {{alm_chunk::of_embd(std::move(rows), (int32_t) r)}};
-        // One head group per codebook, each with its own penalty history.
-        out->head_groups.assign((size_t) n_cb_, alm_head_group{true, {}, {}});
-        out->needs_embeddings = true;
-        out->sample_first     = false;
-        out->streamable       = true;
-        out->max_frames       = 512;
+        out->seqs = {{alm_chunk::of_embd(std::move(rows), (int32_t) r)}};
         return true;
     }
 
@@ -157,7 +167,7 @@ protected:
         ++text_idx_;
         next_.assign((size_t) hidden_, 0.0f);
         if (!compose(t, codes.data(), next_.data())) return false;
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1, 0, 0};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, true, -1, 0, 0};
         return true;
     }
 
@@ -180,24 +190,34 @@ public:
     using text_lane_family::text_lane_family;
     const char * name() const override { return "lfm2"; }
 
-    bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
+    // Prompt: {the GGUF's prefix}{text}{suffix} (BOS added).
+    bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
+        if (!vocab.valid()) return fail("this model needs the backbone vocabulary");
+        audio_lm_prompt_info pi;
+        if (!audio_lm_get_prompt_info(alm_, &pi)) return fail_alm("prompt info");
+        out->prompt = pi.prompt_prefix + req.text + pi.prompt_suffix;
+        alm_completion & d = out->desc;
+        d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
+        d.n_embd = audio_lm_hidden_dim(alm_);
+        // One head group (one random stream) for the text warm-up and the audio
+        // codebooks, without penalties (their histories would mix).
+        d.head_groups = {alm_head_group{false, {}, {}}};
+        d.needs_embeddings = true;
+        d.sample_first     = false;
+        d.streamable       = true;
+        d.max_frames       = 512;
+        return true;
+    }
+
+    bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
         if (!begin(req, vocab)) return false;
-        const std::vector<int32_t> toks = vocab.tokenize(pi_.prompt_prefix + req.text + pi_.prompt_suffix,
-                                                         pi_.add_bos, pi_.parse_special);
+        std::string text;
+        if (!prompt.rest_text(&text)) return fail("this model's prompt takes no markers");
+        const std::vector<int32_t> toks = vocab.tokenize(text, pi_.add_bos, pi_.parse_special);
         if (toks.empty()) return fail("empty prompt after tokenize");
         audio_ = false;
         text_steps_ = 0;
-        *out = alm_completion();
-        out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
-        out->n_embd = hidden_;
-        out->seqs   = {{alm_chunk::of_tokens(toks)}};
-        // One head group (one random stream) for the text warm-up and the audio
-        // codebooks, without penalties (their histories would mix).
-        out->head_groups = {alm_head_group{false, {}, {}}};
-        out->needs_embeddings = true;
-        out->sample_first     = false;
-        out->streamable       = true;
-        out->max_frames       = 512;
+        out->seqs = {{alm_chunk::of_tokens(toks)}};
         return true;
     }
 
@@ -208,7 +228,7 @@ public:
             if (text_steps_ < pi_.max_text_tokens) {
                 text_logits(hiddens);
                 in_text_ = true;
-                *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, -1, 0, (int32_t) logits_.size()};
+                *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, false, false, -1, 0, (int32_t) logits_.size()};   // text, not audio
                 return true;
             }
             return text_token(pi_.audio_start_id, v);
@@ -224,7 +244,7 @@ protected:
     bool after_frame(const std::vector<int32_t> & codes, codec_audio_lm_verdict * v) override {
         next_.assign((size_t) hidden_, 0.0f);
         if (!audio_lm_compose_audio_codes_embd(alm_, codes.data(), n_cb_, next_.data(), hidden_)) return fail_alm("audio embedding");
-        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, -1, 0, 0};
+        *v = {CODEC_AUDIO_LM_FEED_EMBD, false, true, true, -1, 0, 0};
         return true;
     }
 
@@ -232,11 +252,11 @@ protected:
         ++text_steps_;
         if (tok == pi_.text_end_id) {
             stop_reason_ = "text_end";
-            *v = {CODEC_AUDIO_LM_STOP, false, false, -1, 0, 0};
+            *v = {CODEC_AUDIO_LM_STOP, false, false, false, -1, 0, 0};
             return true;
         }
         if (tok == pi_.audio_start_id) audio_ = true;
-        *v = {CODEC_AUDIO_LM_FEED_TOKEN, false, false, tok, 0, 0};
+        *v = {CODEC_AUDIO_LM_FEED_TOKEN, false, audio_, false, tok, 0, 0};   // <|audio_start|> opens the audio
         return true;
     }
 
