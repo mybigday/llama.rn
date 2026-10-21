@@ -39,7 +39,8 @@ struct tts_runner_params {
     std::string ref_text;            // optional transcript of ref_audio (NeuTTS phonemization)
     std::string voice;               // builtin codec speaker name (codec_get_speaker)
     std::string speaker_file;        // speaker GGUF from codec_speaker_save
-    std::string save_speaker;        // write the decoder speaker in use to this path
+    std::string save_speaker;        // write the voice in use to this path
+    const codec_speaker * voice_spk = nullptr;   // the resolved voice (tts_runner_make_voice), borrowed
     std::string instruct;            // CosyVoice instruct text (instruct2 mode)
     std::string preset;              // sampling preset name (KittenTTS: stable / expressive)
 
@@ -121,8 +122,19 @@ bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int3
 codec_audio_lm * tts_runner_open_codec(const tts_runner_params & params, std::string * err);
 // The request's codec_audio_lm_tts_request (pointers into `params`).
 codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & params);
-// codec_audio_lm_tts_set_voice for the request's voice / speaker / reference.
-bool tts_runner_set_voice(codec_audio_lm * alm, const tts_runner_params & params, double * ms, std::string * err);
+// The request's voice: speaker_file > ref_audio (+ ref_text, when the model
+// can clone) > the builtin `voice` > `voice_spk` > the model default;
+// save_speaker writes it.
+struct tts_runner_voice {
+    codec_speaker *       owned = nullptr;
+    const codec_speaker * use   = nullptr;   // NULL: the model default
+    tts_runner_voice() = default;
+    tts_runner_voice(const tts_runner_voice &) = delete;
+    tts_runner_voice & operator=(const tts_runner_voice &) = delete;
+    ~tts_runner_voice() { if (owned) codec_speaker_free(owned); }
+};
+bool tts_runner_make_voice(codec_audio_lm * alm, const tts_runner_params & params, tts_runner_voice * out,
+                           double * ms, std::string * err);
 // Moves `buf` into out->pcm (frees it).
 bool tts_runner_take_pcm(codec_pcm_buffer * buf, tts_runner_result * out);
 bool tts_runner_generate_self_contained(codec_audio_lm * alm, const tts_runner_params & params,
@@ -149,6 +161,8 @@ tts_runner_session * tts_runner_load(const tts_runner_params & params, std::stri
 bool                 tts_runner_run (tts_runner_session * s, const tts_runner_params & params,
                                      tts_runner_result * out);
 void                 tts_runner_free(tts_runner_session * s);
+// The session's codec_audio_lm, e.g. to create / load voices (serialize with the runs).
+codec_audio_lm *     tts_runner_audio_lm(tts_runner_session * s);
 // Voices are the codec GGUF's builtin speakers, or those in `speaker_file`
 // when the runs pass one.
 tts_runner_info      tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file = "");

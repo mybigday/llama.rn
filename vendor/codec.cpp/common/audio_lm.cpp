@@ -44,7 +44,6 @@ struct audio_lm_context {
     // Decoder speaker: a builtin (owned by `model`) or one derived/loaded by
     // the caller (owned here).  NULL = model default.
     const codec_speaker * decode_speaker = nullptr;
-    codec_speaker       * owned_speaker  = nullptr;
 
     // Cached capabilities (read once at init).
     uint32_t modality_mask = 0;
@@ -399,7 +398,6 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
 
 void audio_lm_free(audio_lm_context * ctx) {
     if (ctx == nullptr) return;
-    if (ctx->owned_speaker) codec_speaker_free(ctx->owned_speaker);
     if (ctx->state)     codec_lm_state_free(ctx->state);
     if (ctx->lm)        codec_lm_free(ctx->lm);
     if (ctx->codec_ctx) codec_free(ctx->codec_ctx);
@@ -1772,13 +1770,13 @@ bool audio_lm_talker_trailing_text_embd(audio_lm_context * ctx,
         ctx->last_error = "talker_trailing_text_embd: out buffer too small";
         return false;
     }
-    // trailing_idx counts from the first *trailing* token (text[1]).  Once
-    // the text is exhausted, feed tts_eos (matches the reference's
-    // trailing_text_hidden = proj(text[1:]) ++ tts_eos).
+    // trailing_idx counts from the first *trailing* token (text[1]): the
+    // reference's trailing_text_hidden = proj(text[1:]) ++ tts_eos, and
+    // tts_pad on every step after it (Qwen3TTSTalker generation step).
     const int32_t tok_pos = trailing_idx + 1;   // maps to text_tokens[tok_pos]
-    const int32_t tok = (tok_pos < n_text && text_tokens)
-                      ? text_tokens[tok_pos]
-                      : ctx->q3_tts_eos_id;
+    const int32_t tok = (tok_pos < n_text && text_tokens) ? text_tokens[tok_pos]
+                      : tok_pos == n_text ? ctx->q3_tts_eos_id
+                      : ctx->q3_tts_pad_id;
     if (!codec_lm_project_text(ctx->lm, tok, out_embd, out_dim)) {
         const char * raw = codec_lm_get_last_error(ctx->lm);
         ctx->last_error = std::string("talker_trailing_text_embd: project failed (")
@@ -2081,12 +2079,6 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
 
 // ─── Decoder speaker ────────────────────────────────────────────────
 
-static void audio_lm_adopt_speaker(audio_lm_context * ctx, codec_speaker * spk) {
-    if (ctx->owned_speaker) codec_speaker_free(ctx->owned_speaker);
-    ctx->owned_speaker = spk;
-    ctx->decode_speaker = spk;
-}
-
 bool audio_lm_codec_has_speakers(const audio_lm_context * ctx) {
     return ctx && ctx->model && codec_model_n_speakers(ctx->model) > 0;
 }
@@ -2096,64 +2088,59 @@ bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx) {
     return codec_model_can_speaker_from_audio(ctx->model);
 }
 
-bool audio_lm_set_decode_speaker(audio_lm_context * ctx, const char * name) {
-    if (ctx == nullptr || ctx->model == nullptr) return false;
-    if (name == nullptr) {
-        audio_lm_adopt_speaker(ctx, nullptr);
-        return true;
-    }
+void audio_lm_use_decode_speaker(audio_lm_context * ctx, const codec_speaker * spk) {
+    if (ctx != nullptr) ctx->decode_speaker = spk;
+}
+
+const codec_speaker * audio_lm_decode_speaker_set(const audio_lm_context * ctx) {
+    return ctx ? ctx->decode_speaker : nullptr;
+}
+
+const codec_speaker * audio_lm_builtin_speaker(audio_lm_context * ctx, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr) return nullptr;
     const codec_speaker * spk = codec_get_speaker(ctx->model, name);
-    if (spk == nullptr) {
+    if (spk == nullptr && name != nullptr) {
         std::string avail;
         for (int32_t i = 0; i < codec_model_n_speakers(ctx->model); ++i) {
             avail += (i ? ", " : "") + std::string(codec_model_speaker_name(ctx->model, i));
         }
         ctx->last_error = std::string("unknown voice '") + name + "' (available: " +
                           (avail.empty() ? "none" : avail) + ")";
-        return false;
+    } else if (spk == nullptr) {
+        ctx->last_error = "the model has no default voice";
     }
-    audio_lm_adopt_speaker(ctx, nullptr);
-    ctx->decode_speaker = spk;
-    return true;
+    return spk;
 }
 
-bool audio_lm_load_decode_speaker(audio_lm_context * ctx, const char * path, const char * name) {
-    if (ctx == nullptr || ctx->model == nullptr || path == nullptr) return false;
+codec_speaker * audio_lm_load_speaker(audio_lm_context * ctx, const char * path, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr || path == nullptr) return nullptr;
     codec_speaker * spk = nullptr;
     if (codec_speaker_load(ctx->model, path, name, &spk) != CODEC_STATUS_SUCCESS) {
-        ctx->last_error = std::string("failed to load speaker ") + (name ? std::string("'") + name + "' " : "") +
+        ctx->last_error = std::string("failed to load voice ") + (name ? std::string("'") + name + "' " : "") +
                           "from " + path;
-        return false;
+        return nullptr;
     }
-    audio_lm_adopt_speaker(ctx, spk);
-    return true;
+    return spk;
 }
 
-bool audio_lm_decode_speaker_from_audio(audio_lm_context * ctx, const float * pcm,
-                                        int32_t n_samples, int32_t sample_rate,
-                                        const char * ref_text) {
-    if (ctx == nullptr || ctx->codec_ctx == nullptr || pcm == nullptr || n_samples <= 0) return false;
+codec_speaker * audio_lm_speaker_from_audio(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
+                                            int32_t sample_rate, const char * ref_text) {
+    if (ctx == nullptr || ctx->codec_ctx == nullptr || pcm == nullptr || n_samples <= 0) return nullptr;
     codec_audio ref = {pcm, n_samples, sample_rate, 1, CODEC_PCM_TYPE_F32};
     codec_speaker * spk = nullptr;
     if (codec_speaker_from_audio(ctx->codec_ctx, &ref, &spk) != CODEC_STATUS_SUCCESS) {
         const char * raw = codec_get_last_error(ctx->codec_ctx);
-        ctx->last_error = std::string("speaker from reference audio failed: ") + (raw ? raw : "?");
-        return false;
+        ctx->last_error = std::string("voice from reference audio failed: ") + (raw ? raw : "?");
+        return nullptr;
     }
     if (ref_text != nullptr && *ref_text) codec_speaker_set_ref_text(spk, ref_text);
-    audio_lm_adopt_speaker(ctx, spk);
-    return true;
+    return spk;
 }
 
-bool audio_lm_save_decode_speaker(audio_lm_context * ctx, const char * path, const char * name) {
-    if (ctx == nullptr || ctx->model == nullptr || path == nullptr || name == nullptr) return false;
-    const codec_speaker * spk = ctx->decode_speaker ? ctx->decode_speaker : codec_get_speaker(ctx->model, nullptr);
-    if (spk == nullptr) {
-        ctx->last_error = "no speaker to save";
-        return false;
-    }
+bool audio_lm_save_speaker(audio_lm_context * ctx, const codec_speaker * spk, const char * path, const char * name) {
+    if (ctx == nullptr || ctx->model == nullptr || spk == nullptr || path == nullptr || name == nullptr) return false;
     if (codec_speaker_save(ctx->model, spk, name, path) != CODEC_STATUS_SUCCESS) {
-        ctx->last_error = std::string("failed to save speaker to ") + path;
+        ctx->last_error = std::string("failed to save the voice to ") + path;
         return false;
     }
     return true;

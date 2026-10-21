@@ -70,7 +70,7 @@ public:
 
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
-        out->takes_ref_audio = true;
+        out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
         out->takes_ref_text  = true;
         out->takes_instruct  = true;
         out->needs_voice     = true;
@@ -108,8 +108,7 @@ public:
                 xvec.assign(v, v + ne[0] * ne[1]);
             }
         }
-        std::string ref_text = voice_.ref_text;
-        if (ref_text.empty() && codec_speaker_ref_text(spk) != nullptr) ref_text = codec_speaker_ref_text(spk);
+        const std::string ref_text = codec_speaker_ref_text(spk) != nullptr ? codec_speaker_ref_text(spk) : "";
         const std::string prefix = ci_->prompt_prefix != nullptr ? ci_->prompt_prefix : "";
 
         // Mode -> (LLM prompt text, LLM prompt speech tokens, target text).

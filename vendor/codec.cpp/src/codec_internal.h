@@ -2,6 +2,7 @@
 #define CODEC_INTERNAL_H
 
 #include "codec.h"
+#include "codec_speaker.h"
 
 #include <ggml-backend.h>
 #include <ggml.h>

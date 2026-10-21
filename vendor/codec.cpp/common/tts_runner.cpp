@@ -495,6 +495,8 @@ tts_runner_session * tts_runner_load(const tts_runner_params & a, std::string * 
     return s;
 }
 
+codec_audio_lm * tts_runner_audio_lm(tts_runner_session * s) { return s ? s->alm : nullptr; }
+
 void tts_runner_free(tts_runner_session * s) { delete s; }
 
 tts_runner_info tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file) {
@@ -527,7 +529,9 @@ static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_par
         out->error = "empty text";
         return false;
     }
-    if (!tts_runner_set_voice(s->alm, a, &out->speaker_ms, &out->error)) return false;
+    tts_runner_voice voice;
+    if (!tts_runner_make_voice(s->alm, a, &voice, &out->speaker_ms, &out->error)) return false;
+    ra.voice_spk = voice.use;
     out->pcm.clear();
     out->n_frames  = 0;
     out->decode_ms = 0.0;

@@ -1,5 +1,6 @@
 #include "pocket_mimi.h"
 
+#include "../ops/audio_frontend.h"
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
 #include "../ops/ggml_ops.h"
@@ -240,7 +241,9 @@ bool pm_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** o
 }
 
 struct pm_encode_build {
-    int32_t n_pcm = 0;
+    int32_t n_pcm = 0;      // encoder input: samples at the model rate, a multiple of hop
+    int32_t n_in = 0;       // speaker graph: reference samples at in_sr (0 = encode graph)
+    int32_t in_sr = 0;
     codec_pocket_mimi cfg;
     const codec_model * model = nullptr;
 };
@@ -252,8 +255,19 @@ bool pm_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** o
 
     auto W = [&](const std::string & n) { return codec_graph_weight(ctx_eval, p->model, n); };
 
-    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_pcm, 1);
-    ggml_set_name(t_pcm, pm_name_pcm());
+    ggml_tensor * t_pcm = nullptr;
+    if (p->n_in > 0) {
+        // Speaker graph: resample the reference to the model rate, then zero-pad
+        // to whole frames as the encode entry does.
+        ggml_tensor * t_ref = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, p->n_in);
+        ggml_set_name(t_ref, pm_name_pcm());
+        ggml_tensor * x = codec_op_resample_sinc_hann(ctx_eval, t_ref, p->in_sr, m.sample_rate);
+        x = ggml_pad(ctx_eval, x, (int) (p->n_pcm - x->ne[0]), 0, 0, 0);
+        t_pcm = ggml_reshape_2d(ctx_eval, x, p->n_pcm, 1);
+    } else {
+        t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_pcm, 1);
+        ggml_set_name(t_pcm, pm_name_pcm());
+    }
 
     // SEANet encoder conv stack.
     ggml_tensor * l0_w = W("pocket_mimi.enc.l0.w");
@@ -507,6 +521,81 @@ static enum codec_status codec_pocket_mimi_encode(
 }
 
 // ---------------------------------------------------------------------
+// speaker (voice conditioning)
+// ---------------------------------------------------------------------
+
+// A Pocket-TTS voice is the reference's encoder latent: slot `latents`,
+// F32 ne = [n_frames, latent_dim] (channel-major, as encode returns it).
+// The flow LM projects it (speaker_proj) into its prompt rows
+// (TTSModel._encode_audio / get_state_for_audio_prompt).
+static bool codec_pocket_mimi_speaker_validate(const codec_model * model, const codec_speaker * spk, std::string * err) {
+    const codec_pocket_mimi & m = *static_cast<const codec_pocket_mimi *>(model->impl);
+    const codec_speaker_slot * s = spk->slot("latents");
+    if (s == nullptr || s->type != GGML_TYPE_F32 || s->ne[0] < 1 || s->ne[1] != m.latent_dim || s->ne[2] != 1 || s->ne[3] != 1) {
+        *err = "Pocket-TTS speaker needs an F32 latents slot [n_frames, " + std::to_string(m.latent_dim) + "]";
+        return false;
+    }
+    return true;
+}
+
+static enum codec_status codec_pocket_mimi_speaker_from_audio(
+        struct codec_context * ctx, const std::vector<float> & pcm, int32_t sample_rate, struct codec_speaker * out) {
+    codec_pocket_mimi & m = *static_cast<codec_pocket_mimi *>(ctx->model->impl);
+    if (pcm.empty() || sample_rate <= 0) {
+        codec_context_set_error(ctx, "invalid reference audio");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    // The reference server keeps the first 30 s of an uploaded voice (main.py, truncate=True).
+    const int32_t n_in = (int32_t) std::min<int64_t>((int64_t) pcm.size(), (int64_t) 30 * sample_rate);
+    const int32_t hop = m.hop_size > 0 ? m.hop_size : 1;
+    const int64_t n_sr = codec_resample_out_len(n_in, sample_rate, m.sample_rate);
+    const int32_t n_pcm = (int32_t) ((n_sr + hop - 1) / hop) * hop;
+    if (n_sr <= 0) {
+        codec_context_set_error(ctx, "reference audio too short");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+
+    pm_encode_build build = {};
+    build.n_pcm = n_pcm;
+    build.n_in = n_in;
+    build.in_sr = sample_rate;
+    build.cfg = m;
+    build.model = ctx->model;
+
+    codec_graph_eval_guard guard(ctx);
+    std::string err;
+    codec_graph_cache_entry * entry = nullptr;
+    if (!codec_graph_cache_get_or_build(
+            ctx,
+            { CODEC_GRAPH_POCKET_MIMI_SPEAKER, /*n_frames=*/n_pcm / hop, /*n_q=*/0,
+              /*hop=*/sample_rate, /*n_in=*/n_in, /*latent_dim=*/m.latent_dim },
+            pm_build_encode, &build, sizeof(build), &entry, &err)) {
+        codec_context_set_error(ctx, err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, pm_name_pcm());
+    ggml_tensor * t_mu = codec_graph_get_tensor(ctx, entry, pm_name_mu());
+    if (t_pcm == nullptr || t_mu == nullptr) {
+        codec_context_set_error(ctx, "cached Pocket-Mimi speaker graph is invalid");
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (!codec_graph_prepare_io(ctx, entry, &err) ||
+        !codec_runtime_write_tensor(t_pcm, pcm.data(), (size_t) n_in * sizeof(float), &err) ||
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
+        codec_context_set_error(ctx, err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    std::vector<float> mu((size_t) ggml_nelements(t_mu));
+    if (!codec_runtime_read_tensor(t_mu, mu.data(), mu.size() * sizeof(float), &err)) {
+        codec_context_set_error(ctx, err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    const int64_t ne[2] = {t_mu->ne[0], t_mu->ne[1]};
+    codec_speaker_add_slot(out, "latents", GGML_TYPE_F32, ne, 2, mu.data());
+    return CODEC_STATUS_SUCCESS;
+}
+
+// ---------------------------------------------------------------------
 // init + vtable
 // ---------------------------------------------------------------------
 
@@ -549,6 +638,7 @@ enum codec_status codec_pocket_mimi_init(struct codec_model * model) {
     model->hop_size = m.hop_size;
     model->n_q = 0;
     model->latent_dim = m.latent_dim;
+    model->can_speaker_from_audio = m.has_encoder;
     return CODEC_STATUS_SUCCESS;
 }
 
@@ -570,6 +660,8 @@ const struct codec_model_vtable * codec_pocket_mimi_vtable() {
         codec_pocket_mimi_encode,
         /*decode=*/nullptr,
         codec_pocket_mimi_decode_latent,
+        codec_pocket_mimi_speaker_validate,
+        codec_pocket_mimi_speaker_from_audio,
     };
     return &vtable;
 }

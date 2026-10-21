@@ -48,6 +48,7 @@ codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & a) {
     req.instruct = a.instruct.empty() ? nullptr : a.instruct.c_str();
     req.preset   = a.preset.empty() ? nullptr : a.preset.c_str();
     req.seed     = a.seed;
+    req.voice    = a.voice_spk;
     if (a.has_temp)        req.temperature = a.temp;
     if (a.has_top_p)       req.top_p = a.top_p;
     if (a.has_top_k)       req.top_k = a.top_k;
@@ -61,24 +62,48 @@ codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & a) {
     return req;
 }
 
-bool tts_runner_set_voice(codec_audio_lm * alm, const tts_runner_params & a, double * ms, std::string * err) {
-    // The voice the request names (the model default when it names none).
-    codec_audio_lm_tts_voice v = codec_audio_lm_default_tts_voice();
+bool tts_runner_make_voice(codec_audio_lm * alm, const tts_runner_params & a, tts_runner_voice * out, double * ms,
+                           std::string * err) {
+    const auto t0 = std::chrono::steady_clock::now();
+    codec_audio_lm_caps caps{};
+    codec_audio_lm_get_caps(alm, &caps);
     std::vector<float> ref_pcm;
     int32_t ref_n = 0, ref_sr = 0;
     if (!load_ref_audio(a.ref_audio_path, ref_pcm, &ref_n, &ref_sr, err)) return false;
-    v.voice           = a.voice.empty() ? nullptr : a.voice.c_str();
-    v.speaker_file    = a.speaker_file.empty() ? nullptr : a.speaker_file.c_str();
-    v.ref_pcm         = ref_pcm.empty() ? nullptr : ref_pcm.data();
-    v.ref_n_samples   = ref_n;
-    v.ref_sample_rate = ref_sr;
-    v.ref_text        = a.ref_text.empty() ? nullptr : a.ref_text.c_str();
-    v.save_speaker    = a.save_speaker.empty() ? nullptr : a.save_speaker.c_str();
-    const auto t0 = std::chrono::steady_clock::now();
-    const bool ok = codec_audio_lm_tts_set_voice(alm, &v);
+    const char * name = a.voice.empty() ? nullptr : a.voice.c_str();
+    if (!a.speaker_file.empty()) {
+        out->owned = codec_audio_lm_load_voice(alm, a.speaker_file.c_str(), name);
+        if (out->owned == nullptr) { *err = codec_audio_lm_last_error(alm); return false; }
+        codec_log(CODEC_LOG_LEVEL_INFO, "voice: loaded %s%s%s\n", a.speaker_file.c_str(), name ? " : " : "", name ? name : "");
+    } else if (!ref_pcm.empty() && caps.takes_ref_audio) {
+        out->owned = codec_audio_lm_create_voice(alm, ref_pcm.data(), ref_n, ref_sr,
+                                                 a.ref_text.empty() ? nullptr : a.ref_text.c_str());
+        if (out->owned == nullptr) { *err = codec_audio_lm_last_error(alm); return false; }
+        codec_log(CODEC_LOG_LEVEL_INFO, "voice: cloned from reference audio (%d samples @ %d Hz)\n", ref_n, ref_sr);
+    } else {
+        if (!ref_pcm.empty()) {
+            codec_log(CODEC_LOG_LEVEL_WARN, "voice: this model cannot clone from reference audio; using the %s voice\n",
+                      name ? name : "default");
+        }
+        if (name != nullptr) {
+            out->use = codec_audio_lm_get_voice(alm, name);
+            if (out->use == nullptr) { *err = codec_audio_lm_last_error(alm); return false; }
+            codec_log(CODEC_LOG_LEVEL_INFO, "voice: %s\n", name);
+        } else {
+            out->use = a.voice_spk;
+        }
+    }
+    if (out->owned != nullptr) out->use = out->owned;
+    if (!a.save_speaker.empty()) {
+        const codec_speaker * v = out->use ? out->use : codec_audio_lm_get_voice(alm, nullptr);
+        if (v == nullptr || !codec_audio_lm_save_voice(alm, v, a.save_speaker.c_str(), "saved")) {
+            *err = std::string("save voice: ") + codec_audio_lm_last_error(alm);
+            return false;
+        }
+        codec_log(CODEC_LOG_LEVEL_INFO, "voice: saved to %s\n", a.save_speaker.c_str());
+    }
     if (ms) *ms = ms_since(t0);
-    if (!ok) *err = codec_audio_lm_last_error(alm);
-    return ok;
+    return true;
 }
 
 bool tts_runner_take_pcm(codec_pcm_buffer * buf, tts_runner_result * out) {
@@ -137,11 +162,14 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & a, tts_runner_
         codec_audio_lm_free(alm);
         return 0;
     }
-    if (!tts_runner_set_voice(alm, a, &out->speaker_ms, &out->error)) {
+    tts_runner_voice voice;
+    if (!tts_runner_make_voice(alm, a, &voice, &out->speaker_ms, &out->error)) {
         codec_audio_lm_free(alm);
         return 1;
     }
-    tts_runner_generate_self_contained(alm, a, out);
+    tts_runner_params av = a;
+    av.voice_spk = voice.use;
+    tts_runner_generate_self_contained(alm, av, out);
     codec_audio_lm_free(alm);
     out->total_ms = ms_since(t0);
     return 1;

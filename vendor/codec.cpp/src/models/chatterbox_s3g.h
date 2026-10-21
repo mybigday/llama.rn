@@ -2,6 +2,7 @@
 #define CODEC_MODEL_CHATTERBOX_S3G_H
 
 #include "../codec_internal.h"
+#include "../blocks/chatterbox_voice_encoder.h"
 
 struct codec_chatterbox_s3g {
     int32_t sample_rate = 24000;
@@ -17,6 +18,14 @@ struct codec_chatterbox_s3g {
     // "xvector_sincnet" adds slots lm_cond [lm_cond_dim] and ref_tokens.
     std::string lm_encoder;
     int32_t lm_cond_dim = 0;  // chatterbox_s3g.spk.has_encoder: s3t.* + s3g.cp.* + s3g.spk.mel_fb
+    // Chatterbox T3 conditioning bundled in the same GGUF (the VoiceEncoder
+    // under `speaker.voice_encoder.*`): adds slots t3_speaker_emb [embed] and
+    // t3_cond_tokens (S3 tokens of the first t3_cond_tokens / 25 s).
+    bool with_t3 = false;
+    int32_t t3_cond_tokens = 0;   // T3 speech_cond_prompt_len
+    float t3_trim_db = 20.0f;     // VoiceEncoder.embeds_from_wavs(trim_top_db) (0 = no trim)
+    float ref_lufs = 0.0f;        // Turbo: reference loudness-normalized to this (0 = off)
+    codec_voice_encoder_params ve;
     bool has_encoder = false;
     bool has_decoder = true;
 };

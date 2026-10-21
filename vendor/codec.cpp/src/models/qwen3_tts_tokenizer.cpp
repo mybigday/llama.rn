@@ -1,5 +1,6 @@
 #include "qwen3_tts_tokenizer.h"
 
+#include "../ops/audio_frontend.h"
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
 #include "../ops/ggml_ops.h"
@@ -112,6 +113,33 @@ enum codec_status codec_qwen3_tts_tokenizer_init(struct codec_model * model) {
     model->win_length = -1;
     model->n_mels = -1;
     model->latent_dim = q3.latent_dim;
+
+    impl.has_spk_enc = q3.has_encoder && ggml_get_tensor(model->weights, "speaker.qwen3_tts.fc.weight") != nullptr;
+    if (impl.has_spk_enc) {
+        gguf_context * gf = model->gguf;
+        codec_ecapa_params & e = impl.ecapa;
+        e.n_mels        = codec_read_i32_kv(gf, "codec.speaker.ecapa.mel_dim", e.n_mels);
+        e.res2net_scale = codec_read_i32_kv(gf, "codec.speaker.ecapa.enc_res2net_scale", e.res2net_scale);
+        e.n_fft         = codec_read_i32_kv(gf, "codec.speaker.ecapa.n_fft", e.n_fft);
+        e.hop           = codec_read_i32_kv(gf, "codec.speaker.ecapa.hop_size", e.hop);
+        impl.spk_sample_rate = codec_read_i32_kv(gf, "codec.speaker.ref_sample_rate", impl.spk_sample_rate);
+        std::vector<int32_t> channels, kernels, dilations;
+        codec_read_i32_array_kv_vec(gf, "codec.speaker.ecapa.enc_channels", &channels);
+        codec_read_i32_array_kv_vec(gf, "codec.speaker.ecapa.enc_kernel_sizes", &kernels);
+        codec_read_i32_array_kv_vec(gf, "codec.speaker.ecapa.enc_dilations", &dilations);
+        if (channels.size() < 3 || channels.size() > (size_t) kCodecEcapaMaxBlocks ||
+            channels.size() != kernels.size() || channels.size() != dilations.size() ||
+            impl.spk_sample_rate != q3.sample_rate) {
+            return CODEC_STATUS_INVALID_ARG;
+        }
+        e.n_blocks = (int32_t) channels.size();
+        for (size_t i = 0; i < channels.size(); ++i) {
+            e.channels[i] = channels[i];
+            e.kernels[i] = kernels[i];
+            e.dilations[i] = dilations[i];
+        }
+    }
+    model->can_speaker_from_audio = impl.has_spk_enc;
 
     return CODEC_STATUS_SUCCESS;
 }
@@ -700,6 +728,101 @@ enum codec_status codec_qwen3_tts_tokenizer_encode(
     return codec_mimi_encode_with(ctx, &impl.mimi, pcm, out_tokens, params);
 }
 
+// create_voice_clone_prompt as one graph: the reference resampled to 24 kHz
+// -> the ECAPA-TDNN x-vector (extract_speaker_embedding) and the codec's own
+// codes of it (speech_tokenizer.encode, the ICL ref_code).
+struct q3t_speaker_build {
+    int32_t n_samples = 0;
+    int32_t sample_rate = 0;
+    int32_t n24 = 0;
+    codec_ecapa_params ecapa;
+    mimi_encode_build mimi;
+    const codec_model * model = nullptr;
+};
+
+static bool q3t_build_speaker(ggml_context * ctx, void * user_data, ggml_tensor ** out) {
+    const auto * p = static_cast<const q3t_speaker_build *>(user_data);
+    if (ctx == nullptr || p == nullptr || p->model == nullptr || out == nullptr) return false;
+    ggml_tensor * pcm = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, p->n_samples);
+    ggml_set_name(pcm, "q3t.spk.pcm");
+    ggml_tensor * wav24 = codec_op_resample_sinc_hann(ctx, pcm, p->sample_rate, 24000);
+    if (wav24 == nullptr || ggml_nelements(wav24) != p->n24) return false;
+    ggml_tensor * xv = codec_block_ecapa_tdnn(ctx, p->model, "speaker.qwen3_tts", p->ecapa, wav24);
+    ggml_tensor * codes = nullptr;
+    if (xv == nullptr ||
+        !codec_mimi_build_encode_from(ctx, &p->mimi, ggml_reshape_2d(ctx, ggml_cont(ctx, wav24), p->n24, 1), &codes) ||
+        codes == nullptr) {
+        return false;
+    }
+    ggml_set_name(xv, "q3t.spk.xvector");
+    ggml_set_name(codes, "q3t.spk.ref_codes");
+    ggml_set_output(xv);
+    ggml_set_output(codes);
+    *out = xv;
+    return true;
+}
+
+static enum codec_status codec_qwen3_tts_tokenizer_speaker_from_audio(
+        codec_context * ctx, const std::vector<float> & pcm, int32_t sample_rate, codec_speaker * out) {
+    auto & impl = *static_cast<codec_qwen3_tts_tokenizer_impl *>(ctx->model->impl);
+    if (pcm.empty() || sample_rate <= 0 || pcm.size() > (size_t) INT32_MAX) {
+        codec_context_set_error(ctx, "invalid reference audio");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    q3t_speaker_build build;
+    build.n_samples = (int32_t) pcm.size();
+    build.sample_rate = sample_rate;
+    build.n24 = (int32_t) codec_resample_out_len((int64_t) pcm.size(), sample_rate, 24000);
+    build.ecapa = impl.ecapa;
+    build.model = ctx->model;
+    std::string err;
+    if (codec_ecapa_n_frames(impl.ecapa, build.n24) < 2 ||
+        !codec_mimi_init_encode_build(ctx, &impl.mimi, build.n24, &build.mimi, &err)) {
+        codec_context_set_error(ctx, err.empty() ? "reference audio too short for the speaker encoder" : err);
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    build.mimi.model = ctx->model;
+
+    codec_graph_eval_guard guard(ctx);
+    codec_graph_cache_entry * entry = nullptr;
+    if (!codec_graph_cache_get_or_build(ctx, {CODEC_GRAPH_QWEN3_TTS_SPEAKER, build.n_samples, 0, sample_rate, 0, 0},
+                                        q3t_build_speaker, &build, sizeof(build), &entry, &err)) {
+        codec_context_set_error(ctx, "speaker graph: " + err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "q3t.spk.pcm");
+    ggml_tensor * t_xv = codec_graph_get_tensor(ctx, entry, "q3t.spk.xvector");
+    ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, "q3t.spk.ref_codes");
+    if (t_pcm == nullptr || t_xv == nullptr || t_codes == nullptr) {
+        codec_context_set_error(ctx, "invalid speaker graph IO");
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    std::vector<float> xv((size_t) ggml_nelements(t_xv));
+    std::vector<int32_t> codes_tq;
+    if (!codec_graph_prepare_io(ctx, entry, &err) ||
+        !codec_runtime_write_tensor(t_pcm, pcm.data(), pcm.size() * sizeof(float), &err) ||
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err) ||
+        !codec_runtime_read_tensor(t_xv, xv.data(), xv.size() * sizeof(float), &err) ||
+        !codec_runtime_read_tensor_i32_2d_tq(t_codes, &codes_tq, &err)) {
+        codec_context_set_error(ctx, "speaker graph: " + err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    const int64_t n_t = t_codes->ne[0], n_q = t_codes->ne[1];
+    if (n_q < impl.q3.n_q) {
+        codec_context_set_error(ctx, "speaker graph: fewer codebooks than the codec");
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    std::vector<int32_t> ref((size_t) n_t * impl.q3.n_q);
+    for (int64_t t = 0; t < n_t; ++t) {
+        for (int32_t q = 0; q < impl.q3.n_q; ++q) ref[(size_t) (t * impl.q3.n_q + q)] = codes_tq[(size_t) (t * n_q + q)];
+    }
+    const int64_t ne_xv[1] = {(int64_t) xv.size()};
+    const int64_t ne_rc[2] = {impl.q3.n_q, n_t};
+    codec_speaker_add_slot(out, "xvector", GGML_TYPE_F32, ne_xv, 1, xv.data());
+    codec_speaker_add_slot(out, "ref_codes", GGML_TYPE_I32, ne_rc, 2, ref.data());
+    return CODEC_STATUS_SUCCESS;
+}
+
 static void * codec_qwen3_tts_tokenizer_create_impl() {
     return new (std::nothrow) codec_qwen3_tts_tokenizer_impl();
 }
@@ -725,12 +848,33 @@ static enum codec_status codec_qwen3_tts_tokenizer_decode_wrap(
     return codec_qwen3_tts_tokenizer_decode(ctx, tokens, out_pcm, params);
 }
 
-// Qwen3-TTS CustomVoice builtin voices condition the talker prompt, not the
-// decoder: `spk_id` I32 [1] is the codec-vocab row the talker embeds as its
-// speaker row, `language_id` I32 [1] (dialect voices) the language tag used
-// when the language is auto.
+// Qwen3-TTS voices condition the talker prompt. CustomVoice builtin voices:
+// `spk_id` I32 [1] is the codec-vocab row the talker embeds as its speaker
+// row, `language_id` I32 [1] (dialect voices) the language tag used when the
+// language is auto. Base voices (cloned): `xvector` F32 [hidden] is the
+// speaker row, and `ref_codes` I32 [n_q, T] (the reference's codes) with the
+// speaker's ref_text select the in-context prompt (upstream's ICL mode).
 static bool codec_qwen3_tts_tokenizer_speaker_validate(
-        const codec_model * /*model*/, const codec_speaker * spk, std::string * err) {
+        const codec_model * model, const codec_speaker * spk, std::string * err) {
+    if (spk->slot("spk_id") == nullptr && spk->slot("xvector") != nullptr) {
+        const auto & impl = *static_cast<const codec_qwen3_tts_tokenizer_impl *>(model->impl);
+        const codec_speaker_slot * xv = spk->slot("xvector");
+        if (xv->type != GGML_TYPE_F32 || xv->ne[1] != 1 || xv->ne[0] < 1) {
+            *err = "Qwen3-TTS xvector slot must be F32 [hidden]";
+            return false;
+        }
+        const codec_speaker_slot * rc = spk->slot("ref_codes");
+        if (rc != nullptr) {
+            const auto * v = reinterpret_cast<const int32_t *>(rc->data.data());
+            bool ok = rc->type == GGML_TYPE_I32 && rc->ne[0] == impl.q3.n_q && rc->ne[1] >= 1 && rc->ne[2] == 1;
+            for (int64_t i = 0; ok && i < rc->nelements(); ++i) ok = v[i] >= 0 && v[i] < impl.q3.codebook_size;
+            if (!ok) {
+                *err = "Qwen3-TTS ref_codes slot must be I32 [" + std::to_string(impl.q3.n_q) + ", T] codes";
+                return false;
+            }
+        }
+        return true;
+    }
     auto tag_ok = [&](const char * name, bool required) {
         const codec_speaker_slot * s = spk->slot(name);
         if (s == nullptr && !required) return true;
@@ -756,7 +900,7 @@ const struct codec_model_vtable * codec_qwen3_tts_tokenizer_vtable() {
         codec_qwen3_tts_tokenizer_decode_wrap,
         nullptr,
         codec_qwen3_tts_tokenizer_speaker_validate,
-        nullptr,
+        codec_qwen3_tts_tokenizer_speaker_from_audio,
     };
     return &vtable;
 }

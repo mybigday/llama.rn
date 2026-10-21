@@ -7,6 +7,7 @@
 #include "audio_lm_family.h"
 #include "audio_lm_sampler.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace codec_common {
@@ -19,9 +20,10 @@ public:
 
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
-        out->takes_ref_audio = audio_lm_has_speaker_enc(alm_) || audio_lm_codec_can_speaker_from_audio(alm_);
+        out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
+        out->takes_ref_text  = out->takes_ref_audio && audio_lm_talker_has_projection(alm_);
         out->takes_instruct  = meta_true("codec.lm.qwen3tts.takes_instruct");
-        out->needs_voice     = audio_lm_talker_has_projection(alm_) && !builtin_voice();
+        out->needs_voice     = audio_lm_talker_has_projection(alm_) && !talker_voice();
         const char * sr = audio_lm_meta_str(alm_, "codec.sample_rate");
         out->sample_rate = sr ? std::atoi(sr) : 24000;
     }
@@ -36,30 +38,30 @@ public:
         talker_text_.clear();
         talker_step_ = 0;
 
-        // Speaker conditioning from reference audio (x-vector prefix row).
+        // A cloned Qwen3-TTS voice: the x-vector speaker row, and with the
+        // reference's codes + transcript the in-context prompt (ICL).
         std::vector<float> speaker;
-        if (audio_lm_has_speaker_enc(alm_) && !voice_.ref_pcm.empty()) {
-            audio_lm_input in;
-            in.text = req.text;
-            in.ref_pcm = voice_.ref_pcm.data();
-            in.ref_n_samples = (int32_t) voice_.ref_pcm.size();
-            in.ref_sample_rate = voice_.ref_sample_rate;
-            audio_lm_prompt sp;
-            if (!audio_lm_build_prompt(alm_, in, &sp)) return fail_alm("speaker from reference audio");
-            if (!sp.embeds_prefix.empty() && sp.embeds_prefix_hidden == hidden_) {
-                speaker.assign(sp.embeds_prefix.begin(), sp.embeds_prefix.begin() + hidden_);
-                codec_log(CODEC_LOG_LEVEL_INFO, "speaker: x-vector prefix rows=%d hidden=%d\n",
-                          sp.embeds_prefix_rows, sp.embeds_prefix_hidden);
+        icl_codes_.clear();
+        std::string ref_text;
+        if (const codec_speaker * spk = audio_lm_decode_speaker(alm_)) {
+            codec_speaker_slot_type ty;
+            int64_t ne[4];
+            const void * d = nullptr;
+            if (codec_speaker_get_slot(spk, "xvector", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_F32) {
+                speaker.assign(static_cast<const float *>(d), static_cast<const float *>(d) + ne[0]);
             }
-        } else if (!voice_.ref_pcm.empty() && !audio_lm_has_speaker_enc(alm_)) {
-            codec_log(CODEC_LOG_LEVEL_INFO, "note: reference audio given but the model has no speaker encoder; ignoring\n");
+            if (codec_speaker_get_slot(spk, "ref_codes", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32 && ne[0] == n_cb_) {
+                icl_codes_.assign(static_cast<const int32_t *>(d), static_cast<const int32_t *>(d) + ne[0] * ne[1]);
+            }
+            if (const char * t = codec_speaker_ref_text(spk)) ref_text = t;
         }
+        if (!speaker.empty() && (int32_t) speaker.size() != hidden_) return fail("the voice's x-vector does not fit this model");
+        if (ref_text.empty()) icl_codes_.clear();   // x_vector_only_mode
         const bool talker = audio_lm_talker_has_projection(alm_);
         // The Qwen3-TTS Base model clones a voice: its reference refuses to
-        // run without reference audio (CustomVoice codecs carry builtin voices).
-        if (talker && !builtin_voice() && (int32_t) speaker.size() != hidden_) {
-            return fail("this is a voice-clone model and needs reference audio; none was given or the "
-                        "speaker encoder produced no x-vector");
+        // run without one (CustomVoice codecs carry builtin voices).
+        if (talker && !talker_voice()) {
+            return fail("this is a voice-clone model and needs a voice (reference audio or a speaker file)");
         }
 
         audio_lm_set_uses_embed_override(alm_, true, 1);
@@ -81,7 +83,17 @@ public:
             const std::vector<int32_t> role = vocab.tokenize(header, false, true);
             talker_text_ = vocab.tokenize(req.text, false, false);
             if (talker_text_.empty()) return fail("empty text");
-            const int32_t cap_rows = (int32_t) role.size() + 6 + 4;
+            // ICL (generate_icl_prompt, streaming text): the text lane is the
+            // reference transcript followed by the text, and the codec lane
+            // after codec_bos is the reference's frames; the text rides on.
+            const int32_t n_icl = (int32_t) icl_codes_.size() / std::max(1, n_cb_);
+            if (n_icl > 0) {
+                std::vector<int32_t> ids = vocab.tokenize(ref_text, false, false);
+                ids.insert(ids.end(), talker_text_.begin(), talker_text_.end());
+                talker_text_ = std::move(ids);
+                codec_log(CODEC_LOG_LEVEL_INFO, "talker: in-context voice prompt, %d reference frames\n", n_icl);
+            }
+            const int32_t cap_rows = (int32_t) role.size() + 6 + 4 + n_icl;
             std::vector<float> prefix((size_t) cap_rows * hidden_);
             int32_t n_rows = 0, consumed = 0;
             const bool xv = (int32_t) speaker.size() == hidden_;
@@ -90,6 +102,18 @@ public:
                                               xv ? hidden_ : 0, prefix.data(), cap_rows, &n_rows, &consumed)) {
                 return fail_alm("prompt prefix");
             }
+            std::vector<float> lane((size_t) hidden_);
+            for (int32_t t = 0; t < n_icl; ++t, ++n_rows) {
+                float * row = prefix.data() + (size_t) n_rows * hidden_;
+                if (codec_lm_compose_audio_embd(audio_lm_get_lm(alm_), icl_codes_.data() + (size_t) t * n_cb_, row) !=
+                        CODEC_STATUS_SUCCESS ||
+                    !audio_lm_talker_trailing_text_embd(alm_, talker_text_.data(), (int32_t) talker_text_.size(), t,
+                                                        lane.data(), hidden_)) {
+                    return fail_alm("in-context prompt");
+                }
+                for (int32_t i = 0; i < hidden_; ++i) row[i] += lane[(size_t) i];
+            }
+            talker_step_ = n_icl;
             prefix.resize((size_t) n_rows * hidden_);
             chunks.push_back(alm_chunk::of_embd(std::move(prefix), n_rows));
         } else {
@@ -196,13 +220,44 @@ private:
         const char * v = audio_lm_meta_str(alm_, key);
         return v != nullptr && std::strcmp(v, "true") == 0;
     }
-    bool builtin_voice() const {
+    // A talker voice: a CustomVoice builtin (spk_id) or a cloned one (xvector).
+    bool talker_voice() const {
         const codec_speaker * spk = audio_lm_decode_speaker(alm_);
         codec_speaker_slot_type ty;
         int64_t ne[4];
         const void * data = nullptr;
-        return spk != nullptr && codec_speaker_get_slot(spk, "spk_id", &ty, ne, &data);
+        return spk != nullptr &&
+               (codec_speaker_get_slot(spk, "spk_id", &ty, ne, &data) || codec_speaker_get_slot(spk, "xvector", &ty, ne, &data));
     }
+
+public:
+    // ICL voices decode the reference's codes ahead of the generated ones and
+    // cut the reference's share of the audio (generate_voice_clone).
+    bool decode_generation(const alm_generation & g, audio_lm_audio_output * out) override {
+        std::vector<int32_t> ref;
+        if (const codec_speaker * spk = audio_lm_decode_speaker(alm_)) {
+            codec_speaker_slot_type ty;
+            int64_t ne[4];
+            const void * d = nullptr;
+            const char * text = codec_speaker_ref_text(spk);
+            if (!g.latent && audio_lm_talker_has_projection(alm_) && text != nullptr && *text &&
+                codec_speaker_get_slot(spk, "ref_codes", &ty, ne, &d) && ty == CODEC_SPEAKER_SLOT_I32 && ne[0] == g.width) {
+                ref.assign(static_cast<const int32_t *>(d), static_cast<const int32_t *>(d) + ne[0] * ne[1]);
+            }
+        }
+        if (ref.empty()) return alm_family::decode_generation(g, out);
+        const int32_t n_ref = (int32_t) ref.size() / g.width;
+        alm_generation all = g;
+        all.codes.insert(all.codes.begin(), ref.begin(), ref.end());
+        all.n_frames += n_ref;
+        if (!alm_family::decode_generation(all, out)) return false;
+        const size_t frame_len = out->pcm.size() / (size_t) std::max(1, out->n_channels);
+        const size_t cut = (size_t) ((double) n_ref / all.n_frames * frame_len);
+        out->pcm.erase(out->pcm.begin(), out->pcm.begin() + (ptrdiff_t) (cut * out->n_channels));
+        return true;
+    }
+
+private:
     static std::string replace_all(std::string s, const std::string & from, const std::string & to) {
         for (size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size()) s.replace(pos, from.size(), to);
         return s;
@@ -212,6 +267,7 @@ private:
     int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0;
     std::vector<int32_t> talker_text_;
     int32_t talker_step_ = 0;
+    std::vector<int32_t> icl_codes_;   // reference frames [n, n_cb] of an ICL voice
     std::vector<float> next_;
     alm_head_sampler head_;
 };

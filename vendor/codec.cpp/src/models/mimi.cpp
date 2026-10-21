@@ -84,17 +84,6 @@ struct mimi_decode_build {
     const codec_model * model;
 };
 
-struct mimi_encode_frontend_conv_desc {
-    int32_t out_c;
-    int32_t in_c;
-    int32_t kernel;
-    int32_t stride;
-};
-
-struct mimi_encode_frontend_build {
-    int32_t n_in;
-    std::array<mimi_encode_frontend_conv_desc, 14> conv;
-};
 
 static constexpr std::array<const char *, 14> CODEC_MIMI_ENC_FRONTEND_WEIGHT_NAMES = {
     "enc.l0.conv.w",
@@ -213,44 +202,6 @@ static ggml_tensor * codec_mimi_resblock_ggml(
     return ggml_cont(ctx_eval, ggml_add(ctx_eval, x, y2));
 }
 
-struct mimi_encode_transformer_build {
-    int32_t t;
-    int32_t c;
-    int32_t n_layers;
-    int32_t n_heads;
-    int32_t head_dim;
-    int32_t intermediate_size;
-    float rope_theta;
-    float rope_scaling_factor;
-};
-
-struct mimi_encode_downsample_build {
-    int32_t t;
-    int32_t in_c;
-    int32_t out_c;
-    int32_t kernel;
-    int32_t stride;
-};
-
-static constexpr int32_t CODEC_MIMI_MAX_RVQ_LAYERS = 32;
-static constexpr int32_t CODEC_MIMI_RVQ_GROUP_SEMANTIC = 0;
-static constexpr int32_t CODEC_MIMI_RVQ_GROUP_ACOUSTIC = 1;
-
-struct mimi_encode_rvq_layer_desc {
-    int32_t group = CODEC_MIMI_RVQ_GROUP_SEMANTIC;
-    int32_t group_layer = 0;
-};
-
-struct mimi_encode_build {
-    mimi_encode_frontend_build frontend = {};
-    mimi_encode_transformer_build transformer = {};
-    mimi_encode_downsample_build downsample = {};
-    int32_t n_q = 0;
-    int32_t codebook_dim = 0;
-    int32_t codebook_size = 0;
-    std::array<mimi_encode_rvq_layer_desc, CODEC_MIMI_MAX_RVQ_LAYERS> rvq_layers = {};
-    const codec_model * model = nullptr;
-};
 
 static std::string codec_mimi_encode_rvq_indices_tensor_name(int32_t layer) {
     return "mimi.encode_unified.rvq.l" + std::to_string(layer) + ".indices";
@@ -261,7 +212,7 @@ static const char * CODEC_MIMI_ENCODE_INDICES_TENSOR = "mimi.encode_unified.indi
 static const char * CODEC_MIMI_ENCODE_RVQ_SEM_IP_TENSOR = "mimi.encode_unified.rvq.q.s.ip.w";
 static const char * CODEC_MIMI_ENCODE_RVQ_ACU_IP_TENSOR = "mimi.encode_unified.rvq.q.a.ip.w";
 
-static bool codec_mimi_init_encode_build(
+bool codec_mimi_init_encode_build(
     codec_context * ctx,
     const codec_mimi * mimi,
     int32_t n_in,
@@ -355,9 +306,9 @@ static bool codec_mimi_init_encode_build(
 
 
 
-static bool codec_mimi_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
-    mimi_encode_build * p = static_cast<mimi_encode_build *>(user_data);
-    if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) {
+bool codec_mimi_build_encode_from(ggml_context * ctx_eval, const mimi_encode_build * p, ggml_tensor * t_pcm,
+                                  ggml_tensor ** out) {
+    if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr || t_pcm == nullptr) {
         return false;
     }
     if (p->frontend.n_in <= 0 || p->transformer.t <= 0 || p->transformer.c <= 0 || p->n_q <= 0 || p->n_q > CODEC_MIMI_MAX_RVQ_LAYERS) {
@@ -365,9 +316,6 @@ static bool codec_mimi_build_encode(ggml_context * ctx_eval, void * user_data, g
     }
 
     auto W = [&](const std::string & name) { return codec_graph_weight(ctx_eval, p->model, name); };
-
-    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->frontend.n_in, 1);
-    ggml_set_name(t_pcm, CODEC_MIMI_ENCODE_PCM_TENSOR);
 
     // Frontend conv weights — names live under the GGUF prefixes captured in
     // CODEC_MIMI_ENC_FRONTEND_WEIGHT_NAMES / _BIAS_NAMES (e.g. enc.l0.conv.w).
@@ -595,6 +543,14 @@ static bool codec_mimi_build_encode(ggml_context * ctx_eval, void * user_data, g
     ggml_set_name(indices_tq, CODEC_MIMI_ENCODE_INDICES_TENSOR);
     *out = indices_tq;
     return true;
+}
+
+static bool codec_mimi_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
+    const mimi_encode_build * p = static_cast<const mimi_encode_build *>(user_data);
+    if (ctx_eval == nullptr || p == nullptr) return false;
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->frontend.n_in, 1);
+    ggml_set_name(t_pcm, CODEC_MIMI_ENCODE_PCM_TENSOR);
+    return codec_mimi_build_encode_from(ctx_eval, p, t_pcm, out);
 }
 
 

@@ -24,7 +24,7 @@ public:
 
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
-        out->takes_ref_audio = true;
+        out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
         out->sample_rate     = 24000;
     }
 
@@ -74,20 +74,32 @@ public:
         codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox%s: %d text tokens, cfg_weight=%.2f temp=%.2f top_k=%d min_p=%.2f top_p=%.2f rep=%.2f\n",
                   turbo ? " turbo" : "", n_text, cfg_, temp, top_k, min_p, top_p, rep);
 
-        // Reference audio conditions T3 through the voice encoder (16 kHz).
-        std::vector<float> ref;
-        if (!voice_.ref_pcm.empty()) {
-            ref = voice_.ref_sample_rate != 16000 && voice_.ref_sample_rate > 0
-                ? resample_mono_f32(voice_.ref_pcm, voice_.ref_sample_rate, 16000) : voice_.ref_pcm;
-            codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox: using ref audio (%zu samples @ 16000 Hz after resample)\n", ref.size());
+        // A cloned voice carries T3's conditioning (VoiceEncoder embedding + cond
+        // prompt tokens) in its speaker; builtin voices use the GGUF's builtin conds.
+        const float * t3_emb = nullptr;
+        const int32_t * t3_tok = nullptr;
+        int32_t n_t3_emb = 0, n_t3_tok = 0;
+        if (const codec_speaker * spk = audio_lm_decode_speaker(alm_)) {
+            codec_speaker_slot_type ty_e, ty_t;
+            int64_t ne_e[4], ne_t[4];
+            const void * d_e = nullptr, * d_t = nullptr;
+            if (codec_speaker_get_slot(spk, "t3_speaker_emb", &ty_e, ne_e, &d_e) && ty_e == CODEC_SPEAKER_SLOT_F32 &&
+                codec_speaker_get_slot(spk, "t3_cond_tokens", &ty_t, ne_t, &d_t) && ty_t == CODEC_SPEAKER_SLOT_I32) {
+                t3_emb = static_cast<const float *>(d_e);
+                n_t3_emb = (int32_t) ne_e[0];
+                t3_tok = static_cast<const int32_t *>(d_t);
+                n_t3_tok = (int32_t) ne_t[0];
+                codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox: T3 conditioning from speaker %s (%d cond tokens)\n",
+                          codec_speaker_name(spk), n_t3_tok);
+            }
         }
-        const int32_t seq_cap = ci_->cond_rows + (n_text + 2) + 2;   // also bounds Turbo's single-BOS layout
+        const int32_t seq_cap = std::max(ci_->cond_rows, 1 + n_t3_tok) + (n_text + 2) + 2;   // also bounds Turbo's single-BOS layout
         const int32_t n_seq_cap = cfg_ > 0.0f ? 2 : 1;
         std::vector<float> rows((size_t) seq_cap * n_seq_cap * hidden_);
         int32_t seq_len = 0, n_seq = 0;
-        if (codec_lm_chatterbox_build_prompt(lm_, text_ids.data(), n_text, cfg_, nullptr, 0, nullptr, 0, nullptr,
-                                             ref.empty() ? nullptr : ref.data(), (int32_t) ref.size(), ref.empty() ? 0 : 16000,
-                                             rows.data(), seq_cap * n_seq_cap, &seq_len, &n_seq) != CODEC_STATUS_SUCCESS) {
+        if (codec_lm_chatterbox_build_prompt(lm_, text_ids.data(), n_text, cfg_, t3_emb, n_t3_emb, t3_tok, n_t3_tok, nullptr,
+                                             nullptr, 0, 0, rows.data(), seq_cap * n_seq_cap, &seq_len, &n_seq) !=
+            CODEC_STATUS_SUCCESS) {
             return fail(std::string("prompt: ") + codec_lm_get_last_error(lm_));
         }
         codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox: prompt seq_len=%d n_seq=%d (%d rows total)\n", seq_len, n_seq, seq_len * n_seq);

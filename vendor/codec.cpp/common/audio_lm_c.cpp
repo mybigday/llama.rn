@@ -217,25 +217,37 @@ bool codec_audio_lm_backbone_requirements(struct codec_audio_lm * ctx, const str
     return ctx->family->backbone_requirements(v, max_frames, out) || ctx->fail_family();
 }
 
-struct codec_audio_lm_tts_voice codec_audio_lm_default_tts_voice(void) {
-    codec_audio_lm_tts_voice v{};
-    return v;
+const struct codec_speaker * codec_audio_lm_get_voice(struct codec_audio_lm * ctx, const char * name) {
+    if (ctx == nullptr) return nullptr;
+    const codec_speaker * spk = audio_lm_builtin_speaker(ctx->alm, name);
+    if (spk == nullptr) ctx->fail(audio_lm_last_error(ctx->alm));
+    return spk;
 }
 
-bool codec_audio_lm_tts_set_voice(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_voice * voice) {
-    if (ctx == nullptr) return false;
-    alm_tts_voice v;
-    if (voice != nullptr) {
-        if (voice->voice)        v.voice = voice->voice;
-        if (voice->speaker_file) v.speaker_file = voice->speaker_file;
-        if (voice->ref_pcm && voice->ref_n_samples > 0) {
-            v.ref_pcm.assign(voice->ref_pcm, voice->ref_pcm + voice->ref_n_samples);
-            v.ref_sample_rate = voice->ref_sample_rate;
-        }
-        if (voice->ref_text)     v.ref_text = voice->ref_text;
-        if (voice->save_speaker) v.save_speaker = voice->save_speaker;
+struct codec_speaker * codec_audio_lm_create_voice(struct codec_audio_lm * ctx, const float * pcm, int32_t n_samples,
+                                                   int32_t sample_rate, const char * ref_text) {
+    if (ctx == nullptr) return nullptr;
+    if (pcm == nullptr || n_samples <= 0 || sample_rate <= 0) {
+        ctx->fail("create_voice: empty reference audio");
+        return nullptr;
     }
-    return ctx->family->set_voice(v) || ctx->fail_family();
+    codec_speaker * spk = ctx->family->create_voice(pcm, n_samples, sample_rate, ref_text);
+    if (spk == nullptr) ctx->fail_family();
+    return spk;
+}
+
+struct codec_speaker * codec_audio_lm_load_voice(struct codec_audio_lm * ctx, const char * path, const char * name) {
+    if (ctx == nullptr || path == nullptr) return nullptr;
+    codec_speaker * spk = audio_lm_load_speaker(ctx->alm, path, name);
+    if (spk == nullptr) ctx->fail(audio_lm_last_error(ctx->alm));
+    return spk;
+}
+
+bool codec_audio_lm_save_voice(struct codec_audio_lm * ctx, const struct codec_speaker * voice, const char * path,
+                               const char * name) {
+    if (ctx == nullptr) return false;
+    if (voice == nullptr || path == nullptr) return ctx->fail("save_voice: no voice / path");
+    return audio_lm_save_speaker(ctx->alm, voice, path, name ? name : "voice") || ctx->fail(audio_lm_last_error(ctx->alm));
 }
 
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void) {
@@ -252,6 +264,7 @@ bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_a
     if (ctx == nullptr) return false;
     if (req == nullptr || req->text == nullptr) return ctx->fail("text is required");
     audio_lm_reset(ctx->alm);
+    audio_lm_use_decode_speaker(ctx->alm, req->voice);
     ctx->streamer.reset();
     ctx->chunks.clear();
     alm_tts_request r;
@@ -390,7 +403,7 @@ bool codec_audio_lm_get_generation(struct codec_audio_lm * ctx, struct codec_aud
 }
 
 bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct codec_audio_lm_generation * gen,
-                                      struct codec_pcm_buffer * out) {
+                                      const struct codec_speaker * voice, struct codec_pcm_buffer * out) {
     if (ctx == nullptr || gen == nullptr || out == nullptr) return false;
     const bool latent = gen->kind == CODEC_AUDIO_LM_DATA_LATENTS;
     if (gen->n_frames <= 0 || gen->width <= 0 || (latent ? gen->latents == nullptr : gen->codes == nullptr)) {
@@ -403,8 +416,13 @@ bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct 
     const size_t n = (size_t) gen->n_frames * (size_t) gen->width;
     if (latent) g.latents.assign(gen->latents, gen->latents + n);
     else        g.codes.assign(gen->codes, gen->codes + n);
+    // The generation's voice for this decode only; the request's stays.
+    const codec_speaker * request_voice = audio_lm_decode_speaker_set(ctx->alm);
+    audio_lm_use_decode_speaker(ctx->alm, voice);
     audio_lm_audio_output pcm;
-    if (!ctx->family->decode_generation(g, &pcm)) return ctx->fail_family();
+    const bool ok = ctx->family->decode_generation(g, &pcm);
+    audio_lm_use_decode_speaker(ctx->alm, request_voice);
+    if (!ok) return ctx->fail_family();
     return fill_pcm(pcm.pcm.data(), pcm.pcm.size(), pcm.sample_rate, pcm.n_channels, out) || ctx->fail("out of memory");
 }
 

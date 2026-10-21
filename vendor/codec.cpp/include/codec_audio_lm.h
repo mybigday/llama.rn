@@ -2,6 +2,7 @@
 #define CODEC_AUDIO_LM_H
 
 #include "codec.h"
+#include "codec_speaker.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,10 +22,10 @@ extern "C" {
 // Shape of a host loop (TTS):
 //
 //   ctx = codec_audio_lm_init(&params)
-//   codec_audio_lm_tts_set_voice(ctx, &voice)                  // once per request
+//   voice = codec_audio_lm_get_voice / create_voice / load_voice   // NULL = default
 //   n = codec_audio_lm_tts_split(ctx, text, 0)                 // optional segmentation
 //   for each segment i (codec_audio_lm_tts_segment(ctx, i)):
-//       codec_audio_lm_tts_prompt(ctx, &{segment_text, instruct, preset}, &vocab)
+//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, preset}, &vocab)
 //       codec_audio_lm_get_completion(ctx, &c)
 //       if c.flow == SELF_CONTAINED: codec_audio_lm_generate_self_contained(ctx)
 //       else:
@@ -99,12 +100,33 @@ struct codec_audio_lm_caps {
 
 void codec_audio_lm_get_caps(const struct codec_audio_lm * ctx, struct codec_audio_lm_caps * out);
 
-// Builtin voices (decoder speakers) of the codec, or those in a speaker
-// file (path may be NULL).  Fills a per-context list; returns its size or -1.
+// ── Voices ───────────────────────────────────────────────────────────
+// A voice is a struct codec_speaker (codec.h) holding all of this model's
+// voice conditioning, whatever it conditions: the backbone prompt (x-vector,
+// reference tokens / latents / transcript), the decoder, or both.  Builtin
+// voices belong to the model; created and loaded voices to the caller
+// (codec_speaker_free).  A voice is read-only once made, so one voice can
+// serve any number of requests.
+
+// Builtin voices of the codec, or those in a speaker file (path may be
+// NULL).  Fills a per-context list; returns its size or -1.
 int32_t codec_audio_lm_list_voices(struct codec_audio_lm * ctx, const char * speaker_file);
 // Entry i of the last listing; any out-pointer may be NULL.
 bool    codec_audio_lm_voice      (const struct codec_audio_lm * ctx, int32_t i,
                                    const char ** name, const char ** ref_text, bool * is_default);
+// A builtin voice (NULL name = the model's default, set by `<arch>.spk.default`);
+// NULL when absent.
+const struct codec_speaker * codec_audio_lm_get_voice(struct codec_audio_lm * ctx, const char * name);
+// Clone a voice from a reference clip (mono F32, any rate) and its transcript
+// (`ref_text`, may be NULL; models that prompt with it use it). caps.takes_ref_audio
+// says whether the model can.
+struct codec_speaker * codec_audio_lm_create_voice(struct codec_audio_lm * ctx, const float * pcm, int32_t n_samples,
+                                                   int32_t sample_rate, const char * ref_text);
+// Voice `name` (NULL = the file's default) from a speaker GGUF made by
+// codec_audio_lm_save_voice for this model; files of another model are refused.
+struct codec_speaker * codec_audio_lm_load_voice(struct codec_audio_lm * ctx, const char * path, const char * name);
+bool codec_audio_lm_save_voice(struct codec_audio_lm * ctx, const struct codec_speaker * voice, const char * path,
+                               const char * name);
 
 // ── Backbone vocabulary access (host-provided) ───────────────────────
 // Prompt builders look up the backbone's vocabulary (tokenize text, find
@@ -144,27 +166,14 @@ bool codec_audio_lm_backbone_requirements(struct codec_audio_lm * ctx, const str
 
 // ── Text to speech ───────────────────────────────────────────────────
 
-// Voice for the following tts_prompt calls (a request); conditioning that
-// comes from reference audio is computed here, once.
-struct codec_audio_lm_tts_voice {
-    const char *  voice;            // builtin voice name (NULL = default)
-    const char *  speaker_file;     // speaker GGUF (overrides voice)
-    const float * ref_pcm;          // reference clip (mono), overrides voice / speaker_file
-    int32_t       ref_n_samples;
-    int32_t       ref_sample_rate;
-    const char *  ref_text;         // transcript of ref_pcm
-    const char *  save_speaker;     // write the decoder speaker in use here (may be NULL)
-};
-
-struct codec_audio_lm_tts_voice codec_audio_lm_default_tts_voice(void);
-
-bool codec_audio_lm_tts_set_voice(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_voice * voice);
-
 // Overrides of the model's defaults use "unset" sentinels: negative numbers
 // (seed 0).  They apply to every sampler of the generation, the backbone's
 // (completion.sampler) and the codec-side heads codec_audio_lm samples itself.
 struct codec_audio_lm_tts_request {
     const char * text;          // required: one text (one segment)
+    // The voice (NULL = the model's default).  Borrowed: keep it alive until
+    // the generation is decoded (decode / stream_finish) or the next prompt.
+    const struct codec_speaker * voice;
     const char * instruct;      // instruction text, for models that take it (may be NULL)
     const char * preset;        // a sampling preset the model defines (caps.presets; NULL = default)
     uint32_t     seed;          // 0 = default
@@ -183,7 +192,7 @@ struct codec_audio_lm_tts_request {
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void);
 
 // Prompt for one request.  `vocab` may be NULL for self-contained models.
-// Resets the per-generation state; the voice stays.
+// Resets the per-generation state.
 bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_audio_lm_tts_request * req,
                                const struct codec_audio_lm_vocab * vocab);
 
@@ -347,10 +356,11 @@ struct codec_audio_lm_generation {
 // or codec_audio_lm_free; copy them to keep the generation.
 bool codec_audio_lm_get_generation(struct codec_audio_lm * ctx, struct codec_audio_lm_generation * out);
 // Decode a generation of this model (from get_generation, possibly of an
-// earlier prompt) with the current decoder speaker.  The in-progress
-// generation is left untouched.  Free `out` with codec_pcm_buffer_free.
+// earlier prompt) with the voice it was generated with (NULL = the default
+// voice; some models' decoders take no voice).  The in-progress generation is
+// left untouched.  Free `out` with codec_pcm_buffer_free.
 bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct codec_audio_lm_generation * gen,
-                                      struct codec_pcm_buffer * out);
+                                      const struct codec_speaker * voice, struct codec_pcm_buffer * out);
 
 // Streaming.  Call codec_audio_lm_stream_poll after every observe whose
 // verdict has is_audio; it returns (in `out`, possibly empty) the audio that

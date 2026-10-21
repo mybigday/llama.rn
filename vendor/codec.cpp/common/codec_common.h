@@ -11,6 +11,7 @@
 
 #include "codec.h"
 #include "codec_lm.h"
+#include "codec_speaker.h"
 
 #include <cstdint>
 #include <map>
@@ -164,24 +165,25 @@ int32_t      audio_lm_hidden_dim     (const audio_lm_context * ctx);
 const char * audio_lm_last_error     (const audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
-// Decoder speaker (codec_speaker) used by audio_lm_decode_audio.
-// Default: the codec model's default speaker.  Precedence the runner applies:
-// speaker file > reference audio (when the codec can derive one) > --voice.
+// Voices (codec_speaker): the generation's voice is borrowed, set per
+// request (audio_lm_use_decode_speaker, NULL = the model's default); the
+// prompt builders read its slots and decode_audio decodes with it.
 // ─────────────────────────────────────────────────────────────────────
 bool audio_lm_codec_has_speakers         (const audio_lm_context * ctx);
 bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx);
-// `name` = NULL goes back to the model's default speaker.
-bool audio_lm_set_decode_speaker         (audio_lm_context * ctx, const char * name);
-// `name` = NULL loads the file's default speaker.
-bool audio_lm_load_decode_speaker        (audio_lm_context * ctx, const char * path,
-                                          const char * name = nullptr);
-// `ref_text` (optional) is the transcript of the clip, kept on the speaker.
-bool audio_lm_decode_speaker_from_audio  (audio_lm_context * ctx, const float * pcm,
-                                          int32_t n_samples, int32_t sample_rate,
-                                          const char * ref_text = nullptr);
-bool audio_lm_save_decode_speaker        (audio_lm_context * ctx, const char * path, const char * name);
-// The speaker decode will use (the model default when none was selected;
-// NULL when the codec has no speakers), e.g. to read model-specific slots.
+void audio_lm_use_decode_speaker         (audio_lm_context * ctx, const codec_speaker * spk);
+const codec_speaker * audio_lm_decode_speaker_set(const audio_lm_context * ctx);   // as set (may be NULL)
+// A builtin voice (owned by the model; NULL name = the default), or NULL.
+const codec_speaker * audio_lm_builtin_speaker(audio_lm_context * ctx, const char * name);
+// Caller-owned (codec_speaker_free); NULL on error.  `name` = NULL loads the
+// file's default; `ref_text` (optional) is the clip's transcript.
+codec_speaker * audio_lm_load_speaker      (audio_lm_context * ctx, const char * path, const char * name);
+codec_speaker * audio_lm_speaker_from_audio(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
+                                            int32_t sample_rate, const char * ref_text);
+bool            audio_lm_save_speaker      (audio_lm_context * ctx, const codec_speaker * spk, const char * path,
+                                            const char * name);
+// The voice the generation uses (the model default when none was set;
+// NULL when the codec has none), e.g. to read model-specific slots.
 const codec_speaker * audio_lm_decode_speaker(const audio_lm_context * ctx);
 
 struct audio_lm_speaker_entry {

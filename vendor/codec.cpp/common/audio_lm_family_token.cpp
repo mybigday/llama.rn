@@ -72,12 +72,14 @@ public:
         out->sample_rate         = 24000;
     }
 
-    bool set_voice(const alm_tts_voice & v) override {
-        if (!v.ref_pcm.empty() && v.speaker_file.empty() && !audio_lm_codec_can_speaker_from_audio(alm_)) {
-            return fail("NeuTTS: reference audio needs a codec GGUF with the NeuCodec distill encoder "
-                        "(this one cannot encode); use a voice / speaker file or a distill_neucodec codec");
+    codec_speaker * create_voice(const float * pcm, int32_t n_samples, int32_t sample_rate,
+                                 const char * ref_text) override {
+        if (!audio_lm_codec_can_speaker_from_audio(alm_)) {
+            fail("NeuTTS: reference audio needs a codec GGUF with the NeuCodec distill encoder "
+                 "(this one cannot encode); use a voice / speaker file or a distill_neucodec codec");
+            return nullptr;
         }
-        return token_family::set_voice(v);
+        return token_family::create_voice(pcm, n_samples, sample_rate, ref_text);
     }
 
     bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
@@ -94,7 +96,7 @@ public:
                         "or reference audio + its transcript with a distill_neucodec codec");
         }
         const char * spk_text = codec_speaker_ref_text(spk);
-        const std::string ref_text = !voice_.ref_text.empty() ? voice_.ref_text : (spk_text ? spk_text : "");
+        const std::string ref_text = spk_text ? spk_text : "";
         if (ref_text.empty()) return fail("NeuTTS: the reference voice has no transcript; pass its phonemes as ref_text");
 
         int32_t off = -1, count = 0, eos = -1;

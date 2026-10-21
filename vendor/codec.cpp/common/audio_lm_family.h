@@ -95,15 +95,6 @@ struct alm_generation {
     std::vector<float>   latents;
 };
 
-struct alm_tts_voice {
-    std::string        voice;
-    std::string        speaker_file;
-    std::vector<float> ref_pcm;
-    int32_t            ref_sample_rate = 0;
-    std::string        ref_text;
-    std::string        save_speaker;
-};
-
 // One model family.  Lifetime: owned by the codec_audio_lm context; `alm`
 // (codec + codec_lm) outlives it.
 class alm_family {
@@ -116,8 +107,10 @@ public:
     virtual void caps(codec_audio_lm_caps * out) const;
     virtual bool backbone_requirements(const alm_vocab & vocab, int32_t max_frames,
                                        codec_audio_lm_backbone_req * out);
-    // Default: the decoder speaker (speaker file > ref audio > voice > default).
-    virtual bool set_voice(const alm_tts_voice & v);
+    // A voice cloned from reference audio (codec_audio_lm_create_voice):
+    // the codec's speaker_from_audio computes every slot the model reads.
+    virtual codec_speaker * create_voice(const float * pcm, int32_t n_samples, int32_t sample_rate,
+                                         const char * ref_text);
     // Segmentation (codec_audio_lm_tts_split) and joining (tts_join): one
     // general behaviour every model gets, tuned by the family's parameters;
     // a model that needs a different method picks another mode (or, in the
@@ -170,7 +163,6 @@ protected:
 
     audio_lm_context * alm_;
     std::string        error_;
-    alm_tts_voice      voice_;
     std::string        stop_reason_ = "max_frames";
 };
 

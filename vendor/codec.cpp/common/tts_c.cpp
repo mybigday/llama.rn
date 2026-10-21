@@ -1,4 +1,4 @@
-// C API over the tts_runner session (include/codec_tts.h).  Thin forwarding:
+// C API over the tts_runner session (common/codec_tts.h).  Thin forwarding:
 // converts the C structs to tts_runner_params and owns the returned strings.
 
 #include "codec_tts.h"

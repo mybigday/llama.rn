@@ -48,15 +48,9 @@ public:
 
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
-        out->takes_ref_audio = true;
+        out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
         const char * sr = audio_lm_meta_str(alm_, "codec.sample_rate");
         out->sample_rate = sr ? std::atoi(sr) : 24000;
-    }
-
-    // The voice conditions the LM (reference latents), not a decoder speaker.
-    bool set_voice(const alm_tts_voice & v) override {
-        voice_ = v;
-        return true;
     }
 
     bool tts_prompt(const alm_tts_request & req, const alm_vocab &, alm_completion * out) override {
@@ -73,18 +67,19 @@ public:
         ids.resize((size_t) n_tok);
         codec_log(CODEC_LOG_LEVEL_INFO, "pocket: text=\"%s\" -> %d tokens\n", text.c_str(), n_tok);
 
-        // Voice conditioning: the reference's latents -> [bos_before_voice | speaker_proj] rows.
+        // Voice conditioning: the speaker's reference latents -> [bos_before_voice | speaker_proj] rows.
         std::vector<float> rows;
         int32_t n_rows = 0;
-        if (!voice_.ref_pcm.empty()) {
-            std::vector<float> mu;
-            int32_t n_voice = 0, dim = 0;
-            if (!audio_lm_encode_latent(alm_, voice_.ref_pcm.data(), (int32_t) voice_.ref_pcm.size(), voice_.ref_sample_rate,
-                                        &mu, &n_voice, &dim) || dim != ldim) {
-                return fail_alm("reference audio encode");
-            }
+        codec_speaker_slot_type ty;
+        int64_t ne[4];
+        const void * mu = nullptr;
+        const codec_speaker * spk = audio_lm_decode_speaker(alm_);
+        if (spk != nullptr && codec_speaker_get_slot(spk, "latents", &ty, ne, &mu)) {
+            if (ty != CODEC_SPEAKER_SLOT_F32 || ne[1] != ldim) return fail("Pocket-TTS speaker latents have the wrong shape");
+            const int32_t n_voice = (int32_t) ne[0];
             rows.resize((size_t) (n_voice + 1) * hidden);
-            if (codec_lm_flow_speaker_rows(lm_, mu.data(), n_voice, rows.data(), n_voice + 1, &n_rows) != CODEC_STATUS_SUCCESS) {
+            if (codec_lm_flow_speaker_rows(lm_, static_cast<const float *>(mu), n_voice, rows.data(), n_voice + 1,
+                                           &n_rows) != CODEC_STATUS_SUCCESS) {
                 return fail(std::string("speaker rows: ") + codec_lm_get_last_error(lm_));
             }
             rows.resize((size_t) n_rows * hidden);

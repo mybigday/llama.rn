@@ -12,14 +12,17 @@ extern "C" {
 #endif
 
 // =====================================================================
-// codec_tts — text to speech in one call: the reference host loop of
-// tts-cli / tts-server (common/tts_runner.h) behind a C ABI.  A session
-// loads a codec GGUF and (unless the model is self-contained) a llama.cpp
-// backbone GGUF once, then synthesizes many requests.  For a loop around
-// your own llama.cpp, use codec_audio_lm.h instead.  The backbone runs in
-// the llama.cpp bundled with codec.cpp (with its architecture / tokenizer
-// patches), so this lives in its own library, libcodec_tts, next to
-// libcodec.  Runs on one session are not thread-safe; serialize them.
+// codec_tts — text to speech in one call: common's reference host loop
+// (tts_runner.h, a codec_audio_lm host over the bundled llama.cpp) behind
+// a C ABI, for FFI callers such as Python codec_cpp.TTS.  tts-cli and
+// tts-server link tts_runner directly.  A session loads a codec GGUF and
+// (unless the model is self-contained) a llama.cpp backbone GGUF once,
+// then synthesizes many requests.  For a loop around your own llama.cpp,
+// use codec_audio_lm.h instead.  The backbone runs in the llama.cpp
+// bundled with codec.cpp (with its architecture / tokenizer patches), so
+// this lives in its own library, libcodec_tts, next to libcodec; like the
+// rest of common/, the header is not installed.  Runs on one session are
+// not thread-safe; serialize them.
 // =====================================================================
 
 struct codec_tts;

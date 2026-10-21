@@ -116,37 +116,15 @@ bool alm_family::backbone_requirements(const alm_vocab &, int32_t max_frames, co
     return true;
 }
 
-bool alm_family::set_voice(const alm_tts_voice & v) {
-    voice_ = v;
-    audio_lm_set_decode_speaker(alm_, nullptr);
-    if (!v.speaker_file.empty()) {
-        if (!audio_lm_load_decode_speaker(alm_, v.speaker_file.c_str(), v.voice.empty() ? nullptr : v.voice.c_str())) {
-            return fail_alm("speaker file");
-        }
-        codec_log(CODEC_LOG_LEVEL_INFO, "speaker: loaded %s%s%s\n", v.speaker_file.c_str(),
-                  v.voice.empty() ? "" : " : ", v.voice.c_str());
-    } else if (!v.ref_pcm.empty() && audio_lm_codec_can_speaker_from_audio(alm_)) {
-        if (!audio_lm_decode_speaker_from_audio(alm_, v.ref_pcm.data(), (int32_t) v.ref_pcm.size(), v.ref_sample_rate,
-                                                v.ref_text.empty() ? nullptr : v.ref_text.c_str())) {
-            return fail_alm("speaker from reference audio");
-        }
-        codec_log(CODEC_LOG_LEVEL_INFO, "speaker: derived from reference audio (%zu samples @ %d Hz)\n",
-                  v.ref_pcm.size(), v.ref_sample_rate);
-    } else if (!v.voice.empty()) {
-        if (!audio_lm_set_decode_speaker(alm_, v.voice.c_str())) return fail_alm("voice");
-        codec_log(CODEC_LOG_LEVEL_INFO, "speaker: voice %s\n", v.voice.c_str());
+codec_speaker * alm_family::create_voice(const float * pcm, int32_t n_samples, int32_t sample_rate,
+                                        const char * ref_text) {
+    if (!audio_lm_codec_can_speaker_from_audio(alm_)) {
+        fail("this model cannot clone a voice from reference audio");
+        return nullptr;
     }
-    if (v.speaker_file.empty() && !v.ref_pcm.empty() &&
-        audio_lm_codec_has_speakers(alm_) && !audio_lm_codec_can_speaker_from_audio(alm_)) {
-        codec_log(CODEC_LOG_LEVEL_WARN,
-                  "speaker: this codec GGUF cannot derive a speaker from reference audio; keeping the %s voice\n",
-                  v.voice.empty() ? "default" : v.voice.c_str());
-    }
-    if (!v.save_speaker.empty()) {
-        if (!audio_lm_save_decode_speaker(alm_, v.save_speaker.c_str(), "saved")) return fail_alm("save speaker");
-        codec_log(CODEC_LOG_LEVEL_INFO, "speaker: saved to %s\n", v.save_speaker.c_str());
-    }
-    return true;
+    codec_speaker * spk = audio_lm_speaker_from_audio(alm_, pcm, n_samples, sample_rate, ref_text);
+    if (spk == nullptr) fail_alm("voice");
+    return spk;
 }
 
 std::vector<std::string> alm_family::split(const std::string & text, int32_t max_bytes) {
