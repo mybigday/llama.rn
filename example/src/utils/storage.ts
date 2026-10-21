@@ -11,9 +11,23 @@ export type CompletionParams = Omit<LlamaCompletionParams, 'prompt'>
 // voice name of the codec, or TTS_VOICE_CLONE (the bundled reference clip).
 export const TTS_VOICE_DEFAULT = 'Default'
 export const TTS_VOICE_CLONE = 'Clone reference clip'
+// Custom voices: a reference recording (WAV) with its transcript, a speaker
+// file (.gguf, saveSpeaker / tts-cli --save-speaker), or an OuteTTS speaker
+// JSON from the OuteTTS Speaker Creator.
+export const TTS_VOICE_AUDIO = 'Reference audio'
+export const TTS_VOICE_FILE = 'Speaker file'
+export const TTS_VOICE_OUTETTS_JSON = 'OuteTTS speaker JSON'
 
 export interface TTSParams {
   voice: string
+  // TTS_VOICE_AUDIO: the WAV and what it says.
+  refAudioPath: string
+  refText: string
+  // TTS_VOICE_FILE: the speaker file and the speaker in it ('' = its default).
+  speakerFilePath: string
+  speakerName: string
+  // TTS_VOICE_OUTETTS_JSON: the speaker JSON.
+  outettsSpeakerJson: string
   // How to speak, for models that take an instruct.
   instruct: string
 }
@@ -74,6 +88,11 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
 
 export const DEFAULT_TTS_PARAMS: TTSParams = {
   voice: TTS_VOICE_DEFAULT,
+  refAudioPath: '',
+  refText: '',
+  speakerFilePath: '',
+  speakerName: '',
+  outettsSpeakerJson: '',
   instruct: '',
 }
 

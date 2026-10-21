@@ -21,6 +21,66 @@ export const decodeBase64Pcm16 = (b64: string): Float32Array => {
   return out
 }
 
+// Read a WAV file (PCM 8/16/24/32-bit or IEEE float 32) into mono float
+// samples, channels averaged.  Throws on anything else.
+export const readWavFile = async (
+  path: string,
+): Promise<{ pcm: Float32Array; sampleRate: number }> => {
+  const b64 = await ReactNativeBlobUtil.fs.readFile(
+    path.replace(/^file:\/\//, ''),
+    'base64',
+  )
+  const binStr = global.atob
+    ? global.atob(b64)
+    : Buffer.from(b64, 'base64').toString('binary')
+  const bytes = new Uint8Array(binStr.length)
+  for (let i = 0; i < binStr.length; i += 1) bytes[i] = binStr.charCodeAt(i)
+  const view = new DataView(bytes.buffer)
+  const tag = (o: number) =>
+    String.fromCharCode(bytes[o]!, bytes[o + 1]!, bytes[o + 2]!, bytes[o + 3]!)
+  if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') throw new Error('Not a WAV file')
+  let format = 0
+  let channels = 1
+  let sampleRate = 0
+  let bits = 16
+  for (let o = 12; o + 8 <= bytes.length; ) {
+    const id = tag(o)
+    const size = view.getUint32(o + 4, true)
+    const body = o + 8
+    if (id === 'fmt ') {
+      format = view.getUint16(body, true)
+      channels = view.getUint16(body + 2, true)
+      sampleRate = view.getUint32(body + 4, true)
+      bits = view.getUint16(body + 14, true)
+      // WAVE_FORMAT_EXTENSIBLE: the sub-format's first two bytes.
+      if (format === 0xfffe) format = view.getUint16(body + 24, true)
+    } else if (id === 'data') {
+      const step = bits / 8
+      const n = Math.floor(Math.min(size, bytes.length - body) / (step * channels))
+      const pcm = new Float32Array(n)
+      for (let i = 0; i < n; i += 1) {
+        let acc = 0
+        for (let c = 0; c < channels; c += 1) {
+          const at = body + (i * channels + c) * step
+          if (format === 3 && bits === 32) acc += view.getFloat32(at, true)
+          else if (format !== 1) throw new Error('Unsupported WAV encoding')
+          else if (bits === 8) acc += (view.getUint8(at) - 128) / 128
+          else if (bits === 16) acc += view.getInt16(at, true) / 0x8000
+          else if (bits === 24)
+            acc +=
+              ((view.getUint8(at) | (view.getUint8(at + 1) << 8) | (view.getInt8(at + 2) << 16)) / 0x800000)
+          else if (bits === 32) acc += view.getInt32(at, true) / 0x80000000
+          else throw new Error(`Unsupported WAV bit depth ${bits}`)
+        }
+        pcm[i] = acc / channels
+      }
+      return { pcm, sampleRate }
+    }
+    o = body + size + (size & 1)
+  }
+  throw new Error('WAV file has no data')
+}
+
 // WAV file creation utility
 export const createWavFile = (audioData: Float32Array, sampleRate: number, bitDepth: number = 16): ArrayBuffer => {
   const numChannels = 1 // Mono
