@@ -509,6 +509,16 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       // prefills cannot safely reuse the previous generation's KV entries.
       await context.clearCache(false)
 
+      // The IPA phonemizer is for the English phoneme families; Chinese
+      // text (BreezyVoice's bopomofo frontend) goes in as typed.
+      const phonemize = (text: string, language: string) =>
+        language.startsWith('zh')
+          ? text
+          : toIPA(text, { anyAscii: true, language })
+              .replace(/ɫ/g, 'l')
+              .replace(/oʊ/g, 'əʊ')
+              .replace(/ˈ\b/g, '')
+
       const speakerCfg = ttsParams?.speakerConfig
       const caps = await context.getTTSCapabilities()
       // Voice-clone models without a voice of their own (Qwen3-TTS Base)
@@ -522,7 +532,11 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         spk = await context.createSpeaker({
           refAudio: pcm,
           refAudioSampleRate: DEFAULT_REF_AUDIO.sampleRate,
-          refText: DEFAULT_REF_AUDIO.refText,
+          // Models that read phonemes (NeuTTS) take the transcript as
+          // phonemes too, like the text below.
+          refText: caps.requiresPhonemes
+            ? phonemize(DEFAULT_REF_AUDIO.refText, caps.defaultLanguage)
+            : DEFAULT_REF_AUDIO.refText,
         })
       }
 
@@ -537,15 +551,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         await context.getFormattedAudioCompletion({
           prompt,
           speaker: resolvedSpeaker,
-          // The IPA phonemizer is for the English phoneme families; Chinese
-          // text (BreezyVoice's bopomofo frontend) goes in as typed.
-          phonemizer: (text: string, language: string) =>
-            language.startsWith('zh')
-              ? text
-              : toIPA(text, { anyAscii: true, language })
-              .replace(/ɫ/g, 'l')
-              .replace(/oʊ/g, 'əʊ')
-              .replace(/ˈ\b/g, ''),
+          phonemizer: phonemize,
         })
       const { logit_bias: ttsLogitBias, ...ttsSampling } = ttsCompletion
       console.log(

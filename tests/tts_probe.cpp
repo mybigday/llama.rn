@@ -285,6 +285,8 @@ int main(int argc, char ** argv) {
             json options = json::object();
             if (!sampling_json.empty()) apply_sampling(ctx, json::parse(sampling_json));
             ctx.params.sampling.seed = seed > 0 ? seed : LLAMA_DEFAULT_SEED;
+            // As JSIParams: -1 is the context size (llama.cpp's sampler would take it as off).
+            if (ctx.params.sampling.penalty_last_n == -1) ctx.params.sampling.penalty_last_n = (int32_t) llama_n_ctx(ctx.ctx);
             const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct, options);
             std::printf("[probe] flow=%s completionParams=%s\n", formatted.flow.c_str(),
                         formatted.completion_params.dump().substr(0, 400).c_str());
