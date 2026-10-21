@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -222,6 +223,14 @@ struct llama_rn_context_tts {
     int getCodeWidth() const { return code_width; }
 
 private:
+    // Serializes the codec context, the speaker registry and the last
+    // generation's state: a completion's steps run on its thread while
+    // getFormattedAudioCompletion, speaker and decode calls (no context
+    // claim, so the next request can be prepared meanwhile) run on others.
+    // codec_audio_lm takes one thread at a time.  Recursive: public calls
+    // nest (getFormattedAudioCompletion -> checkBackbone, -> getSpeaker).
+    mutable std::recursive_mutex mutex;
+
     // A registry speaker, else a builtin voice by name ("" = the default).
     // Null for the model's default when it has none.  Throws on an unknown voice.
     rn_voice resolveVoice(int speaker_id, const std::string &voice_name);

@@ -1179,6 +1179,12 @@ completion_token_output llama_rn_context_completion::nextToken()
             p.grammar = {};
             p.logit_bias.clear();
             p.dry_multiplier = 0.0f;
+            // Mirostat and infill need a vocabulary too; the heads keep the
+            // vocabulary-free stages (common_sampler_init_logits).
+            p.mirostat = 0;
+            p.samplers.erase(std::remove_if(p.samplers.begin(), p.samplers.end(), [](common_sampler_type t) {
+                return t == COMMON_SAMPLER_TYPE_DRY || t == COMMON_SAMPLER_TYPE_INFILL;
+            }), p.samplers.end());
             p.seed = common_sampler_get_seed(ctx_sampling) + 1u + (uint32_t) g;
             if (!prompt.head_groups[g].penalties) {
                 p.penalty_last_n = 0;
@@ -1358,11 +1364,11 @@ completion_token_output llama_rn_context_completion::nextToken()
                 stopped_eos = true;
                 return result;
             }
-            if (!step.audio && step.feed >= 0) {
+            // Without a text vocabulary (tokenizer.ggml.model=none) the token
+            // has no piece, and token_to_piece asserts on it.
+            if (!step.audio && step.feed >= 0 && llama_vocab_type(vocab) != LLAMA_VOCAB_TYPE_NONE) {
                 result.tok = step.feed;
-                if (llama_vocab_type(vocab) != LLAMA_VOCAB_TYPE_NONE) {
-                    result.text = common_token_to_piece(parent_ctx->ctx, step.feed);
-                }
+                result.text = common_token_to_piece(parent_ctx->ctx, step.feed);
             }
             // Placeholder token for an embedding row; the inject_ar_embd
             // path above decodes the row in its place.

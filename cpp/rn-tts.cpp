@@ -162,6 +162,7 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 }
 
 void llama_rn_context_tts::reset() {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     pending_speaker_id = -1;
     pending_voice.clear();
     // The completion result has taken the last generation's data.
@@ -174,6 +175,7 @@ void llama_rn_context_tts::reset() {
 // ── Capabilities ──────────────────────────────────────────────────────
 
 llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_context* main_ctx) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     llama_rn_tts_capabilities cap;
     codec_audio_lm_caps c{};
     codec_audio_lm_get_caps(alm, &c);
@@ -248,6 +250,7 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
 }
 
 std::string llama_rn_context_tts::checkBackbone(llama_rn_context* main_ctx) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     if (main_ctx == nullptr || main_ctx->ctx == nullptr) return "no backbone context";
     const codec_audio_lm_vocab cv = host_vocab(llama_model_get_vocab(main_ctx->model));
     codec_audio_lm_backbone_req req{};
@@ -288,6 +291,7 @@ void check_exempt(int32_t n_exempt) {
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
         llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId,
         const std::string &instruct, const json &options) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     const std::string why = checkBackbone(main_ctx);
     if (!why.empty()) throw std::runtime_error("TTS: " + why);
     if (!instruct.empty()) {
@@ -364,6 +368,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
 // ── Completion hooks ──────────────────────────────────────────────────
 
 llama_rn_tts_prompt llama_rn_context_tts::buildPrompt(llama_rn_context* main_ctx) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     // The completion's voice fills the prompt's <__voice__> markers (the
     // model's default without one).
     gen_voice = resolveVoice(pending_speaker_id, pending_voice);
@@ -446,12 +451,14 @@ llama_rn_tts_prompt llama_rn_context_tts::buildPrompt(llama_rn_context* main_ctx
 }
 
 void llama_rn_context_tts::prefill(llama_rn_context* main_ctx, const float * hiddens, int n_pos) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     codec_affinity_scope affinity(main_ctx);
     if (!codec_audio_lm_prefill(alm, hiddens, n_pos)) throw std::runtime_error(alm_error(alm, "TTS prefill"));
 }
 
 llama_rn_tts_step llama_rn_context_tts::step(llama_rn_context* main_ctx, llama_token sampled,
                                              const std::function<llama_token(int, const float *, int)> &sample_head) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     std::vector<float> hiddens;
     if (needs_hidden) {
         // Sequence q's last output is -(n_seq - q) from the end.
@@ -496,11 +503,16 @@ llama_rn_tts_step llama_rn_context_tts::step(llama_rn_context* main_ctx, llama_t
         r.feed = v.token >= 0 ? v.token : sampled;
         if (r.feed < 0) throw std::runtime_error("TTS: the model asked to feed a token none was sampled for");
     }
+    // codec.cpp would read n_seq sampled tokens; nextToken samples one.
+    if (v.sample_backbone && n_seq > 1) {
+        throw std::runtime_error("TTS: backbone sampling over several sequences is not supported");
+    }
     sample_backbone = v.sample_backbone;
     return r;
 }
 
 void llama_rn_context_tts::collectGeneration() {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     audio_tokens.clear();
     audio_latents.clear();
     audio_latent_dim = 0;
@@ -527,6 +539,7 @@ llama_rn_context_tts::~llama_rn_context_tts() {
 
 int llama_rn_context_tts::createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
                                         const std::string &ref_text, float emotion, bool has_emotion, bool bake) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     (void) emotion;
     (void) has_emotion;
     (void) bake;
@@ -551,15 +564,18 @@ bool llama_rn_context_tts::bakeSpeaker(llama_rn_context* main_ctx, int id) {
 }
 
 const rn_speaker* llama_rn_context_tts::getSpeaker(int id) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     const auto it = speakers.find(id);
     return it == speakers.end() ? nullptr : &it->second;
 }
 
 void llama_rn_context_tts::releaseSpeaker(int id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     speakers.erase(id);
 }
 
 int llama_rn_context_tts::loadSpeaker(const std::string &path, const std::string &name) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     codec_speaker * voice = codec_audio_lm_load_voice(alm, path.c_str(), name.empty() ? nullptr : name.c_str());
     if (voice == nullptr) throw std::runtime_error(alm_error(alm, "loadSpeaker"));
     rn_speaker spk;
@@ -570,6 +586,7 @@ int llama_rn_context_tts::loadSpeaker(const std::string &path, const std::string
 }
 
 void llama_rn_context_tts::saveSpeaker(int id, const std::string &path, const std::string &name) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     const rn_speaker * spk = getSpeaker(id);
     if (spk == nullptr) throw std::runtime_error("saveSpeaker: speaker " + std::to_string(id) + " not found");
     if (!codec_audio_lm_save_voice(alm, spk->voice.get(), path.c_str(), name.empty() ? nullptr : name.c_str())) {
@@ -578,6 +595,7 @@ void llama_rn_context_tts::saveSpeaker(int id, const std::string &path, const st
 }
 
 std::vector<llama_rn_speaker_info> llama_rn_context_tts::listSpeakers(const std::string &path) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     const int32_t n = codec_audio_lm_list_voices(alm, path.c_str());
     if (n < 0) throw std::runtime_error(alm_error(alm, "listSpeakers"));
     std::vector<llama_rn_speaker_info> out;
@@ -610,6 +628,7 @@ std::vector<float> llama_rn_context_tts::decodeGeneration(const codec_audio_lm_g
 
 std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx,
                                                            const std::vector<llama_token> &tokens) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     if (tokens.empty()) throw std::runtime_error("decodeAudioTokens: no audio tokens");
     if (code_width <= 0) throw std::runtime_error("decodeAudioTokens: this model's codes are unknown until it generates");
     if (tokens.size() % (size_t) code_width != 0) {
@@ -628,6 +647,7 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
 std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context* main_ctx,
                                                                const std::vector<float> &embeddings,
                                                                int embedding_dim) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     if (embeddings.empty() || embedding_dim <= 0 || embeddings.size() % (size_t) embedding_dim != 0) {
         throw std::runtime_error("decodeAudioEmbeddings: expected whole frames of embedding_dim");
     }
@@ -641,6 +661,7 @@ std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context*
 }
 
 int llama_rn_context_tts::getAudioSampleRate() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     codec_audio_lm_caps c{};
     codec_audio_lm_get_caps(alm, &c);
     return c.sample_rate;
