@@ -507,19 +507,6 @@ enum codec_status codec_lm_state_set_text_context(
 // audio embed lookup + compose — delegate to vtable
 // ---------------------------------------------------------------------
 
-const float * codec_lm_audio_embd(struct codec_lm * lm, int32_t cb_idx, int32_t code) {
-    if (lm == nullptr || lm->vtable == nullptr || lm->vtable->audio_embd == nullptr) {
-        return nullptr;
-    }
-    if (cb_idx < 0 || cb_idx >= lm->info.n_codebook) {
-        return nullptr;
-    }
-    if (code < 0 || code >= lm->info.codebook_sizes[cb_idx]) {
-        return nullptr;
-    }
-    return lm->vtable->audio_embd(lm, cb_idx, code);
-}
-
 enum codec_status codec_lm_compose_audio_embd(
     struct codec_lm * lm,
     const int32_t * codes,
@@ -799,17 +786,6 @@ enum codec_status codec_lm_set_continuous_min_len(struct codec_lm_state * st, in
         return CODEC_STATUS_NOT_SUPPORTED;
     }
     return st->lm->vtable->set_min_len(st, min_len);
-}
-
-enum codec_status codec_lm_set_teacher_patch(struct codec_lm_state * st, const float * patch, int32_t n) {
-    if (st == nullptr || st->lm == nullptr) {
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    if (st->lm->vtable == nullptr || st->lm->vtable->set_teacher_patch == nullptr) {
-        st->last_error = "codec_lm_set_teacher_patch not supported for this kind";
-        return CODEC_STATUS_NOT_SUPPORTED;
-    }
-    return st->lm->vtable->set_teacher_patch(st, patch, n);
 }
 
 // ---------------------------------------------------------------------

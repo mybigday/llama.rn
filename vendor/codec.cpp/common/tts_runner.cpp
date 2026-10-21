@@ -30,32 +30,13 @@ namespace codec_common {
 
 namespace {
 
-// ── common_sampler wrapper for BACKBONE logits ────────────────────────
-// Owns a common_sampler built from a common_params_sampling that mirrors the
-// old raw-chain knobs (temp / top-k / top-p / min-p / rep-penalty), plus an
-// optional GBNF grammar.  Samples from a llama_context position via
-// common_sampler_sample (which reads llama_get_logits_ith + applies the
-// chain + grammar apply/resample) and accepts the token (penalty + grammar
-// state).  build() returns false + err on a grammar parse failure (clean
-// error, not a crash).
+// ── common_sampler for the BACKBONE logits ────────────────────────────
+// A common_params_sampling filled from the completion's settings (llama.cpp's
+// own names and defaults) plus the model's grammar / allowed-token bias.
+// build() returns false + err on a grammar parse failure.
 // llama.cpp's penalties sampler clamps penalty_last_n to >= 0 and treats 0 as
-// "disabled" (common's old -1 -> n_ctx mapping is commented out), so "-1 =
-// whole history" silently turned repetition penalties off.  Use a window
-// larger than any generation instead.
-static constexpr int32_t kRepPenaltyFullHistory = 1 << 16;
-
-// Sampler settings beyond the classic knobs (codec_audio_lm_sampler).
-struct BackboneSamplerExtra {
-    float   penalty_freq    = 0.0f;
-    float   penalty_present = 0.0f;
-    std::vector<llama_token> penalty_exempt;
-    float   dry_multiplier     = 0.0f;
-    float   dry_base           = 1.75f;
-    int32_t dry_allowed_length = 2;
-    int32_t dry_penalty_last_n = -1;
-    std::string samplers;   // llama.cpp --samplers order; "" = the default below
-};
-
+// "disabled" (common's -1 -> n_ctx mapping is commented out); -1 ("the whole
+// context") maps to the context size here.
 struct BackboneSampler {
     common_sampler * smpl = nullptr;
 
@@ -64,59 +45,32 @@ struct BackboneSampler {
     BackboneSampler & operator=(const BackboneSampler &) = delete;
     ~BackboneSampler() { if (smpl) common_sampler_free(smpl); }
 
-    bool build(const llama_model * model, uint32_t seed, float temp,
-               int32_t top_k, float top_p, float min_p, float rep_penalty,
-               int32_t rep_last_n, const std::string & grammar,
-               const std::vector<llama_logit_bias> & logit_bias,
-               std::string * err, const BackboneSamplerExtra * extra = nullptr) {
+    bool build(const llama_model * model, const codec_audio_lm_sampler & s, int32_t n_ctx, const std::string & grammar,
+               const std::vector<llama_logit_bias> & logit_bias, std::string * err) {
         common_params_sampling sp;
-        sp.seed          = seed;
-        sp.no_perf       = true;
-        sp.temp          = temp;                         // <=0 → greedy
-        sp.top_k         = top_k > 0 ? top_k : 0;        // 0 = disabled (vocab)
-        sp.top_p         = (top_p > 0.0f && top_p < 1.0f) ? top_p : 1.0f;
-        sp.min_p         = min_p > 0.0f ? min_p : 0.0f;
-        sp.penalty_repeat = rep_penalty;                 // 1.0 = disabled
-        sp.penalty_last_n = rep_penalty != 1.0f ? (rep_last_n > 0 ? rep_last_n : kRepPenaltyFullHistory) : 0;
-        sp.penalty_freq   = 0.0f;
-        sp.penalty_present = 0.0f;
-        // Reduce the chain to exactly the reference warpers (no DRY / XTC /
-        // typical / top-n-sigma), matching the old SamplerChain order:
-        //   penalties → temp → top_k → min_p → top_p → dist.
-        sp.samplers = {
-            COMMON_SAMPLER_TYPE_PENALTIES,
-            COMMON_SAMPLER_TYPE_TOP_K,
-            COMMON_SAMPLER_TYPE_MIN_P,
-            COMMON_SAMPLER_TYPE_TOP_P,
-            COMMON_SAMPLER_TYPE_TEMPERATURE,
-        };
-        if (extra != nullptr) {
-            sp.penalty_freq    = extra->penalty_freq;
-            sp.penalty_present = extra->penalty_present;
-            sp.penalty_exempt  = extra->penalty_exempt;
-            if (sp.penalty_last_n == 0 && (sp.penalty_freq != 0.0f || sp.penalty_present != 0.0f)) {
-                sp.penalty_last_n = rep_last_n > 0 ? rep_last_n : kRepPenaltyFullHistory;
-            }
-            sp.dry_multiplier     = extra->dry_multiplier;
-            sp.dry_base           = extra->dry_base;
-            sp.dry_allowed_length = extra->dry_allowed_length;
-            sp.dry_penalty_last_n = extra->dry_penalty_last_n;
-            sp.dry_sequence_breakers.clear();
-            if (!extra->samplers.empty()) {
-                std::vector<std::string> names;
-                std::stringstream ss(extra->samplers);
-                for (std::string n; std::getline(ss, n, ';');) if (!n.empty()) names.push_back(n);
-                sp.samplers = common_sampler_types_from_names(names);
-            } else if (sp.dry_multiplier > 0.0f) {
-                sp.samplers.insert(sp.samplers.begin() + 1, COMMON_SAMPLER_TYPE_DRY);
-            }
+        sp.seed               = s.seed;
+        sp.no_perf            = true;
+        sp.temp               = s.temp;
+        sp.top_k              = s.top_k;
+        sp.top_p              = s.top_p;
+        sp.min_p              = s.min_p;
+        sp.penalty_last_n     = s.penalty_last_n < 0 ? n_ctx : s.penalty_last_n;
+        sp.penalty_repeat     = s.penalty_repeat;
+        sp.penalty_freq       = s.penalty_freq;
+        sp.penalty_present    = s.penalty_present;
+        sp.penalty_exempt.assign(s.penalty_exempt, s.penalty_exempt + std::max(0, s.n_penalty_exempt));
+        sp.dry_multiplier     = s.dry_multiplier;
+        sp.dry_base           = s.dry_base;
+        sp.dry_allowed_length = s.dry_allowed_length;
+        sp.dry_penalty_last_n = s.dry_penalty_last_n;
+        if (s.samplers && *s.samplers) {
+            std::vector<std::string> names;
+            std::stringstream ss(s.samplers);
+            for (std::string n; std::getline(ss, n, ';');) if (!n.empty()) names.push_back(n);
+            sp.samplers = common_sampler_types_from_names(names);
         }
-        if (!grammar.empty()) {
-            sp.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, grammar);
-        }
-        if (!logit_bias.empty()) {
-            sp.logit_bias = logit_bias;
-        }
+        if (!grammar.empty()) sp.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, grammar);
+        if (!logit_bias.empty()) sp.logit_bias = logit_bias;
         try {
             smpl = common_sampler_init(model, sp);
         } catch (const std::exception & e) {
@@ -139,6 +93,37 @@ struct BackboneSampler {
         return id;
     }
 };
+
+// The backbone GGUF's recommended sampling (general.sampling.*, as llama.cpp's
+// common_init_sampler_from_model reads it) for the settings the user left unset.
+void sampling_from_model(const llama_model * model, uint32_t user_set, codec_audio_lm_sampler * s, std::string * samplers) {
+    auto meta = [&](const char * key, std::string * v) {
+        char buf[512] = {0};
+        if (llama_model_meta_val_str(model, key, buf, sizeof(buf)) <= 0) return false;
+        *v = buf;
+        return true;
+    };
+    std::string v;
+    auto f32 = [&](uint32_t bit, const char * key, float * dst) {
+        if (!(user_set & bit) && meta(key, &v)) *dst = std::strtof(v.c_str(), nullptr);
+    };
+    auto i32 = [&](uint32_t bit, const char * key, int32_t * dst) {
+        if (!(user_set & bit) && meta(key, &v)) *dst = (int32_t) std::strtol(v.c_str(), nullptr, 10);
+    };
+    if (!(user_set & TTS_SAMPLING_SAMPLERS) && meta("general.sampling.sequence", &v)) *samplers = v;
+    f32(TTS_SAMPLING_TEMP,               "general.sampling.temp",               &s->temp);
+    i32(TTS_SAMPLING_TOP_K,              "general.sampling.top_k",              &s->top_k);
+    f32(TTS_SAMPLING_TOP_P,              "general.sampling.top_p",              &s->top_p);
+    f32(TTS_SAMPLING_MIN_P,              "general.sampling.min_p",              &s->min_p);
+    i32(TTS_SAMPLING_PENALTY_LAST_N,     "general.sampling.penalty_last_n",     &s->penalty_last_n);
+    f32(TTS_SAMPLING_PENALTY_REPEAT,     "general.sampling.penalty_repeat",     &s->penalty_repeat);
+    f32(TTS_SAMPLING_PENALTY_FREQ,       "general.sampling.penalty_freq",       &s->penalty_freq);
+    f32(TTS_SAMPLING_PENALTY_PRESENT,    "general.sampling.penalty_present",    &s->penalty_present);
+    f32(TTS_SAMPLING_DRY_MULTIPLIER,     "general.sampling.dry_multiplier",     &s->dry_multiplier);
+    f32(TTS_SAMPLING_DRY_BASE,           "general.sampling.dry_base",           &s->dry_base);
+    i32(TTS_SAMPLING_DRY_ALLOWED_LENGTH, "general.sampling.dry_allowed_length", &s->dry_allowed_length);
+    i32(TTS_SAMPLING_DRY_PENALTY_LAST_N, "general.sampling.dry_penalty_last_n", &s->dry_penalty_last_n);
+}
 
 double ms_since(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -296,6 +281,7 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
 
     // Backbone sampler: the completion's settings; a user grammar replaces the model's.
     const codec_audio_lm_sampler & sp = c.sampler;
+    const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
     const std::string grammar = !a.grammar.empty() ? a.grammar : (c.grammar ? c.grammar : "");
     const int32_t n_vocab = llama_vocab_n_tokens(vocab);
     // Logit bias forbidding every token outside `allowed` (minus `except`).
@@ -312,26 +298,7 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
     };
     BackboneSampler smpl;
     std::string serr;
-    BackboneSamplerExtra extra;
-    extra.penalty_freq    = sp.penalty_freq;
-    extra.penalty_present = sp.penalty_present;
-    extra.penalty_exempt.assign(sp.penalty_exempt, sp.penalty_exempt + sp.n_penalty_exempt);
-    extra.dry_multiplier     = sp.dry_multiplier;
-    extra.dry_base           = sp.dry_base;
-    extra.dry_allowed_length = sp.dry_allowed_length;
-    extra.dry_penalty_last_n = sp.dry_penalty_last_n;
-    extra.samplers = sp.samplers ? sp.samplers : "";
-    if (!smpl.build(s->lmodel, sp.seed, sp.temp, sp.top_k, sp.top_p, sp.min_p, sp.penalty_repeat, sp.penalty_last_n,
-                    grammar, allowed_bias(-1), &serr, &extra)) {
-        out->error = serr;
-        return false;
-    }
-    // Minimum length: a second sampler without the stop token (and without
-    // penalties / grammar) replaces a stop drawn too early.
-    BackboneSampler guard;
-    const bool use_guard = c.min_frames > 0 && c.stop_token >= 0;
-    if (use_guard && !guard.build(s->lmodel, sp.seed, sp.temp, sp.top_k, sp.top_p, 0.0f, 1.0f, 0, std::string(),
-                                  allowed_bias(c.stop_token), &serr)) {
+    if (!smpl.build(s->lmodel, sp, n_ctx, grammar, allowed_bias(-1), &serr)) {
         out->error = serr;
         return false;
     }
@@ -340,7 +307,6 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
     // outputs on each sequence's last row; every position's hidden state when
     // the model asks for them.
     llama_memory_clear(llama_get_memory(lctx), true);   // every generation starts from an empty context
-    const int32_t n_ctx = (int32_t) llama_n_ctx(lctx);
     int32_t n_past = 0;
     std::vector<float> prompt_hidden;
     for (int32_t i = 0; i < c.n_chunks; ++i) {
@@ -376,7 +342,8 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
                          "context (" + std::to_string(n_ctx) + "); shorten the reference or raise --max-frames";
             return false;
         }
-        if (sp.penalize_prompt) for (llama_token t : toks) common_sampler_accept(smpl.smpl, t, /*is_generated=*/false);
+        // The prompt tokens count for the penalties, as llama-server's init_sampler.
+        for (llama_token t : toks) common_sampler_accept(smpl.smpl, t, /*is_generated=*/false);
         if (!decode_tokens(lctx, toks, n_past, c.needs_prompt_hidden)) { out->error = "prompt decode failed"; return false; }
         for (int32_t k = 0; c.needs_prompt_hidden && k < (int32_t) toks.size(); ++k) {
             const float * hk = llama_get_embeddings_ith(lctx, k);
@@ -414,8 +381,7 @@ static bool run_one(tts_runner_session * s, const tts_runner_params & a, tts_run
         }
         llama_token tok = -1;
         if (sample) {
-            tok = smpl.sample(lctx, -1);   // always first: its random stream advances every step
-            if (use_guard && frames < c.min_frames && tok == c.stop_token) tok = guard.sample(lctx, -1);
+            tok = smpl.sample(lctx, -1);
         }
         codec_audio_lm_verdict v{};
         if (!codec_audio_lm_observe(alm, sample ? &tok : nullptr, h, &v)) return fail("observe");
@@ -522,6 +488,8 @@ tts_runner_info tts_runner_get_info(tts_runner_session * s, const std::string & 
 static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_params & a, tts_runner_result * out) {
     tts_runner_params ra = a;
     ra.max_frames = s->max_frames;   // the context was sized for the load-time cap
+    if (s->lmodel) sampling_from_model(s->lmodel, a.sampling_user_set, &ra.sampling, &ra.samplers);
+    const uint32_t base_seed = ra.sampling.seed;
     std::vector<std::string> segments;
     const int32_t n_seg = codec_audio_lm_tts_split(s->alm, a.text.c_str(), a.segment_bytes);
     for (int32_t i = 0; i < n_seg; ++i) segments.push_back(codec_audio_lm_tts_segment(s->alm, i));
@@ -540,7 +508,7 @@ static bool tts_runner_run_segments(tts_runner_session * s, const tts_runner_par
             codec_log(CODEC_LOG_LEVEL_INFO, "segment %zu/%zu: %zu bytes\n", i + 1, segments.size(), segments[i].size());
         }
         ra.text = segments[i];
-        ra.seed = (a.seed ? a.seed : 0xC0DEC1ABu) + (uint32_t) i;
+        if (base_seed != CODEC_AUDIO_LM_DEFAULT_SEED) ra.sampling.seed = base_seed + (uint32_t) i;
         tts_runner_result r;
         std::unique_ptr<stream_out> so;
         if (a.on_audio && a.stream_chunk_ms > 0) so = std::make_unique<stream_out>(s->alm, ra, &r);

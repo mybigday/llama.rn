@@ -20,6 +20,36 @@ static double ms_since(std::chrono::steady_clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
+const std::vector<tts_sampling_option> & tts_sampling_options() {
+    using S = codec_audio_lm_sampler;
+    static const std::vector<tts_sampling_option> opts = {
+        {"--temp",               "temperature",        TTS_SAMPLING_TEMP,               &S::temp,               nullptr},
+        {"--top-k",              "top_k",              TTS_SAMPLING_TOP_K,              nullptr,                &S::top_k},
+        {"--top-p",              "top_p",              TTS_SAMPLING_TOP_P,              &S::top_p,              nullptr},
+        {"--min-p",              "min_p",              TTS_SAMPLING_MIN_P,              &S::min_p,              nullptr},
+        {"--repeat-last-n",      "repeat_last_n",      TTS_SAMPLING_PENALTY_LAST_N,     nullptr,                &S::penalty_last_n},
+        {"--repeat-penalty",     "repeat_penalty",     TTS_SAMPLING_PENALTY_REPEAT,     &S::penalty_repeat,     nullptr},
+        {"--presence-penalty",   "presence_penalty",   TTS_SAMPLING_PENALTY_PRESENT,    &S::penalty_present,    nullptr},
+        {"--frequency-penalty",  "frequency_penalty",  TTS_SAMPLING_PENALTY_FREQ,       &S::penalty_freq,       nullptr},
+        {"--dry-multiplier",     "dry_multiplier",     TTS_SAMPLING_DRY_MULTIPLIER,     &S::dry_multiplier,     nullptr},
+        {"--dry-base",           "dry_base",           TTS_SAMPLING_DRY_BASE,           &S::dry_base,           nullptr},
+        {"--dry-allowed-length", "dry_allowed_length", TTS_SAMPLING_DRY_ALLOWED_LENGTH, nullptr,                &S::dry_allowed_length},
+        {"--dry-penalty-last-n", "dry_penalty_last_n", TTS_SAMPLING_DRY_PENALTY_LAST_N, nullptr,                &S::dry_penalty_last_n},
+    };
+    return opts;
+}
+
+std::vector<float> downmix_mono(const float * in, size_t n_frames, int32_t n_channels) {
+    if (n_channels <= 1) return std::vector<float>(in, in + n_frames);
+    std::vector<float> out(n_frames);
+    for (size_t t = 0; t < n_frames; ++t) {
+        float s = 0.0f;
+        for (int32_t c = 0; c < n_channels; ++c) s += in[t * (size_t) n_channels + (size_t) c];
+        out[t] = s / (float) n_channels;
+    }
+    return out;
+}
+
 bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int32_t * out_n, int32_t * out_sr,
                     std::string * err) {
     if (path.empty()) return true;
@@ -30,13 +60,9 @@ bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int3
         return false;
     }
     const int32_t nch = w.n_channels > 0 ? w.n_channels : 1;
-    const int32_t nframes = (int32_t) (w.pcm_i16.size() / (size_t) nch);
-    ref_pcm.assign((size_t) nframes, 0.0f);
-    for (int32_t i = 0; i < nframes; ++i) {
-        float acc = 0.0f;
-        for (int32_t c = 0; c < nch; ++c) acc += w.pcm_i16[(size_t) i * nch + c] / 32768.0f;
-        ref_pcm[(size_t) i] = acc / (float) nch;
-    }
+    std::vector<float> pcm(w.pcm_i16.size());
+    for (size_t i = 0; i < pcm.size(); ++i) pcm[i] = w.pcm_i16[i] / 32768.0f;
+    ref_pcm = downmix_mono(pcm.data(), pcm.size() / (size_t) nch, nch);
     if (out_n)  *out_n  = (int32_t) ref_pcm.size();
     if (out_sr) *out_sr = w.sample_rate;
     return true;
@@ -46,19 +72,16 @@ codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & a) {
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
     req.text     = a.text.c_str();
     req.instruct = a.instruct.empty() ? nullptr : a.instruct.c_str();
-    req.preset   = a.preset.empty() ? nullptr : a.preset.c_str();
-    req.seed     = a.seed;
     req.voice    = a.voice_spk;
-    if (a.has_temp)        req.temperature = a.temp;
-    if (a.has_top_p)       req.top_p = a.top_p;
-    if (a.has_top_k)       req.top_k = a.top_k;
-    if (a.has_min_p)       req.min_p = a.min_p;
-    if (a.has_rep_penalty) req.repetition_penalty = a.repetition_penalty;
-    if (a.min_len > 0)     req.min_frames = a.min_len;
-    if (a.has_cfg_weight)  req.lm_guidance = a.cfg_weight;
-    req.flow_guidance = a.cfg;
-    req.flow_steps    = a.timesteps;
+    req.sampler  = a.sampling;
+    req.sampler.samplers         = a.samplers.empty() ? nullptr : a.samplers.c_str();
+    req.sampler.penalty_exempt   = a.penalty_exempt.empty() ? nullptr : a.penalty_exempt.data();
+    req.sampler.n_penalty_exempt = (int32_t) a.penalty_exempt.size();
+    req.min_frames    = a.min_frames;
     req.max_frames    = a.max_frames;
+    req.lm_guidance   = a.lm_guidance;
+    req.flow_guidance = a.flow_guidance;
+    req.flow_steps    = a.flow_steps;
     return req;
 }
 

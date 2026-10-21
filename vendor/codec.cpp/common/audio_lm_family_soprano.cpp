@@ -42,16 +42,13 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_HIDDEN;
         out->seqs = {{alm_chunk::of_text("[STOP][TEXT]" + text + "[START]", false, true)}};
-        out->sampler.temp = 0.0f;
-        out->sampler.top_p = 0.95f;
-        out->sampler.penalty_repeat = 1.2f;
-        out->sampler.penalize_prompt = true;
+        req.sampling_to(out);
         out->allowed = {{off, off + count}};
         if (eos_ >= 0) out->allowed.push_back({eos_, eos_ + 1});
         out->needs_embeddings = true;
         out->sample_first = true;
         out->max_frames = 512;
-        req.apply(out->sampler);
+        if (req.min_frames > 0) out->grammar = alm_min_length_grammar(eos_, req.min_frames);
         return true;
     }
 

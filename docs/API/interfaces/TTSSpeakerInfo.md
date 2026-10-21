@@ -20,7 +20,7 @@ A named decoder speaker: a builtin voice of a codec GGUF or an entry in a speake
 
 #### Defined in
 
-[tts.ts:10](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L10)
+[tts.ts:10](https://github.com/mybigday/llama.rn/blob/e7ab17bd/src/tts.ts#L10)
 
 ___
 
@@ -30,7 +30,7 @@ ___
 
 #### Defined in
 
-[tts.ts:7](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L7)
+[tts.ts:7](https://github.com/mybigday/llama.rn/blob/e7ab17bd/src/tts.ts#L7)
 
 ___
 
@@ -42,4 +42,4 @@ Transcript of the reference audio, when known.
 
 #### Defined in
 
-[tts.ts:9](https://github.com/mybigday/llama.rn/blob/a1b27a3e/src/tts.ts#L9)
+[tts.ts:9](https://github.com/mybigday/llama.rn/blob/e7ab17bd/src/tts.ts#L9)

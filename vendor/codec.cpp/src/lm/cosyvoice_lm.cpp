@@ -61,11 +61,6 @@ cosyvoice_lm_state * get_state(codec_lm * lm) {
     i.stop_end = codec_read_i32_kv(g, key("stop_end").c_str(), i.speech_token_size + 1);
     i.ignore_eos_id = codec_read_i32_kv(g, key("ignore_eos_id").c_str(), i.speech_token_size);
     i.text_in_backbone = codec_read_bool_kv(g, key("text_in_backbone").c_str(), true) ? 1 : 0;
-    i.ras_sampling = codec_read_str_kv(g, key("sampling").c_str(), "ras") == "ras" ? 1 : 0;
-    i.top_k = codec_read_i32_kv(g, key("top_k").c_str(), 25);
-    i.top_p = codec_read_f32_kv(g, key("top_p").c_str(), 0.8f);
-    i.win_size = codec_read_i32_kv(g, key("win_size").c_str(), 10);
-    i.tau_r = codec_read_f32_kv(g, key("tau_r").c_str(), 0.1f);
     i.min_token_text_ratio = codec_read_f32_kv(g, key("min_token_text_ratio").c_str(), 2.0f);
     i.max_token_text_ratio = codec_read_f32_kv(g, key("max_token_text_ratio").c_str(), 20.0f);
     codec_read_i32_array_kv_vec(g, key("silent_tokens").c_str(), &s->silent);

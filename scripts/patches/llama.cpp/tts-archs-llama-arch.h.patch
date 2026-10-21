@@ -1,6 +1,5 @@
 TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
 (BlueMagpie-TTS) and CosyVoice (CosyVoice-300M / BreezyVoice speech LM).
-
 --- a/src/llama-arch.h
 +++ b/src/llama-arch.h
 @@ -161,6 +161,8 @@
@@ -12,7 +11,20 @@ TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
      LLM_ARCH_NANBEIGE,
      LLM_ARCH_QWEN3TTS,
      LLM_ARCH_POCKETTTS,
-@@ -736,6 +738,11 @@
+@@ -188,6 +190,12 @@
+     LLM_KV_GENERAL_SAMPLING_MIROSTAT,
+     LLM_KV_GENERAL_SAMPLING_MIROSTAT_TAU,
+     LLM_KV_GENERAL_SAMPLING_MIROSTAT_ETA,
++    LLM_KV_GENERAL_SAMPLING_PENALTY_FREQ,
++    LLM_KV_GENERAL_SAMPLING_PENALTY_PRESENT,
++    LLM_KV_GENERAL_SAMPLING_DRY_MULTIPLIER,
++    LLM_KV_GENERAL_SAMPLING_DRY_BASE,
++    LLM_KV_GENERAL_SAMPLING_DRY_ALLOWED_LENGTH,
++    LLM_KV_GENERAL_SAMPLING_DRY_PENALTY_LAST_N,
+     LLM_KV_GENERAL_NAME,
+     LLM_KV_GENERAL_AUTHOR,
+     LLM_KV_GENERAL_VERSION,
+@@ -736,6 +744,11 @@
      LLM_TENSOR_HRM_Z_L_INIT,
      LLM_TENSOR_FC,
      LLM_TENSOR_D2T,

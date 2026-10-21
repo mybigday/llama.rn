@@ -62,17 +62,6 @@ struct cfm_state {
     std::vector<float> prefill_lm_hidden;       // [h_vox]
     std::vector<float> prefill_residual_hidden; // [h_vox]
 
-    // Teacher-forcing (parity tests only): when `has_teacher_patch` is set, the
-    // NEXT step_generate uses `teacher_patch` (a reference latent patch) as the
-    // LocEnc feedback source AND as this step's cond, instead of the codec's own
-    // generated patch — so codec replays the reference trajectory exactly and
-    // every emitted patch can be compared against the reference at high corr
-    // (free-running feedback would otherwise diverge chaotically after a few
-    // steps).  The patch the graph *emits* is still codec's own.  Cleared after
-    // consumption; the flag is set via codec_lm_set_teacher_patch.
-    bool               has_teacher_patch = false;
-    std::vector<float> teacher_patch;           // [latent_dim*patch_size]
-
     // CFM init-noise RNG for the noise==NULL path.  The reference samples
     // z ~ N(0,1) per step (torch.randn); zero-init instead yields degenerate
     // "mean" ODE trajectories - muffled audio whose stop head never crosses.
@@ -414,17 +403,6 @@ enum codec_status set_min_len(codec_lm_state * st, int32_t min_len) {
     return CODEC_STATUS_SUCCESS;
 }
 
-enum codec_status set_teacher_patch(codec_lm_state * st, const float * patch, int32_t n) {
-    cfm_impl * I = static_cast<cfm_impl *>(st->lm->impl);
-    cfm_state * s = static_cast<cfm_state *>(st->impl);
-    const int32_t dp = I->latent_dim * I->patch_size;
-    if (patch == nullptr) { s->has_teacher_patch = false; return CODEC_STATUS_SUCCESS; }
-    if (n != dp) { st->last_error = "teacher patch length mismatch"; return CODEC_STATUS_INVALID_ARG; }
-    s->teacher_patch.assign(patch, patch + dp);
-    s->has_teacher_patch = true;
-    return CODEC_STATUS_SUCCESS;
-}
-
 // Build the whole per-step graph.
 //
 // IMPORTANT: the graph shape depends ONLY on (bucket, n_real, cfg_value) — NOT
@@ -440,8 +418,6 @@ struct cfm_build {
     float     cfg_value;
     int32_t   primed;       // 1 = primed first step: lm_hidden/residual_hidden are
                             // INPUTS (from prefill); skip adapter/FSQ/RALM entirely.
-    int32_t   teacher;      // 1 = LocEnc runs on the `bm.cfm.teacher` input patch
-                            // (teacher-forced trajectory) instead of the emitted x.
     float     dt[64];
     ggml_tensor * k_cache[32];
     ggml_tensor * v_cache[32];
@@ -581,16 +557,7 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     ggml_set_output(stop_logit);
 
     // ---- LocEnc(patch) → feedback ----
-    // Teacher-forcing: LocEnc runs on the reference patch input so the feedback
-    // (and hence the next step's RALM/backbone drive) tracks the reference
-    // trajectory exactly.  The emitted patch `x` is unchanged.
-    ggml_tensor * le_src = x;
-    if (p->teacher) {
-        ggml_tensor * tp = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, D, P);
-        ggml_set_name(tp, "bm.cfm.teacher"); ggml_set_input(tp);
-        le_src = tp;
-    }
-    ggml_tensor * le = linW("lm.locenc.in_proj.w", le_src, "lm.locenc.in_proj.b");   // (h_enc, P)
+    ggml_tensor * le = linW("lm.locenc.in_proj.w", x, "lm.locenc.in_proj.b");   // (h_enc, P)
     ggml_tensor * sptok = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, W("lm.locenc.special_token")), I.h_enc, 1);
     le = ggml_concat(ctx, sptok, le, 1);                                                   // (h_enc, P+1)
     const int64_t Te = le->ne[1];
@@ -672,7 +639,6 @@ void state_reset(codec_lm_state * st) {
     s->kv_pos = 0;   // discard cached RALM K/V (positions before 0 are never read)
     s->patch_index = 0;
     s->primed = false;
-    s->has_teacher_patch = false;
     std::fill(s->prev_patch.begin(), s->prev_patch.end(), 0.0f);
     std::fill(s->prev_feedback_lm.begin(), s->prev_feedback_lm.end(), 0.0f);
     std::fill(s->feedback_tslm.begin(), s->feedback_tslm.end(), 0.0f);
@@ -750,7 +716,6 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     cfm_build b = {};
     b.imp = *I; b.bucket = bucket; b.cfg_value = cfg_value; b.model = st->lm->codec;
     b.primed = primed ? 1 : 0;
-    b.teacher = s->has_teacher_patch ? 1 : 0;
     for (int32_t l = 0; l < I->n_ralm; ++l) { b.k_cache[l] = s->k_cache[(size_t) l]; b.v_cache[l] = s->v_cache[(size_t) l]; }
     std::vector<double> t_real;
     double t = tspan[0], dt = tspan[0] - tspan[1];
@@ -782,8 +747,8 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     key.n_frames = bucket;        // graph shape depends only on the 64-bucketed KV view length
     key.n_q = n_timesteps;
     // hop bit0 = cfg==1 single-branch shape; bit1 = primed (lm/res hidden are
-    // inputs, no adapter/FSQ/RALM subgraph); bit2 = teacher-forced LocEnc input.
-    key.hop = ((cfg_value == 1.0f) ? 1 : 0) | (primed ? 2 : 0) | (b.teacher ? 4 : 0);
+    // inputs, no adapter/FSQ/RALM subgraph).
+    key.hop = ((cfg_value == 1.0f) ? 1 : 0) | (primed ? 2 : 0);
     if (!codec_graph_cache_get_or_build(st->ctx, key, build_step, &b, sizeof(b), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -795,9 +760,6 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     };
     bool ok = wr("bm.cfm.cond", s->prev_patch.data(), dp) && wr("bm.cfm.z", noise, dp)
         && wr("bm.cfm.tsin", tsin_all.data(), tsin_all.size()) && wr("bm.cfm.dtsin", dtsin.data(), dtsin.size());
-    if (b.teacher) {
-        ok = ok && wr("bm.cfm.teacher", s->teacher_patch.data(), dp);
-    }
     if (primed) {
         // Primed step inputs: cached lm_hidden / residual_hidden from prefill.
         ok = ok && wr("bm.cfm.lm_hidden_in", s->prefill_lm_hidden.data(), I->h_vox)
@@ -844,14 +806,8 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     if (!primed) s->kv_pos += 1;
     s->primed = false;   // consumed the prime
     s->patch_index += 1;
-    // Next step's cond = this step's patch.  Under teacher-forcing that is the
-    // reference patch (so the trajectory stays aligned); else the codec's own.
-    if (s->has_teacher_patch) {
-        std::memcpy(s->prev_patch.data(), s->teacher_patch.data(), dp * sizeof(float));
-        s->has_teacher_patch = false;   // consumed; caller re-arms per step
-    } else {
-        std::memcpy(s->prev_patch.data(), out_patch, dp * sizeof(float));
-    }
+    // Next step's cond = this step's patch.
+    std::memcpy(s->prev_patch.data(), out_patch, dp * sizeof(float));
     return CODEC_STATUS_SUCCESS;
 }
 
@@ -877,7 +833,6 @@ const codec_lm_kind_vtable codec_lm_vtable_continuous_latent_cfm = {
     /*.step_logits        =*/ nullptr,
     /*.step_push_code     =*/ nullptr,
     /*.step_finish        =*/ nullptr,
-    /*.audio_embd         =*/ nullptr,
     /*.compose_audio_embd =*/ nullptr,
     /*.compose_next_embd  =*/ nullptr,
     /*.speaker_encode     =*/ nullptr,
@@ -885,5 +840,4 @@ const codec_lm_kind_vtable codec_lm_vtable_continuous_latent_cfm = {
     /*.step_feedback_embd =*/ step_feedback_embd,
     /*.text_prefill       =*/ text_prefill,
     /*.set_min_len        =*/ set_min_len,
-    /*.set_teacher_patch  =*/ set_teacher_patch,
 };

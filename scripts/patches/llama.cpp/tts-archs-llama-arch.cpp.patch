@@ -1,6 +1,5 @@
 TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
 (BlueMagpie-TTS) and CosyVoice (CosyVoice-300M / BreezyVoice speech LM).
-
 --- a/src/llama-arch.cpp
 +++ b/src/llama-arch.cpp
 @@ -158,6 +158,8 @@
@@ -12,7 +11,20 @@ TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
      { LLM_ARCH_NANBEIGE,         "nanbeige"         },
      { LLM_ARCH_QWEN3TTS,         "qwen3tts"         },
      { LLM_ARCH_POCKETTTS,        "pockettts"        },
-@@ -729,6 +731,11 @@
+@@ -183,6 +185,12 @@
+     { LLM_KV_GENERAL_SAMPLING_MIROSTAT,              "general.sampling.mirostat"             },
+     { LLM_KV_GENERAL_SAMPLING_MIROSTAT_TAU,          "general.sampling.mirostat_tau"         },
+     { LLM_KV_GENERAL_SAMPLING_MIROSTAT_ETA,          "general.sampling.mirostat_eta"         },
++    { LLM_KV_GENERAL_SAMPLING_PENALTY_FREQ,          "general.sampling.penalty_freq"         },
++    { LLM_KV_GENERAL_SAMPLING_PENALTY_PRESENT,       "general.sampling.penalty_present"      },
++    { LLM_KV_GENERAL_SAMPLING_DRY_MULTIPLIER,        "general.sampling.dry_multiplier"       },
++    { LLM_KV_GENERAL_SAMPLING_DRY_BASE,              "general.sampling.dry_base"             },
++    { LLM_KV_GENERAL_SAMPLING_DRY_ALLOWED_LENGTH,    "general.sampling.dry_allowed_length"   },
++    { LLM_KV_GENERAL_SAMPLING_DRY_PENALTY_LAST_N,    "general.sampling.dry_penalty_last_n"   },
+     { LLM_KV_GENERAL_NAME,                           "general.name"                          },
+     { LLM_KV_GENERAL_AUTHOR,                         "general.author"                        },
+     { LLM_KV_GENERAL_VERSION,                        "general.version"                       },
+@@ -729,6 +737,11 @@
      { LLM_TENSOR_MASKED_EMBD_ORDERING,                   "masked_embd_ordering" },
      { LLM_TENSOR_FC,                                     "fc" },
      { LLM_TENSOR_D2T,                                    "d2t" },
@@ -24,7 +36,7 @@ TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
      { LLM_TENSOR_DSPARK_MARKOV_W1,                       "markov_w1" },
      { LLM_TENSOR_DSPARK_MARKOV_W2,                       "markov_w2" },
      { LLM_TENSOR_DSPARK_CONF_PROJ,                       "conf_proj" },
-@@ -1040,6 +1047,12 @@
+@@ -1040,6 +1053,12 @@
      // eagle3
      {LLM_TENSOR_FC,                         {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_MUL_MAT}},
      {LLM_TENSOR_D2T,                        {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_GET_ROWS}},
@@ -37,7 +49,7 @@ TTS backbones carried for codec.cpp (its patches/*-llamacpp.patch): Barbet
      // dspark
      {LLM_TENSOR_DSPARK_MARKOV_W1,           {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_GET_ROWS}},
      {LLM_TENSOR_DSPARK_MARKOV_W2,           {LLM_TENSOR_LAYER_OUTPUT,    GGML_OP_MUL_MAT}},
-@@ -1150,6 +1163,7 @@
+@@ -1150,6 +1169,7 @@
          case LLM_ARCH_QWEN4EXP:
          case LLM_ARCH_DEEPSEEK4:
          case LLM_ARCH_MINIMAX_01:

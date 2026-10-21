@@ -347,7 +347,7 @@ if (!NativeModules.RNLlama) {
         grammar: '',
         embedding: false,
         flow: 'tokens',
-        completionParams: { prompt: text, embedding: false, n_predict: -1 },
+        completionParams: { prompt: text, embedding: false },
       })),
     )
     setGlobal(

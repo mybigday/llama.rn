@@ -120,9 +120,6 @@ struct llama_rn_context {
     // n_probs readout mode for the next completion (see get_token_probabilities);
     // false = softmax of the raw logits, true = the sampler chain's candidates
     bool post_sampling_probs = true;
-    // Completion param beyond common_params_sampling (JSIParams): the prompt's
-    // tokens count for the penalties.
-    bool penalize_prompt = false;
     common_init_result_ptr llama_init;
     llama_context *ctx = nullptr;
     common_chat_templates_ptr templates;

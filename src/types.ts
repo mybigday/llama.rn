@@ -402,10 +402,6 @@ export type NativeCompletionParams = {
    */
   logit_bias?: Array<Array<number>> | Float32Array
   /**
-   * The prompt's tokens count for the repetition penalties. Default: `false`
-   */
-  penalize_prompt?: boolean
-  /**
    * Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: llama.cpp's order.
    */
   samplers?: string | Array<string>

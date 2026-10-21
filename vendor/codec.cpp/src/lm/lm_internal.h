@@ -124,10 +124,6 @@ struct codec_lm_kind_vtable {
     enum codec_status (*step_push_code)(codec_lm_state * st, int32_t code);
     enum codec_status (*step_finish)(codec_lm_state * st, int32_t * out_codes);
 
-    // Audio embd (kind-specific because the table layout — fused vs
-    // unfused — varies, even though the v1 schema standardises on
-    // unfused per-cb tables).
-    const float *     (*audio_embd)(codec_lm * lm, int32_t cb_idx, int32_t code);
     enum codec_status (*compose_audio_embd)(codec_lm * lm, const int32_t * codes, float * out_embd);
 
     // Like compose_audio_embd but adds a learned per-step positional
@@ -163,10 +159,6 @@ struct codec_lm_kind_vtable {
     // Configure the min_len stop guard (continuous_latent_cfm).  NULL for other
     // kinds → codec_lm_set_continuous_min_len returns NOT_SUPPORTED.
     enum codec_status (*set_min_len)(codec_lm_state * st, int32_t min_len);
-    // Teacher-force the next step's trajectory (continuous_latent_cfm, parity
-    // tests): the reference patch replaces the codec's own patch as the cond +
-    // LocEnc feedback source.  NULL for other kinds.
-    enum codec_status (*set_teacher_patch)(codec_lm_state * st, const float * patch, int32_t n);
 };
 
 // Map between the GGUF string and the C enum.  Returns

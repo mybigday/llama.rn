@@ -43,13 +43,13 @@ enum tts_type {
     COSYVOICE = 15,
 };
 
-// getFormattedAudioCompletion() result: everything the completion that runs
-// the request needs.  `completion_params` holds completion() parameters
-// (snake_case, as JS passes them): the model's backbone sampling, grammar,
-// frame budget and whether hidden states are needed.  `logit_bias` (one bias
-// per vocabulary token, the Float32Array form of completion()'s logit_bias)
-// rules out the tokens the model never samples.  Nothing is applied behind the caller's back; completion() runs with
-// exactly the parameters it is given.
+// getFormattedAudioCompletion() result: what the request's format needs, as
+// completion() parameters (snake_case, as JS passes them) in
+// `completion_params`: the prompt, the grammar and whether hidden states are
+// needed.  `logit_bias` (one bias per vocabulary token, the Float32Array form
+// of completion()'s logit_bias) rules out the tokens the model never samples.
+// Sampling and length are the caller's: completion() runs with exactly the
+// parameters it is given.
 struct llama_rn_audio_completion_result {
     std::string prompt;
     std::string grammar;
@@ -142,8 +142,8 @@ struct llama_rn_context_tts {
     // `speakerId` (registry), else `speaker.codec_voice` (builtin voice name),
     // else the model's default.  `instruct` describes how to speak, for models
     // that take one (can_take_instruct).  `options` holds codec.cpp's request
-    // overrides (seed, the codec-side sampling, frame limits, guidance; see
-    // getFormattedAudioCompletion in src/index.ts).  Throws on failure.
+    // overrides (min_frames).  The generation samples with the completion's
+    // sampling, codec.cpp's own samplers included.  Throws on failure.
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker,
                                                                  const std::string &text_to_speak, int speakerId = -1,
                                                                  const std::string &instruct = "",
@@ -155,7 +155,7 @@ struct llama_rn_context_tts {
     bool isGenerating() const { return generating; }
     // Starts the armed request: decodes its prompt from position 0 and returns
     // the KV position after it.  `prompt_tokens` receives the prompt's tokens
-    // (for penalize_prompt).  Throws on failure.
+    // (they count for the penalties).  Throws on failure.
     int beginGeneration(llama_rn_context* main_ctx, std::vector<llama_token> &prompt_tokens);
     // Whether this step samples a backbone token (else codec.cpp reads only
     // the hidden state).

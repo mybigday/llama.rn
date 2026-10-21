@@ -121,8 +121,8 @@ struct codec_lm_info {
     // matches `llama_model_n_embd(host_model)`.
     int32_t         hidden_dim;
 
-    // Audio embedding dimension (the dim of vectors returned by
-    // codec_lm_audio_embd).  Used to size the depth-side audio embed
+    // Audio embedding dimension (the width of one codebook's embedding
+    // row).  Used to size the depth-side audio embed
     // rows; equals hidden_dim for shared / in_proj-on-prefix models
     // (CSM / Qwen3-TTS) and depth_hidden for in_proj_per_pos models
     // (Moshi / LFM2).
@@ -229,18 +229,6 @@ enum codec_status codec_lm_state_set_text_context(
 // Audio embedding lookup.
 // ─────────────────────────────────────────────────────────────────────
 
-// Look up the audio embedding row for codebook `cb_idx` and code
-// `code`.  Returns a pointer into the model's weight buffer (read-only;
-// lifetime = lifetime of `lm`).  Returns NULL when the arguments are
-// out of range.
-//
-// `code == -1` is reserved for "skip / pad" by callers and is rejected
-// by this lookup with NULL — use codec_lm_compose_audio_embd to do a
-// pad-aware sum.
-const float * codec_lm_audio_embd(
-    struct codec_lm * lm,
-    int32_t           cb_idx,
-    int32_t           code);
 
 // Qwen3-TTS talker text-projection.  Projects one text-vocab token
 // through the talker `text_projection` MLP (fc2 ∘ silu ∘ fc1 applied to
@@ -478,20 +466,6 @@ enum codec_status codec_lm_text_prefill(
 enum codec_status codec_lm_set_continuous_min_len(
     struct codec_lm_state * st,
     int32_t                 min_len);
-
-// Teacher-force the NEXT codec_lm_step_generate's trajectory (parity testing).
-// The supplied reference latent `patch` [patch_size*latent_dim] replaces the
-// codec's own generated patch as the cond for the next step AND as the LocEnc
-// feedback source for THIS step — so codec replays the reference trajectory
-// exactly and every emitted patch stays comparable to the reference (free-
-// running feedback diverges chaotically after a few steps under F16).  The
-// patch the graph emits is still codec's own.  Consumed once per step; re-arm
-// before each step.  Pass NULL to disarm.  CONTINUOUS_LATENT_CFM; FLOW_LM
-// takes one denormalized [ldim] latent as the next step's input source.
-enum codec_status codec_lm_set_teacher_patch(
-    struct codec_lm_state * st,
-    const float *           patch,
-    int32_t                 n);
 
 // =====================================================================
 // Speaker-conditioning encoder.

@@ -345,11 +345,6 @@ CbxState * ensure_state(codec_lm * lm) {
     ci.backbone_tokenizer = codec_read_bool_kv(gf, "codec.lm.chatterbox.backbone_tokenizer", false) ? 1 : 0;
     ci.silence_token      = codec_read_i32_kv(gf, "codec.lm.chatterbox.silence_token", -1);
     ci.n_trailing_silence = codec_read_i32_kv(gf, "codec.lm.chatterbox.n_trailing_silence", 0);
-    ci.temperature        = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.temperature", -1.0f);
-    ci.top_k              = codec_read_i32_kv(gf, "codec.lm.chatterbox.sampling.top_k", -1);
-    ci.top_p              = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.top_p", -1.0f);
-    ci.min_p              = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.min_p", -1.0f);
-    ci.repetition_penalty = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.repetition_penalty", -1.0f);
     ci.cfg_weight         = codec_read_f32_kv(gf, "codec.lm.chatterbox.sampling.cfg_weight", -1.0f);
     st->learned_pos_emb   = codec_read_bool_kv(gf, "codec.lm.chatterbox.learned_pos_emb", true);
     st->wrap_text_tokens  = codec_read_bool_kv(gf, "codec.lm.chatterbox.wrap_text_tokens", true);

@@ -405,31 +405,8 @@ void audio_lm_free(audio_lm_context * ctx) {
     delete ctx;
 }
 
-// Bare-context allocation for unit-test / model-less use.
-// The context is zeroed (all pointers null); only the accumulator +
-// Type A range state are functional.
-audio_lm_context * audio_lm_alloc_bare() {
-    return new (std::nothrow) audio_lm_context();
-}
-
-void audio_lm_free_bare(audio_lm_context * ctx) {
-    // Model / state pointers are all null in a bare context — safe to delete.
-    delete ctx;
-}
-
 int32_t audio_lm_codes_n_frames(const audio_lm_context * ctx) {
     return ctx ? ctx->codes_n_frames : 0;
-}
-
-const int32_t * audio_lm_debug_codes(const audio_lm_context * ctx,
-                                      int32_t * out_n_q,
-                                      int32_t * out_n_frames) {
-    if (out_n_q)      *out_n_q      = 0;
-    if (out_n_frames) *out_n_frames = 0;
-    if (ctx == nullptr || ctx->codes.empty()) return nullptr;
-    if (out_n_q)      *out_n_q      = ctx->n_cb > 0 ? ctx->n_cb : 1;
-    if (out_n_frames) *out_n_frames = ctx->codes_n_frames;
-    return ctx->codes.data();
 }
 
 void audio_lm_reset(audio_lm_context * ctx) {
@@ -474,10 +451,6 @@ struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx) {
     return ctx ? ctx->lm : nullptr;
 }
 
-struct codec_context * audio_lm_get_codec_context(audio_lm_context * ctx) {
-    return ctx ? ctx->codec_ctx : nullptr;
-}
-
 // =====================================================================
 // Prompt build
 //
@@ -510,11 +483,6 @@ bool audio_lm_build_prompt(audio_lm_context * ctx,
     out->embeds_prefix_rows   = 0;
     out->embeds_prefix_hidden = 0;
     out->embeds_uncond.clear();
-    out->default_temperature        = 0.0f;
-    out->default_top_p              = 0.0f;
-    out->default_min_p              = 0.0f;
-    out->default_repetition_penalty = 0.0f;
-    out->default_cfg_weight         = 0.0f;
     out->start_token                = -1;
     out->stop_token                 = -1;
 
@@ -674,28 +642,6 @@ void audio_lm_set_audio_token_ranges(audio_lm_context * ctx,
     ctx->audio_tok_count  = 0;
 }
 
-void audio_lm_get_audio_token_range(const audio_lm_context * ctx,
-                                     int32_t * out_offset, int32_t * out_count,
-                                     int32_t * out_eos_id) {
-    if (out_offset) *out_offset = ctx ? ctx->audio_tok_offset : -1;
-    if (out_count ) *out_count  = ctx ? ctx->audio_tok_count  : 0;
-    if (out_eos_id) *out_eos_id = ctx ? ctx->audio_tok_eos    : -1;
-}
-
-void audio_lm_get_lm_eos(const audio_lm_context * ctx,
-                         int32_t * out_eos_code_c0, int32_t * out_eos_min_step) {
-    int32_t eos_c0 = -1, eos_min = 0;
-    if (ctx != nullptr && ctx->lm != nullptr) {
-        const codec_lm_info * info = codec_lm_get_info(ctx->lm);
-        if (info != nullptr) {
-            eos_c0  = info->eos_code_c0;
-            eos_min = info->eos_min_step;
-        }
-    }
-    if (out_eos_code_c0)  *out_eos_code_c0  = eos_c0;
-    if (out_eos_min_step) *out_eos_min_step = eos_min;
-}
-
 // ─── Type B embed-override config ───────────────────────────────────
 
 void audio_lm_set_uses_embed_override(audio_lm_context * ctx,
@@ -704,10 +650,6 @@ void audio_lm_set_uses_embed_override(audio_lm_context * ctx,
     ctx->uses_embed_override = enabled;
     ctx->ar_step_start       = start_step;
     ctx->ar_step             = start_step;
-}
-
-bool audio_lm_get_uses_embed_override(const audio_lm_context * ctx) {
-    return ctx ? ctx->uses_embed_override : false;
 }
 
 // ─── Per-step observe ───────────────────────────────────────────────
@@ -1099,10 +1041,6 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
     // cb0_speech_range_end mirrors speech_token_range[1] (exclusive end).
     out->cb0_speech_range_start = meta_i32_or(ctx, "codec.lm.cb0_speech_offset", -1);
     out->cb0_speech_range_end   = meta_i32_or(ctx, "codec.lm.cb0_speech_range_end", -1);
-    // rn-tts sampling defaults.
-    out->default_temperature = 0.9f;
-    out->default_top_p       = 0.95f;
-    out->default_top_k       = 50;
 
     const bool is_delay = kind && std::strcmp(kind, "parallel_heads_delay") == 0;
     const bool is_depth = kind && std::strcmp(kind, "residual_depth_ar") == 0;
@@ -1219,12 +1157,6 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
                 out->text_pad_id    = meta_i32_or(ctx, "codec.lm.text_pad", 151655);
                 out->audio_pad_code = meta_i32_or(ctx, "codec.lm.audio_pad_token", 1024);
                 out->bos_code_c0    = meta_i32_or(ctx, "codec.lm.bos_code_c0", 1025);
-                // Reference streaming sampling defaults.
-                out->default_temperature = 0.8f;
-                out->default_top_p       = 0.6f;
-                out->default_top_k       = 30;
-                out->default_repetition_penalty = 1.1f;
-                out->repetition_window          = 50;
                 return true;
             }
         }
@@ -1266,11 +1198,6 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
         out->audio_start_id = meta_i32_or(ctx, "codec.lm.audio_start_id", 128);
         out->text_end_id    = meta_i32_or(ctx, "codec.lm.text_end_id",    7);
         out->max_text_tokens = meta_i32_or(ctx, "codec.lm.max_text_tokens", 64);
-        // Reference TTS defaults: greedy text, greedy audio (temperature=None
-        // → argmax in generate_sequential).  Host --temp overrides.
-        out->default_temperature = 0.0f;
-        out->default_top_p       = 1.0f;
-        out->default_top_k       = 0;
         return true;
     }
 
@@ -1808,35 +1735,6 @@ bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
     return true;
 }
 
-bool audio_lm_encode_latent(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
-                            int32_t sample_rate, std::vector<float> * latent,
-                            int32_t * n_frames, int32_t * dim) {
-    if (ctx == nullptr || pcm == nullptr || latent == nullptr || n_frames == nullptr || dim == nullptr) return false;
-    std::vector<float> resampled;
-    const int32_t codec_sr = codec_model_sample_rate(ctx->model);
-    if (codec_sr > 0 && sample_rate != codec_sr) {
-        resampled = resample_linear_mono(std::vector<float>(pcm, pcm + n_samples), sample_rate, codec_sr);
-        pcm = resampled.data(); n_samples = (int32_t) resampled.size(); sample_rate = codec_sr;
-    }
-    codec_audio au = {};
-    au.data = pcm; au.n_samples = n_samples; au.sample_rate = sample_rate;
-    au.n_channels = 1; au.pcm_type = CODEC_PCM_TYPE_F32;
-    codec_token_buffer tb = {};
-    codec_latent_buffer lb = {};
-    if (codec_encode_latent(ctx->codec_ctx, &au, &tb, &lb, codec_encode_default_params()) != CODEC_STATUS_SUCCESS) {
-        const char * raw = codec_get_last_error(ctx->codec_ctx);
-        ctx->last_error = std::string("audio_lm_encode_latent: ") + (raw ? raw : "?");
-        codec_token_buffer_free(&tb);
-        return false;
-    }
-    latent->assign(lb.data, lb.data + (size_t) lb.latent_dim * lb.n_frames);
-    *n_frames = lb.n_frames;
-    *dim      = lb.latent_dim;
-    codec_token_buffer_free(&tb);
-    codec_latent_buffer_free(&lb);
-    return true;
-}
-
 // Output frames the codes accumulated so far decode to: latent frames, or
 // code frames minus the delay-pattern tail.
 static int32_t audio_lm_max_delay(const audio_lm_context * ctx) {
@@ -2078,10 +1976,6 @@ bool audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, in
 }
 
 // ─── Decoder speaker ────────────────────────────────────────────────
-
-bool audio_lm_codec_has_speakers(const audio_lm_context * ctx) {
-    return ctx && ctx->model && codec_model_n_speakers(ctx->model) > 0;
-}
 
 bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx) {
     if (ctx == nullptr || ctx->model == nullptr) return false;

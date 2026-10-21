@@ -25,14 +25,18 @@ public:
         hidden_ = audio_lm_hidden_dim(alm_);
         frames_ = 0;
         stop_reason_ = "max_frames";
-        audio_lm_set_continuous_params(alm_, req.flow_guidance >= 0.0f ? req.flow_guidance : 2.0f,
-                                       req.flow_steps > 0 ? req.flow_steps : 10, req.min_frames);
+        // CFM steps / guidance: the request's, else the GGUF's (VoxCPM.generate's 10 / 2.0).
+        const char * m_steps = audio_lm_meta_str(alm_, "codec.lm.cfm_n_timesteps");
+        const char * m_cfg   = audio_lm_meta_str(alm_, "codec.lm.cfm_cfg_value");
+        audio_lm_set_continuous_params(alm_, req.flow_guidance >= 0.0f ? req.flow_guidance : (m_cfg ? (float) std::atof(m_cfg) : 2.0f),
+                                       req.flow_steps > 0 ? req.flow_steps : (m_steps ? std::atoi(m_steps) : 10), req.min_frames);
         const std::vector<int32_t> toks = vocab.tokenize(pi_.prompt_prefix + req.text + pi_.prompt_suffix,
                                                          pi_.add_bos, pi_.parse_special);
         if (toks.empty()) return fail("empty prompt after tokenize");
         codec_log(CODEC_LOG_LEVEL_INFO, "prompt: \"%s%s%s\" -> %zu tokens\n", pi_.prompt_prefix.c_str(), req.text.c_str(),
                   pi_.prompt_suffix.c_str(), toks.size());
         *out = alm_completion();
+        req.sampling_to(out);
         out->flow   = CODEC_AUDIO_LM_FLOW_HIDDEN;
         out->n_embd = hidden_;
         out->seqs   = {{alm_chunk::of_tokens(toks)}};

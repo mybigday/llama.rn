@@ -47,7 +47,6 @@ struct flow_impl {
     int32_t insert_bos_before_voice;
     int32_t lsd_decode_steps;
     int32_t frames_after_eos;
-    float   temperature;   // 0.7
     float   eos_threshold; // -4.0
     float   flow_ln_eps;   // 1e-6 (flow head LN)
     float   flow_rms_eps;  // 1e-5 (time-embed RMSNorm)
@@ -64,7 +63,6 @@ struct flow_state {
     int32_t            frame = 0;      // AR frames generated so far
     std::mt19937       rng;
     std::vector<float> next_embd;      // [d_model] input embedding for the next backbone step
-    std::vector<float> teacher;        // [ldim] armed teacher latent (denormalized), empty = off
 };
 
 ggml_tensor * lin(ggml_context * c, ggml_tensor * w, ggml_tensor * x, ggml_tensor * b) {
@@ -205,25 +203,17 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
 }
 
 // ---------------------------------------------------------------------
-// Input-embedding graph: input_linear(bos_emb) (is_bos) or
-// input_linear(normalize(latent)) for a teacher-forced latent.
+// Input-embedding graph of the first frame: input_linear(bos_emb).  Later
+// frames' input comes out of the step graph.
 // ---------------------------------------------------------------------
-struct flow_inproj_build { flow_impl imp; int32_t is_bos; const codec_model * model; };
+struct flow_inproj_build { flow_impl imp; const codec_model * model; };
 
 bool build_inproj(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     flow_inproj_build * p = static_cast<flow_inproj_build *>(ud);
     const flow_impl & I = p->imp;
     const codec_model * model = p->model;
     auto W = [&](const char * s) { return codec_graph_cast_f32(ctx, codec_graph_weight(ctx, model, s)); };
-    ggml_tensor * x;
-    if (p->is_bos) {
-        x = ggml_reshape_2d(ctx, W("lm.bos_emb"), I.ldim, 1);
-    } else {
-        ggml_tensor * lat = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, 1);
-        ggml_set_name(lat, "flow.ip.latent"); ggml_set_input(lat);
-        x = ggml_div(ctx, ggml_sub(ctx, lat, ggml_reshape_2d(ctx, W("lm.emb_mean"), I.ldim, 1)),
-                     ggml_reshape_2d(ctx, W("lm.emb_std"), I.ldim, 1));
-    }
+    ggml_tensor * x = ggml_reshape_2d(ctx, W("lm.bos_emb"), I.ldim, 1);
     ggml_tensor * embd = codec_mul_mat(ctx, codec_graph_weight_mat(ctx, model, "lm.input_linear.w"), x);
     ggml_set_name(embd, "flow.ip.embd"); ggml_set_output(embd);
     *out = embd;
@@ -265,7 +255,6 @@ bool init(codec_lm * lm) {
     I->insert_bos_before_voice = codec_read_bool_kv(gf, "codec.lm.insert_bos_before_voice", false) ? 1 : 0;
     I->lsd_decode_steps = codec_read_i32_kv(gf, "codec.lm.lsd_decode_steps", 1);
     I->frames_after_eos = codec_read_i32_kv(gf, "codec.lm.frames_after_eos", -1);
-    I->temperature  = codec_read_f32_kv(gf, "codec.lm.temperature", 0.7f);
     I->eos_threshold= codec_read_f32_kv(gf, "codec.lm.eos_threshold", -4.0f);
     I->flow_ln_eps  = 1e-6f;
     I->flow_rms_eps = 1e-5f;
@@ -315,23 +304,20 @@ void state_reset(codec_lm_state * st) {
     flow_state * s = static_cast<flow_state *>(st->impl);
     s->frame = 0;
     s->next_embd.clear();
-    s->teacher.clear();
     s->rng.seed((uint32_t) (st->ctx && st->ctx->params.seed >= 0 ? st->ctx->params.seed : 0));
 }
 
-// input_linear(bos_emb) (latent == nullptr) or input_linear(normalize(latent)).
-bool run_inproj(codec_lm_state * st, const float * latent, float * out_embd) {
+// input_linear(bos_emb).
+bool run_inproj(codec_lm_state * st, float * out_embd) {
     const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
-    flow_inproj_build b = {}; b.imp = I; b.is_bos = latent == nullptr ? 1 : 0; b.model = st->lm->codec;
+    flow_inproj_build b = {}; b.imp = I; b.model = st->lm->codec;
     codec_graph_eval_guard guard(st->ctx, false);
     std::string err;
     codec_graph_cache_entry * entry = nullptr;
-    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_INPROJ; key.hop = b.is_bos;
+    codec_graph_cache_key key = {}; key.kind = CODEC_GRAPH_FLOW_LM_INPROJ;
     const int32_t nth = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
     const bool ok = codec_graph_cache_get_or_build(st->ctx, key, build_inproj, &b, sizeof(b), &entry, &err) &&
         codec_graph_prepare_io(st->ctx, entry, &err) &&
-        (latent == nullptr || codec_runtime_write_tensor(codec_graph_get_tensor(st->ctx, entry, "flow.ip.latent"),
-                                                         latent, (size_t) I.ldim * sizeof(float), &err)) &&
         codec_graph_compute(st->ctx, entry, nth, &err) &&
         codec_runtime_read_tensor(codec_graph_get_tensor(st->ctx, entry, "flow.ip.embd"),
                                   out_embd, (size_t) I.d_model * sizeof(float), &err);
@@ -341,21 +327,16 @@ bool run_inproj(codec_lm_state * st, const float * latent, float * out_embd) {
 
 // One AR frame: h [d_model] -> out_latent [ldim] (denormalized, what the codec
 // decodes) + out_stop (raw EOS head decision; the frames-after-EOS tail is the
-// host's policy).  `noise` [ldim] ~ N(0, temperature), or NULL to sample here.
+// host's policy).  `noise` [ldim] ~ N(0, temperature), drawn by the caller.
 enum codec_status step_generate(codec_lm_state * st, const float * h_in, float /*cfg_value*/,
         int32_t n_timesteps, const float * noise, float * out_latent, int32_t * out_stop) {
     const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
     flow_state * s = static_cast<flow_state *>(st->impl);
     const int32_t n_steps = n_timesteps > 0 ? n_timesteps : (I.lsd_decode_steps > 0 ? I.lsd_decode_steps : 1);
 
-    std::vector<float> zbuf;
+    // The noise's variance is the sampling temperature: the caller draws it.
     const float * z = noise;
-    if (z == nullptr) {
-        zbuf.resize((size_t) I.ldim);
-        std::normal_distribution<float> nd(0.0f, std::sqrt(I.temperature));
-        for (int32_t d = 0; d < I.ldim; ++d) zbuf[(size_t) d] = nd(s->rng);
-        z = zbuf.data();
-    }
+    if (z == nullptr) { st->last_error = "FlowLM step_generate needs the init noise"; return CODEC_STATUS_INVALID_ARG; }
 
     flow_step_build b = {}; b.imp = I; b.n_steps = n_steps; b.model = st->lm->codec;
     codec_graph_eval_guard guard(st->ctx, /*persist=*/true);
@@ -375,11 +356,6 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float /
         codec_runtime_read_tensor(G("flow.st.eos"), &eos, sizeof(float), &err) &&
         codec_runtime_read_tensor(G("flow.st.embd"), s->next_embd.data(), (size_t) I.d_model * sizeof(float), &err);
     if (!ok) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
-    if (!s->teacher.empty()) {   // teacher-forced: the reference latent feeds the next step
-        const std::vector<float> t = std::move(s->teacher);
-        s->teacher.clear();
-        if (!run_inproj(st, t.data(), s->next_embd.data())) return CODEC_STATUS_INTERNAL_ERROR;
-    }
     if (out_stop) *out_stop = eos > I.eos_threshold ? 1 : 0;
     s->frame += 1;
     return CODEC_STATUS_SUCCESS;
@@ -391,18 +367,9 @@ enum codec_status step_feedback_embd(codec_lm_state * st, float * out_embd) {
     const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
     flow_state * s = static_cast<flow_state *>(st->impl);
     if (s->frame == 0) {
-        return run_inproj(st, nullptr, out_embd) ? CODEC_STATUS_SUCCESS : CODEC_STATUS_INTERNAL_ERROR;
+        return run_inproj(st, out_embd) ? CODEC_STATUS_SUCCESS : CODEC_STATUS_INTERNAL_ERROR;
     }
     std::memcpy(out_embd, s->next_embd.data(), (size_t) I.d_model * sizeof(float));
-    return CODEC_STATUS_SUCCESS;
-}
-
-enum codec_status set_teacher_patch(codec_lm_state * st, const float * patch, int32_t n) {
-    const flow_impl & I = static_cast<flow_model *>(st->lm->impl)->cfg;
-    flow_state * s = static_cast<flow_state *>(st->impl);
-    if (patch == nullptr) { s->teacher.clear(); return CODEC_STATUS_SUCCESS; }
-    if (n != I.ldim) { st->last_error = "teacher latent must be [ldim]"; return CODEC_STATUS_INVALID_ARG; }
-    s->teacher.assign(patch, patch + n);
     return CODEC_STATUS_SUCCESS;
 }
 
@@ -424,7 +391,6 @@ const struct codec_lm_flow_info * codec_lm_flow_get_info(struct codec_lm * lm) {
     g_flow_info.n_txt_bins       = I->n_txt_bins;
     g_flow_info.insert_bos_before_voice = I->insert_bos_before_voice;
     g_flow_info.frames_after_eos = I->frames_after_eos;
-    g_flow_info.temperature      = I->temperature;
     g_flow_info.eos_threshold    = I->eos_threshold;
     g_flow_info.lsd_decode_steps = I->lsd_decode_steps;
     g_flow_info.has_tokenizer    = M->has_spm ? 1 : 0;
@@ -510,7 +476,6 @@ const codec_lm_kind_vtable codec_lm_vtable_flow_lm = {
     /*.step_logits        =*/ nullptr,
     /*.step_push_code     =*/ nullptr,
     /*.step_finish        =*/ nullptr,
-    /*.audio_embd         =*/ nullptr,
     /*.compose_audio_embd =*/ nullptr,
     /*.compose_next_embd  =*/ nullptr,
     /*.speaker_encode     =*/ nullptr,
@@ -518,5 +483,4 @@ const codec_lm_kind_vtable codec_lm_vtable_flow_lm = {
     /*.step_feedback_embd =*/ step_feedback_embd,
     /*.text_prefill       =*/ nullptr,
     /*.set_min_len        =*/ nullptr,
-    /*.set_teacher_patch  =*/ set_teacher_patch,
 };

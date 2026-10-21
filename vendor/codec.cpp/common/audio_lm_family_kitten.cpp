@@ -19,22 +19,14 @@ struct kitten_config {
     int32_t audio_base = 0, n_audio = 0;
     int32_t speech_start = 0, speech_end = 0, text_start = 0, start = 0, stop = 0, final_seg = 0;
     int32_t ref_speech_start = 0, ref_speech_end = 0, ref_text_start = 0, ref_text_end = 0;
-    float temp = 0.8f, top_p = 0.8f, min_p = 0.0f;
-    int32_t top_k = 50;
-    float rep_penalty = 1.1f;
-    int32_t rep_window = 50;
-    float run_penalty = 1.3f;
-    int32_t run_grace = 10;
     int32_t silence = 4299, n_trailing_silence = 3;
     bool use_reference_prompt = true;
     std::string emotion_control = "{emo: 1}";
     int32_t chunk_chars = 380, chunk_min_chars = 130, max_new_tokens = 1000;
     float chunk_gap_s = 0.16f;
-    std::string presets;   // ';'-separated
 };
 
-bool kitten_read_config(const audio_lm_context * ctx, const std::string & preset_req, kitten_config * c,
-                        std::string * err) {
+void kitten_read_config(const audio_lm_context * ctx, kitten_config * c) {
     auto str = [&](const std::string & k) { return audio_lm_meta_str(ctx, ("codec.lm.kitten." + k).c_str()); };
     auto i32 = [&](const std::string & k, int32_t * dst) { if (const char * v = str(k)) *dst = std::atoi(v); };
     auto f32 = [&](const std::string & k, float * dst) { if (const char * v = str(k)) *dst = (float) std::atof(v); };
@@ -46,29 +38,11 @@ bool kitten_read_config(const audio_lm_context * ctx, const std::string & preset
     i32("token.reference_speech_end_id", &c->ref_speech_end);
     i32("token.reference_text_start_id", &c->ref_text_start);
     i32("token.reference_text_end_id", &c->ref_text_end);
-    for (const char * p : {"stable", "expressive"}) {
-        if (str(std::string("preset.") + p + ".temperature")) c->presets += (c->presets.empty() ? "" : ";") + std::string(p);
-    }
-    const char * dp = str("default_preset");
-    const std::string preset = !preset_req.empty() ? preset_req : (dp ? dp : "stable");
-    if (!str("preset." + preset + ".temperature")) {
-        if (err) *err = "unknown KittenTTS preset '" + preset + "'";
-        return false;
-    }
-    f32("preset." + preset + ".temperature", &c->temp);
-    f32("preset." + preset + ".top_p", &c->top_p);
-    f32("preset." + preset + ".min_p", &c->min_p);
-    float top_k = (float) c->top_k;
-    f32("preset." + preset + ".top_k", &top_k);
-    c->top_k = (int32_t) top_k;
-    f32("repetition_penalty", &c->rep_penalty);           i32("repetition_window", &c->rep_window);
-    f32("token_run_penalty", &c->run_penalty);            i32("token_run_grace", &c->run_grace);
     i32("silence_token", &c->silence);                    i32("n_trailing_silence", &c->n_trailing_silence);
     if (const char * v = str("use_reference_prompt")) c->use_reference_prompt = std::string(v) == "true";
     if (const char * v = str("emotion_control")) c->emotion_control = v;
     i32("chunk_chars", &c->chunk_chars);                  i32("chunk_min_chars", &c->chunk_min_chars);
     f32("chunk_gap_s", &c->chunk_gap_s);                  i32("max_new_tokens", &c->max_new_tokens);
-    return true;
 }
 
 std::string strip_copy(const std::string & s) {
@@ -79,14 +53,13 @@ std::string strip_copy(const std::string & s) {
 
 class kitten_family : public alm_family {
 public:
-    explicit kitten_family(audio_lm_context * alm) : alm_family(alm) { kitten_read_config(alm, "", &cfg_, nullptr); }
+    explicit kitten_family(audio_lm_context * alm) : alm_family(alm) { kitten_read_config(alm, &cfg_); }
     const char * name() const override { return "kitten"; }
 
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
         out->takes_ref_text = true;
         out->sample_rate    = 24000;
-        out->presets        = cfg_.presets.c_str();
     }
 
     // Text > chunk_chars is split on sentences (min chunk_min_chars), each
@@ -108,9 +81,7 @@ public:
 
     bool tts_prompt(const alm_tts_request & req, const alm_vocab & vocab, alm_completion * out) override {
         if (!vocab.valid()) return fail("KittenTTS needs the backbone vocabulary");
-        kitten_config c;
-        std::string err;
-        if (!kitten_read_config(alm_, req.preset, &c, &err)) return fail(err);
+        const kitten_config & c = cfg_;
         codes_.clear();
         stop_reason_ = "max_frames";
         cfg_run_ = c;
@@ -165,35 +136,21 @@ public:
             const int32_t expected = (int32_t) ((double) strip_copy(spoken).size() / 20.0 * 25.0 * 1.8);
             budget = std::max(200, std::min(c.max_new_tokens, expected));
         }
-        codec_log(CODEC_LOG_LEVEL_INFO, "kitten: voice=%s, temp=%.2f top_k=%d top_p=%.2f min_p=%.2f rep=%.2f/%d run=%.2f/%d\n",
-                  codec_speaker_name(spk), c.temp, c.top_k, c.top_p, c.min_p, c.rep_penalty, c.rep_window,
-                  c.run_penalty, c.run_grace);
+        codec_log(CODEC_LOG_LEVEL_INFO, "kitten: voice=%s\n", codec_speaker_name(spk));
 
         *out = alm_completion();
         out->flow   = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->n_embd = n_embd;
         out->seqs   = {{alm_chunk::of_embd(std::vector<float>(lm_cond, lm_cond + n_embd), 1),
                         alm_chunk::of_tokens(std::move(toks))}};
-        // logits.py: token-run penalty (DRY with allowed length = the grace),
-        // repetition penalty over the last generated tokens exempting the end
-        // and silence tokens, then temperature -> top-k -> top-p -> min-p.
-        out->sampler.temp               = c.temp;
-        out->sampler.top_k              = c.top_k;
-        out->sampler.top_p              = c.top_p;
-        out->sampler.min_p              = c.min_p;
-        out->sampler.penalty_repeat     = c.rep_penalty;
-        out->sampler.penalty_last_n     = c.rep_window;
-        out->sampler.dry_multiplier     = c.run_penalty;
-        out->sampler.dry_base           = 1.5f;
-        out->sampler.dry_allowed_length = c.run_grace;
-        out->sampler.dry_penalty_last_n = -1;
-        out->penalty_exempt = {c.speech_end, c.stop, c.audio_base + c.silence};
-        out->samplers = "dry;penalties;temperature;top_k;top_p;min_p";
+        // The penalties never touch the end and silence tokens (logits.py);
+        // the model card's sampling approximates logits.py's token-run
+        // penalty with DRY.
+        req.sampling_to(out, {c.speech_end, c.stop, c.audio_base + c.silence});
         // Speech is audio tokens until <speech_end> / [STOP]: keep a quantized
         // backbone from drifting into the Qwen3 text vocabulary.
         out->allowed = {{c.audio_base, c.audio_base + c.n_audio}, {c.speech_end, c.speech_end + 1}, {c.stop, c.stop + 1}};
         out->max_frames = budget;
-        req.apply(out->sampler);
         return true;
     }
 
@@ -220,7 +177,7 @@ public:
     }
 
 private:
-    kitten_config            cfg_;       // defaults (default preset) for caps / split
+    kitten_config            cfg_;       // the model's contract (codec.lm.kitten.*)
     kitten_config            cfg_run_;   // the current request's
     std::vector<int32_t>     codes_;
     std::vector<std::string> segments_;

@@ -38,13 +38,8 @@ struct codec_lm_chatterbox_info {
                                     //    (after codec_lm_chatterbox_normalize_text)
     int32_t silence_token;          // S3Gen silence code appended after AR (-1 = none)
     int32_t n_trailing_silence;     // how many silence codes to append (Turbo: 3)
-    // Reference sampling defaults (`codec.lm.chatterbox.sampling.*`); a
-    // value < 0 means "not specified" and the host picks its own default.
-    float   temperature;
-    int32_t top_k;
-    float   top_p;
-    float   min_p;
-    float   repetition_penalty;
+    // Guidance weight of the T3 pair (`codec.lm.chatterbox.sampling.cfg_weight`,
+    // a decoder setting the request may override); < 0 = not specified.
     float   cfg_weight;
 };
 
@@ -155,11 +150,6 @@ struct codec_lm_cosyvoice_info {
     int32_t ignore_eos_id;           // masked to -inf while step < min_len (reference quirk)
     int32_t text_in_backbone;        // 1: tokenize + embed text with the backbone vocab
     int32_t has_text_encoder;        // 1: v1 text side via codec_lm_cosyvoice_text_rows
-    int32_t ras_sampling;            // 1: repetition-aware sampling, 0: plain top-k
-    int32_t top_k;
-    float   top_p;
-    int32_t win_size;
-    float   tau_r;
     float   min_token_text_ratio;    // min_len = text_len * ratio (target text only)
     float   max_token_text_ratio;
     int32_t n_silent_tokens;         // v3: runs > max_silent_run of these are dropped before the flow
@@ -198,8 +188,7 @@ enum codec_status codec_lm_cosyvoice_text_rows(
 // to codec_lm_step_generate, which writes the denormalized latent (what the
 // codec decodes) and sets out_stop when the EOS head fires — the host then runs
 // frames_after_eos more frames and drops the frame on which it stops, as the
-// reference does.  codec_lm_set_teacher_patch(latent) makes the next input
-// embedding come from a reference latent (parity tests).
+// reference does.
 // All helpers return CODEC_STATUS_NOT_SUPPORTED when the model is not FlowLM.
 
 // Static config surfaced from `codec.lm.*` metadata.
@@ -209,7 +198,6 @@ struct codec_lm_flow_info {
     int32_t n_txt_bins;              // SentencePiece vocab (4000)
     int32_t insert_bos_before_voice; // 1 if a learned BOS row precedes voice rows
     int32_t frames_after_eos;        // -1 = derive from word count, else fixed
-    float   temperature;             // LSD init-noise variance (0.7)
     float   eos_threshold;           // EOS fires when out_eos logit > this (-4.0)
     int32_t lsd_decode_steps;        // LSD Euler steps (1)
     int32_t has_tokenizer;           // 1 if a SentencePiece model is baked in

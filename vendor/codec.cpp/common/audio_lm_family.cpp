@@ -3,7 +3,9 @@
 #include "kitten_text.h"
 #include "tts_segment.h"
 
+#include <algorithm>
 #include <cstring>
+#include <random>
 
 namespace codec_common {
 
@@ -67,29 +69,55 @@ alm_chunk alm_chunk::of_embd(std::vector<float> e, int32_t n_rows) {
     return c;
 }
 
-alm_completion::alm_completion() {
-    sampler.temp = 0.0f;
-    sampler.top_k = 0;
-    sampler.top_p = 1.0f;
-    sampler.min_p = 0.0f;
-    sampler.penalty_last_n = 0;
-    sampler.penalty_repeat = 1.0f;
-    sampler.penalty_freq = 0.0f;
-    sampler.penalty_present = 0.0f;
-    sampler.penalize_prompt = false;
-    sampler.dry_multiplier = 0.0f;
-    sampler.dry_base = 1.75f;
-    sampler.dry_allowed_length = 2;
-    sampler.dry_penalty_last_n = -1;
+codec_audio_lm_sampler alm_default_sampler() {
+    codec_audio_lm_sampler s{};
+    s.seed               = CODEC_AUDIO_LM_DEFAULT_SEED;
+    s.temp               = 0.80f;
+    s.top_k              = 40;
+    s.top_p              = 0.95f;
+    s.min_p              = 0.05f;
+    s.penalty_last_n     = 64;
+    s.penalty_repeat     = 1.00f;
+    s.penalty_freq       = 0.00f;
+    s.penalty_present    = 0.00f;
+    s.dry_multiplier     = 0.0f;
+    s.dry_base           = 1.75f;
+    s.dry_allowed_length = 2;
+    s.dry_penalty_last_n = -1;
+    return s;
 }
 
-void alm_tts_request::apply(codec_audio_lm_sampler & sp) const {
-    sp.seed = seed_or_default();
-    if (temperature >= 0.0f)        sp.temp = temperature;
-    if (top_p >= 0.0f)              sp.top_p = top_p;
-    if (top_k >= 0)                 sp.top_k = top_k;
-    if (min_p >= 0.0f)              sp.min_p = min_p;
-    if (repetition_penalty >= 0.0f) sp.penalty_repeat = repetition_penalty;
+void alm_tts_request::sampling_to(alm_completion * out, const std::vector<int32_t> & model_exempt) const {
+    out->sampler = sampler;
+    out->samplers = samplers;
+    out->penalty_exempt = penalty_exempt;
+    for (int32_t t : model_exempt) {
+        if (std::find(out->penalty_exempt.begin(), out->penalty_exempt.end(), t) == out->penalty_exempt.end()) {
+            out->penalty_exempt.push_back(t);
+        }
+    }
+}
+
+codec_audio_lm_sampler alm_tts_request::head_sampler() const {
+    codec_audio_lm_sampler s = sampler;
+    s.penalty_exempt   = penalty_exempt.empty() ? nullptr : penalty_exempt.data();
+    s.n_penalty_exempt = (int32_t) penalty_exempt.size();
+    s.samplers         = samplers.c_str();
+    return s;
+}
+
+uint32_t alm_tts_request::seed() const {
+    return sampler.seed == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : sampler.seed;
+}
+
+std::string alm_min_length_grammar(int32_t end, int32_t min_tokens, const std::string & body) {
+    if (min_tokens <= 0 || end < 0) return "";
+    const std::string e = "<[" + std::to_string(end) + "]>";
+    const std::string tok = body.empty() ? "!" + e : body;
+    // llama.cpp's grammar never matches an end-of-generation token as a
+    // terminal: it allows one once the grammar can end.  The optional end
+    // covers both an EOG end token and a plain one.
+    return "root ::= tok{" + std::to_string(min_tokens) + "} tok* " + e + "?\ntok ::= " + tok + "\n";
 }
 
 // ── alm_family defaults ─────────────────────────────────────────────

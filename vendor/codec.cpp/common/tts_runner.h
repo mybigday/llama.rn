@@ -26,9 +26,39 @@
 namespace codec_common {
 
 // ─────────────────────────────────────────────────────────────────────
-// Params — everything the reference loop needs.  Unset optionals fall
-// back to the model's training-time defaults (read from GGUF metadata).
+// Params — everything the reference loop needs.  Sampling is llama.cpp's
+// (its defaults; the model card recommends values); decoder graph settings
+// left < 0 come from the GGUF metadata.
 // ─────────────────────────────────────────────────────────────────────
+// Sampling settings the user set (tts_runner_params::sampling_user_set): the
+// backbone GGUF's general.sampling.* fills the others, as llama.cpp does.
+enum tts_sampling_field : uint32_t {
+    TTS_SAMPLING_TEMP               = 1u << 0,
+    TTS_SAMPLING_TOP_K              = 1u << 1,
+    TTS_SAMPLING_TOP_P              = 1u << 2,
+    TTS_SAMPLING_MIN_P              = 1u << 3,
+    TTS_SAMPLING_PENALTY_LAST_N     = 1u << 4,
+    TTS_SAMPLING_PENALTY_REPEAT     = 1u << 5,
+    TTS_SAMPLING_PENALTY_FREQ       = 1u << 6,
+    TTS_SAMPLING_PENALTY_PRESENT    = 1u << 7,
+    TTS_SAMPLING_DRY_MULTIPLIER     = 1u << 8,
+    TTS_SAMPLING_DRY_BASE           = 1u << 9,
+    TTS_SAMPLING_DRY_ALLOWED_LENGTH = 1u << 10,
+    TTS_SAMPLING_DRY_PENALTY_LAST_N = 1u << 11,
+    TTS_SAMPLING_SAMPLERS           = 1u << 12,
+};
+
+// One llama.cpp sampling setting: its CLI flag (common/arg.cpp), its
+// llama-server request field, the bit, and the field (float or int).
+struct tts_sampling_option {
+    const char * flag;
+    const char * json;
+    uint32_t     bit;
+    float   codec_audio_lm_sampler::* f32;
+    int32_t codec_audio_lm_sampler::* i32;
+};
+const std::vector<tts_sampling_option> & tts_sampling_options();
+
 struct tts_runner_params {
     std::string codec_path;          // codec / codec_lm GGUF (required)
     std::vector<codec_model_kv_override> kv_overrides;  // codec GGUF metadata overrides
@@ -42,27 +72,24 @@ struct tts_runner_params {
     std::string save_speaker;        // write the voice in use to this path
     const codec_speaker * voice_spk = nullptr;   // the resolved voice (tts_runner_make_voice), borrowed
     std::string instruct;            // CosyVoice instruct text (instruct2 mode)
-    std::string preset;              // sampling preset name (KittenTTS: stable / expressive)
 
     int32_t  n_threads = 0;
     bool     use_gpu   = false;
-    uint32_t seed      = 0xC0DEC1AB;
     int32_t  max_frames = 0;         // 0 → per-model default
+    int32_t  min_frames = -1;        // -1 → the model's own minimum
 
-    // Sampler overrides — has_* gates whether the value is applied.
-    bool  has_temp = false;   float   temp  = 0.0f;
-    bool  has_top_p = false;  float   top_p = 0.0f;
-    bool  has_top_k = false;  int32_t top_k = 0;
+    // llama.cpp sampling (common_params_sampling defaults); its pointers are
+    // unused, `samplers` / `penalty_exempt` below hold them.  Segment i of a
+    // long text uses seed + i (a random seed stays random).
+    codec_audio_lm_sampler sampling = codec_audio_lm_default_tts_request().sampler;
+    std::string            samplers;
+    std::vector<int32_t>   penalty_exempt;
+    uint32_t               sampling_user_set = 0;   // tts_sampling_field bits
 
-    // Continuous-CFM (BlueMagpie) / FlowLM knobs.
-    float   cfg       = 2.0f;
-    int32_t timesteps = 10;
-    int32_t min_len   = -1;          // -1 → model default
-
-    // Chatterbox T3 knobs (has_* gates the override).
-    bool has_cfg_weight = false;         float cfg_weight = 0.0f;
-    bool has_min_p = false;              float min_p = 0.0f;
-    bool has_rep_penalty = false;        float repetition_penalty = 0.0f;
+    // Decoder graph settings; < 0 → the GGUF's.
+    float   lm_guidance   = -1.0f;   // guidance of the backbone pair (Chatterbox T3)
+    float   flow_guidance = -1.0f;   // guidance of a flow / CFM decoder
+    int32_t flow_steps    = -1;      // steps of a flow / CFM decoder
 
     // Grammar (GBNF) constraint for the BACKBONE-logits sampler.  When
     // non-empty this GBNF is attached to the common_sampler that samples
@@ -115,6 +142,8 @@ int tts_runner_synthesize_selfcontained(const tts_runner_params & params,
                                         tts_runner_result * out);
 
 // Pieces of the runner that need no backbone (tts_runner_base.cpp).
+// Interleaved multi-channel PCM -> mono (channel average); n_frames samples per channel.
+std::vector<float> downmix_mono(const float * in, size_t n_frames, int32_t n_channels);
 // Mono F32 from a WAV file (channels averaged); true with an empty `ref_pcm`
 // when `path` is empty.
 bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int32_t * out_n, int32_t * out_sr,

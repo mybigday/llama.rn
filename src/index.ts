@@ -1222,14 +1222,16 @@ export class LlamaContext {
    * Arm a text-to-speech request and report how to run it.
    *
    * The flow is `getFormattedAudioCompletion` → `completion()` →
-   * `decodeAudioTokens` / `decodeAudioEmbeddings`. The returned
-   * `completionParams` are the model's backbone sampling and constraints
-   * (grammar or allowed tokens, minimum length, frame budget, `embedding`);
-   * pass them to `completion()`, overriding what you like — the completion
-   * runs with exactly the params it gets. Its `prompt` must be
+   * `decodeAudioTokens` / `decodeAudioEmbeddings`. Like `getFormattedChat`,
+   * this returns what the request's format needs, as `completionParams`: the
+   * prompt, the grammar or `logit_bias` token mask (with the minimum length)
+   * and `embedding`. Sampling (the backbone GGUF's `general.sampling.*`
+   * unless set) and `n_predict` are the `completion()`'s, which runs with
+   * exactly the params it gets; its `prompt` must be
    * `completionParams.prompt`. The completion samples with its own sampler
-   * and hands every step to codec.cpp, which decides what the backbone reads
-   * next and when to stop; the result carries the decoder input:
+   * (codec.cpp's own samplers use the same settings) and hands every step to
+   * codec.cpp, which decides what the backbone reads next and when the
+   * speech ends; the result carries the decoder input:
    * `audio_tokens` (codec codes, `audio_tokens_width` per frame) or
    * `embeddings` + `embedding_dim` (latents, e.g. Soprano / BlueMagpie).
    * Long text is the caller's to split: one request per piece.
@@ -1242,8 +1244,8 @@ export class LlamaContext {
    * - `language` — phonemizer hint; defaults to capabilities.defaultLanguage.
    * - `instruct` — how to speak (e.g. "Speak cheerfully"), for models with
    *   `canTakeInstruct`; others reject it.
-   * - `request` — codec.cpp's overrides (seed, codec-side sampling, frame
-   *   limits, guidance); see `TTSRequestOptions`.
+   * - `request` — codec.cpp's overrides (`minFrames`); see
+   *   `TTSRequestOptions`.
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
@@ -1272,23 +1274,10 @@ export class LlamaContext {
       )
     }
 
-    const r = options.request ?? {}
-    const request: Record<string, number | string> = {}
-    const set = (key: string, value: number | string | undefined) => {
-      if (value !== undefined) request[key] = value
+    const request: Record<string, number> = {}
+    if (options.request?.minFrames !== undefined) {
+      request.min_frames = options.request.minFrames
     }
-    set('seed', r.seed)
-    set('temperature', r.temperature)
-    set('top_p', r.topP)
-    set('top_k', r.topK)
-    set('min_p', r.minP)
-    set('repetition_penalty', r.repetitionPenalty)
-    set('min_frames', r.minFrames)
-    set('max_frames', r.maxFrames)
-    set('lm_guidance', r.lmGuidance)
-    set('flow_guidance', r.flowGuidance)
-    set('flow_steps', r.flowSteps)
-    set('preset', r.preset)
 
     const { llamaGetFormattedAudioCompletion } = getJsi()
     if (options.speaker instanceof LlamaSpeaker) {
@@ -1358,9 +1347,9 @@ export class LlamaContext {
 
   /**
    * DEPRECATED: `getFormattedAudioCompletion` + `completion()` with its
-   * `completionParams`. `maxFrames`, `temperature`, `topP`, `topK` and `seed`
-   * override the request's (`TTSRequestOptions`). `onFrame` fires per
-   * completion step with an empty `codes`; the codes come in the result.
+   * `completionParams`; `maxFrames` is `n_predict`, `temperature`, `topP`,
+   * `topK` and `seed` are the completion's. `onFrame` fires per completion
+   * step with an empty `codes`; the codes come in the result.
    */
   async generateAudioCodes(options: {
     prompt: string
@@ -1377,14 +1366,19 @@ export class LlamaContext {
     stoppedOnEos: boolean
     aborted: boolean
   }> {
-    const { onFrame, prompt, ...request } = options
-    const formatted = await this.getFormattedAudioCompletion({
-      prompt,
-      request,
-    })
+    const { onFrame, prompt, maxFrames, temperature, topP, topK, seed } =
+      options
+    const formatted = await this.getFormattedAudioCompletion({ prompt })
     let step = 0
     const res = await this.completion(
-      formatted.completionParams,
+      {
+        ...formatted.completionParams,
+        ...(maxFrames !== undefined ? { n_predict: maxFrames } : {}),
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(topP !== undefined ? { top_p: topP } : {}),
+        ...(topK !== undefined ? { top_k: topK } : {}),
+        ...(seed !== undefined ? { seed } : {}),
+      },
       onFrame
         ? () => {
             onFrame(step, [])

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <sstream>
 
 namespace codec_common {
 namespace {
@@ -76,29 +77,49 @@ void sort_inplace(cand * data, size_t & size, bool & sorted, size_t npartial) {
 
 }  // namespace
 
-void alm_head_sampler::init(uint32_t seed, float temp, int32_t top_k, float top_p, float min_p, float penalty_repeat,
-                            int32_t penalty_last_n, std::vector<stage> order) {
-    greedy_ = temp <= 0.0f;
-    temp_   = temp;
-    top_k_  = top_k;
-    top_p_  = top_p;
-    min_p_  = min_p;
-    repeat_ = penalty_repeat;
-    last_n_ = penalty_repeat != 1.0f ? (penalty_last_n > 0 ? penalty_last_n : k_full_history) : 0;
-    order_  = std::move(order);
-    rng_.seed(seed);
+bool alm_head_sampler::init(const codec_audio_lm_sampler & sp, bool penalties, std::string * err) {
+    temp_    = sp.temp;
+    top_k_   = sp.top_k;
+    top_p_   = sp.top_p;
+    min_p_   = sp.min_p;
+    repeat_  = penalties ? sp.penalty_repeat : 1.0f;
+    freq_    = penalties ? sp.penalty_freq : 0.0f;
+    present_ = penalties ? sp.penalty_present : 0.0f;
+    const bool any = repeat_ != 1.0f || freq_ != 0.0f || present_ != 0.0f;
+    last_n_  = !any || sp.penalty_last_n == 0 ? 0 : (sp.penalty_last_n < 0 ? k_full_history : sp.penalty_last_n);
+    order_.clear();
+    // common_sampler_types_from_names, the stages a head can run; the others
+    // are no-ops at llama.cpp's defaults.
+    const std::string names = sp.samplers && *sp.samplers ? sp.samplers
+                                                          : "penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature";
+    std::stringstream ss(names);
+    for (std::string n; std::getline(ss, n, ';');) {
+        if (n.empty()) continue;
+        if (n == "penalties") order_.push_back(PENALTIES);
+        else if (n == "top_k") order_.push_back(TOP_K);
+        else if (n == "top_p" || n == "nucleus") order_.push_back(TOP_P);
+        else if (n == "min_p") order_.push_back(MIN_P);
+        else if (n == "temperature" || n == "temp") order_.push_back(TEMPERATURE);
+        else if (n == "dry") {
+            if (sp.dry_multiplier != 0.0f) {
+                if (err) *err = "the codec-side heads have no DRY sampler (dry_multiplier must be 0)";
+                return false;
+            }
+        } else if (n != "top_n_sigma" && n != "typ_p" && n != "typical_p" && n != "typical" && n != "xtc") {
+            if (err) *err = "unknown sampler '" + n + "'";
+            return false;
+        }
+    }
+    // llama_sampler_init_dist(LLAMA_DEFAULT_SEED) seeds from the clock / device.
+    rng_.seed(sp.seed == CODEC_AUDIO_LM_DEFAULT_SEED ? std::random_device{}() : sp.seed);
     prev_.clear();
     prev_first_ = 0;
     count_.clear();
-}
-
-void alm_head_sampler::init(uint32_t seed, float temp, int32_t top_k, float top_p, float min_p, float penalty_repeat,
-                            int32_t penalty_last_n) {
-    init(seed, temp, top_k, top_p, min_p, penalty_repeat, penalty_last_n, {PENALTIES, TEMPERATURE, TOP_K, MIN_P, TOP_P});
+    return true;
 }
 
 void alm_head_sampler::accept(int32_t token) {
-    if (greedy_ || last_n_ == 0) return;
+    if (last_n_ == 0) return;
     // llama_sampler_penalties_accept
     count_[token]++;
     if (prev_.size() >= (size_t) last_n_) {
@@ -112,12 +133,14 @@ void alm_head_sampler::accept(int32_t token) {
 }
 
 void alm_head_sampler::penalties(array & cur) const {
-    if (last_n_ == 0 || repeat_ == 1.0f) return;
+    // llama_sampler_penalties_apply
+    if (last_n_ == 0 || count_.empty()) return;
     for (size_t i = 0; i < cur.size; ++i) {
         const auto it = count_.find(cur.data[i].id);
         if (it == count_.end()) continue;
         if (cur.data[i].logit <= 0) cur.data[i].logit *= repeat_;
         else                        cur.data[i].logit /= repeat_;
+        cur.data[i].logit -= float(it->second) * freq_ + float(it->second > 0) * present_;
     }
     cur.sorted = false;
 }
@@ -165,21 +188,21 @@ int32_t alm_head_sampler::sample(const float * logits, int32_t n) {
     for (int32_t i = 0; i < n; ++i) buf_[(size_t) i] = {i, logits[i], 0.0f};
     array cur = {buf_.data(), (size_t) n, -1, false};
 
-    if (greedy_) {   // llama_sampler_greedy_apply
-        cur.selected = 0;
-        for (size_t i = 1; i < cur.size; ++i) {
-            if (cur.data[i].logit > cur.data[cur.selected].logit) cur.selected = (int64_t) i;
-        }
-        return cur.data[cur.selected].id;
-    }
-
     for (stage s : order_) {
         switch (s) {
             case PENALTIES:
                 penalties(cur);
                 break;
-            case TEMPERATURE:   // llama_sampler_temp_impl (temp > 0 here)
-                for (size_t i = 0; i < cur.size; ++i) cur.data[i].logit /= temp_;
+            case TEMPERATURE:   // llama_sampler_temp_impl
+                if (temp_ <= 0.0f) {   // keep only the most likely candidate
+                    size_t best = 0;
+                    for (size_t i = 1; i < cur.size; ++i) if (cur.data[i].logit > cur.data[best].logit) best = i;
+                    cur.data[0] = cur.data[best];
+                    cur.size = 1;
+                    cur.sorted = true;
+                } else {
+                    for (size_t i = 0; i < cur.size; ++i) cur.data[i].logit /= temp_;
+                }
                 break;
             case TOP_K:         // llama_sampler_top_k_impl
                 if (top_k_ > 0) {

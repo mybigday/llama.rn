@@ -48,9 +48,9 @@ struct alm_completion {
     codec_audio_lm_flow flow = CODEC_AUDIO_LM_FLOW_TOKENS;
     int32_t n_embd = 0;
     std::vector<std::vector<alm_chunk>> seqs;   // one chunk list per sequence
-    codec_audio_lm_sampler sampler{};
-    std::vector<int32_t> penalty_exempt;
-    std::string          samplers;   // order; "" = llama.cpp default
+    codec_audio_lm_sampler sampler{};   // the request's (penalty_exempt / samplers below)
+    std::vector<int32_t> penalty_exempt;   // the request's + the model's
+    std::string          samplers;         // order; "" = llama.cpp default
     std::string grammar;
     std::vector<codec_audio_lm_token_range> allowed;
     bool    needs_embeddings    = false;
@@ -58,32 +58,38 @@ struct alm_completion {
     bool    sample_first        = true;
     bool    streamable          = false;
     int32_t max_frames          = 0;
-    int32_t min_frames          = 0;
-    int32_t stop_token          = -1;
-
-    alm_completion();   // sampler "off" values
 };
 
 struct alm_tts_request {
     std::string text;
     std::string instruct;
-    std::string preset;
-    uint32_t seed = 0;               // 0 = default
-    float   temperature = -1.0f;     // < 0 = model default (likewise below)
-    float   top_p = -1.0f;
-    int32_t top_k = -1;
-    float   min_p = -1.0f;
-    float   repetition_penalty = -1.0f;
-    int32_t min_frames = -1;
+    // llama.cpp sampling (codec_audio_lm_sampler); the pointers of `sampler`
+    // are not used, `penalty_exempt` / `samplers` hold them.
+    codec_audio_lm_sampler sampler{};
+    std::vector<int32_t>   penalty_exempt;
+    std::string            samplers;
+    int32_t min_frames = -1;         // < 0 = the model's own minimum
     int32_t max_frames = 0;          // <= 0 = model default
-    float   lm_guidance = -1.0f;
+    float   lm_guidance = -1.0f;     // < 0 = the model's (likewise below)
     float   flow_guidance = -1.0f;
     int32_t flow_steps = -1;
 
-    uint32_t seed_or_default() const { return seed ? seed : 0xC0DEC1ABu; }
-    // The request's overrides on top of a model's sampler defaults.
-    void apply(codec_audio_lm_sampler & sp) const;
+    // The completion's sampling: the request's, plus the model's penalty_exempt.
+    void sampling_to(alm_completion * out, const std::vector<int32_t> & model_exempt = {}) const;
+    // sampler with its pointers set from this request (for alm_head_sampler).
+    codec_audio_lm_sampler head_sampler() const;
+    // The seed of a codec-side random stream (sampler.seed; random when it is
+    // CODEC_AUDIO_LM_DEFAULT_SEED).
+    uint32_t seed() const;
 };
+
+// llama.cpp's common_params_sampling defaults.
+codec_audio_lm_sampler alm_default_sampler();
+
+// GBNF for a minimum length on backbone-sampled tokens: `min_tokens` tokens
+// other than `end` before `end` (an end-of-generation token or not) may follow.  `body` is the grammar of one
+// token (empty: any token but `end`); returns "" when min_tokens <= 0.
+std::string alm_min_length_grammar(int32_t end, int32_t min_tokens, const std::string & body = "");
 
 // A generation's decoder input (codec_audio_lm_generation): codec quantizer
 // codes or frame-major latents, [n_frames, width].

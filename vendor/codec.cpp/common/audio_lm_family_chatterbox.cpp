@@ -30,7 +30,9 @@ public:
 
     bool backbone_requirements(const alm_vocab & vocab, int32_t max_frames, codec_audio_lm_backbone_req * out) override {
         alm_family::backbone_requirements(vocab, max_frames, out);
-        out->n_seq_max = ci_->is_turbo ? 1 : 2;   // the guidance pair
+        // The guidance pair needs a second sequence; a GGUF cfg_weight of 0 (or
+        // --override-kv codec.lm.chatterbox.sampling.cfg_weight=float:0) has none.
+        out->n_seq_max = (!ci_->is_turbo && ci_->cfg_weight != 0.0f) ? 2 : 1;
         return true;
     }
 
@@ -40,15 +42,8 @@ public:
         codes_.clear();
         frames_ = 0;
         stop_reason_ = "max_frames";
-        // Request overrides, then the GGUF's reference sampling (< 0 = unset),
-        // then the Llama-T3 regime.  Turbo has no guidance pair.
-        auto pick = [](float req_v, float meta, float fallback) { return req_v >= 0.0f ? req_v : (meta >= 0.0f ? meta : fallback); };
-        cfg_ = turbo ? 0.0f : pick(req.lm_guidance, ci_->cfg_weight, 0.5f);
-        const float temp  = pick(req.temperature, ci_->temperature, 0.8f);
-        const float top_p = pick(req.top_p, ci_->top_p, 1.0f);
-        const float min_p = pick(req.min_p, ci_->min_p, 0.05f);
-        const float rep   = pick(req.repetition_penalty, ci_->repetition_penalty, 1.2f);
-        const int32_t top_k = req.top_k >= 0 ? req.top_k : (ci_->top_k >= 0 ? ci_->top_k : 0);
+        // Guidance of the T3 pair: the request's, else the GGUF's.  Turbo has none.
+        cfg_ = turbo ? 0.0f : (req.lm_guidance >= 0.0f ? req.lm_guidance : (ci_->cfg_weight >= 0.0f ? ci_->cfg_weight : 0.5f));
 
         std::vector<int32_t> text_ids;
         if (ci_->backbone_tokenizer) {
@@ -71,8 +66,7 @@ public:
             text_ids.resize((size_t) n);
         }
         const int32_t n_text = (int32_t) text_ids.size();
-        codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox%s: %d text tokens, cfg_weight=%.2f temp=%.2f top_k=%d min_p=%.2f top_p=%.2f rep=%.2f\n",
-                  turbo ? " turbo" : "", n_text, cfg_, temp, top_k, min_p, top_p, rep);
+        codec_log(CODEC_LOG_LEVEL_INFO, "chatterbox%s: %d text tokens, cfg_weight=%.2f\n", turbo ? " turbo" : "", n_text, cfg_);
 
         // A cloned voice carries T3's conditioning (VoiceEncoder embedding + cond
         // prompt tokens) in its speaker; builtin voices use the GGUF's builtin conds.
@@ -112,19 +106,13 @@ public:
             const float * b = rows.data() + (size_t) s * seq_len * hidden_;
             out->seqs.push_back({alm_chunk::of_embd(std::vector<float>(b, b + (size_t) seq_len * hidden_), seq_len)});
         }
-        // T3: penalties (whole history, seeded with the start-of-speech token as
-        // sample_t3 does) -> temperature -> min-p -> top-p.  Turbo: the HF
-        // warper order, temperature -> top-k -> top-p -> repetition penalty,
-        // over the generated tokens only.
-        const uint32_t seed = req.seed_or_default();
-        if (turbo) {
-            head_.init(seed, temp, top_k, top_p, 0.0f, rep, 0,
-                       {alm_head_sampler::TEMPERATURE, alm_head_sampler::TOP_K, alm_head_sampler::TOP_P,
-                        alm_head_sampler::PENALTIES});
-        } else {
-            head_.init(seed, temp, 0, top_p, min_p, rep, 0);
-            head_.accept(ci_->start_speech_token);
-        }
+        // The speech head samples with the request's llama.cpp settings.  T3's
+        // penalty history starts with the start-of-speech token (sample_t3);
+        // Turbo's covers the generated tokens only.
+        std::string serr;
+        if (!head_.init(req.head_sampler(), true, &serr)) return fail(serr);
+        if (!turbo) head_.accept(ci_->start_speech_token);
+        req.sampling_to(out);
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->max_frames       = 512;

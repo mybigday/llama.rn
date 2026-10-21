@@ -83,7 +83,7 @@ static ggml_backend_t codec_backend_init(bool use_gpu) {
     return backend;
 }
 
-void codec_metadata_free(struct codec_gguf_metadata * meta) {
+static void codec_metadata_free(struct codec_gguf_metadata * meta) {
     if (meta == nullptr || meta->items == nullptr) {
         return;
     }

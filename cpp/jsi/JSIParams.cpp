@@ -441,6 +441,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         ctx->post_sampling_probs = getPropertyAsBool(params, "post_sampling_probs", true);
 
         sparams.penalty_last_n = getPropertyAsInt(params, "penalty_last_n", sparams.penalty_last_n);
+        // -1 is the context size (llama-server's mapping); llama.cpp's sampler would take it as off.
+        if (sparams.penalty_last_n == -1) sparams.penalty_last_n = (int32_t) llama_n_ctx(ctx->ctx);
         sparams.penalty_repeat = getPropertyAsDouble(params, "penalty_repeat", sparams.penalty_repeat);
         sparams.penalty_freq = getPropertyAsDouble(params, "penalty_freq", sparams.penalty_freq);
         sparams.penalty_present = getPropertyAsDouble(params, "penalty_present", sparams.penalty_present);
@@ -621,7 +623,6 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             }
         }
 
-        ctx->penalize_prompt = getPropertyAsBool(params, "penalize_prompt", false);
 
         // Sampler order: "penalties;top_k;..." or an array; llama.cpp's default when absent.
         sparams.samplers = common_params_sampling().samplers;

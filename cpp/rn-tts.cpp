@@ -339,28 +339,32 @@ rn_voice llama_rn_context_tts::resolveVoice(const armed_voice &v) {
 
 void llama_rn_context_tts::prompt(llama_rn_context* main_ctx, const rn_voice &voice, codec_audio_lm_completion &c) {
     const json &o = armed_options;
-    auto num = [&](const char * key, double unset) {
-        const auto it = o.find(key);
-        return it != o.end() && it->is_number() ? it->get<double>() : unset;
-    };
-    const std::string preset = o.contains("preset") && o["preset"].is_string() ? o["preset"].get<std::string>() : "";
+    // The completion's sampling drives codec.cpp's own samplers (codec-side
+    // heads) too; codec.cpp's sampler is common_params_sampling field for field.
+    const common_params_sampling & sp = main_ctx->params.sampling;
+    std::string samplers;
+    for (const auto t : sp.samplers) samplers += (samplers.empty() ? "" : ";") + common_sampler_type_to_str(t);
 
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
-    req.text               = armed_text.c_str();
-    req.voice              = voice.get();
-    req.instruct           = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
-    req.preset             = preset.empty() ? nullptr : preset.c_str();
-    req.seed               = (uint32_t) num("seed", req.seed);
-    req.temperature        = (float) num("temperature", req.temperature);
-    req.top_p              = (float) num("top_p", req.top_p);
-    req.top_k              = (int32_t) num("top_k", req.top_k);
-    req.min_p              = (float) num("min_p", req.min_p);
-    req.repetition_penalty = (float) num("repetition_penalty", req.repetition_penalty);
-    req.min_frames         = (int32_t) num("min_frames", req.min_frames);
-    req.max_frames         = (int32_t) num("max_frames", req.max_frames);
-    req.lm_guidance        = (float) num("lm_guidance", req.lm_guidance);
-    req.flow_guidance      = (float) num("flow_guidance", req.flow_guidance);
-    req.flow_steps         = (int32_t) num("flow_steps", req.flow_steps);
+    req.text        = armed_text.c_str();
+    req.voice       = voice.get();
+    req.instruct    = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
+    req.min_frames  = o.contains("min_frames") && o["min_frames"].is_number() ? o["min_frames"].get<int32_t>() : -1;
+    codec_audio_lm_sampler & rs = req.sampler;
+    rs.seed               = sp.seed;
+    rs.temp               = sp.temp;
+    rs.top_k              = sp.top_k;
+    rs.top_p              = sp.top_p;
+    rs.min_p              = sp.min_p;
+    rs.penalty_last_n     = sp.penalty_last_n;
+    rs.penalty_repeat     = sp.penalty_repeat;
+    rs.penalty_freq       = sp.penalty_freq;
+    rs.penalty_present    = sp.penalty_present;
+    rs.dry_multiplier     = sp.dry_multiplier;
+    rs.dry_base           = sp.dry_base;
+    rs.dry_allowed_length = sp.dry_allowed_length;
+    rs.dry_penalty_last_n = sp.dry_penalty_last_n;
+    rs.samplers           = samplers.c_str();
 
     const codec_audio_lm_vocab cv = host_vocab(llama_model_get_vocab(main_ctx->model));
     codec_affinity_scope affinity(main_ctx);
@@ -375,7 +379,11 @@ void llama_rn_context_tts::prompt(llama_rn_context* main_ctx, const rn_voice &vo
     if ((int32_t) llama_n_seq_max(main_ctx->ctx) < c.n_seq) {
         throw std::runtime_error("TTS: the model's guidance decodes " + std::to_string(c.n_seq) +
                                  " sequences; create the context with n_parallel >= " + std::to_string(c.n_seq) +
-                                 " or pass lmGuidance: 0");
+                                 " or turn the guidance off with the codec's kv_overrides");
+    }
+    // llama.rn's llama.cpp has no penalty exemption; no hosted model asks for it.
+    if (c.sampler.n_penalty_exempt > 0) {
+        throw std::runtime_error("TTS: this model needs penalty-exempt tokens, which llama.rn does not support");
     }
 }
 
@@ -408,31 +416,12 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     prompt(main_ctx, resolveVoice(v), c);
     armed = true;
 
-    const codec_audio_lm_sampler & sp = c.sampler;
+    // What the request's format needs, as completion() params: the prompt,
+    // the grammar or token mask, and hidden states.  Sampling and length are
+    // the caller's.
     json p = json::object();
-    p["prompt"]      = text_to_speak;
-    p["embedding"]   = c.needs_embeddings || c.needs_prompt_hidden;
-    p["n_predict"]   = c.max_frames > 0 ? c.max_frames : -1;
-    p["seed"]        = sp.seed;
-    p["temperature"] = sp.temp;
-    p["top_k"]       = std::max(0, sp.top_k);
-    p["top_p"]       = (sp.top_p > 0.0f && sp.top_p < 1.0f) ? sp.top_p : 1.0f;
-    p["min_p"]       = std::max(0.0f, sp.min_p);
-    // codec.cpp's 0 window is the whole history: the context holds all of it.
-    p["penalty_last_n"]  = sp.penalty_last_n > 0 ? sp.penalty_last_n : (int32_t) llama_n_ctx(main_ctx->ctx);
-    p["penalty_repeat"]  = sp.penalty_repeat;
-    p["penalty_freq"]    = sp.penalty_freq;
-    p["penalty_present"] = sp.penalty_present;
-    p["penalize_prompt"] = sp.penalize_prompt;
-    p["dry_multiplier"]     = sp.dry_multiplier;
-    p["dry_base"]           = sp.dry_base;
-    p["dry_allowed_length"] = sp.dry_allowed_length;
-    p["dry_penalty_last_n"] = sp.dry_penalty_last_n;
-    // The order codec.cpp's own host uses unless the model names one.
-    p["samplers"] = sp.samplers != nullptr && *sp.samplers
-        ? std::string(sp.samplers)
-        : std::string(sp.dry_multiplier > 0.0f ? "penalties;dry;top_k;min_p;top_p;temperature"
-                                               : "penalties;top_k;min_p;top_p;temperature");
+    p["prompt"]    = text_to_speak;
+    p["embedding"] = c.needs_embeddings || c.needs_prompt_hidden;
     // The grammar and the allowed ranges say the same; the grammar wins.
     // The ranges become a logit bias table: -Infinity outside them.
     const std::string grammar = c.grammar ? c.grammar : "";

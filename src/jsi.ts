@@ -134,7 +134,7 @@ declare global {
     speakerId?: number,
     instruct?: string,
     // codec.cpp request overrides, snake_case (TTSRequestOptions).
-    request?: Record<string, number | string>,
+    request?: Record<string, number>,
   ) => Promise<{
     prompt: string
     grammar?: string

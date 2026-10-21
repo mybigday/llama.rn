@@ -252,9 +252,9 @@ bool codec_audio_lm_save_voice(struct codec_audio_lm * ctx, const struct codec_s
 
 struct codec_audio_lm_tts_request codec_audio_lm_default_tts_request(void) {
     codec_audio_lm_tts_request r{};
-    r.temperature = r.top_p = r.min_p = r.repetition_penalty = -1.0f;
+    r.sampler = alm_default_sampler();
     r.lm_guidance = r.flow_guidance = -1.0f;
-    r.top_k = r.min_frames = r.flow_steps = -1;
+    r.min_frames = r.flow_steps = -1;
     r.max_frames = 0;
     return r;
 }
@@ -270,13 +270,14 @@ bool codec_audio_lm_tts_prompt(struct codec_audio_lm * ctx, const struct codec_a
     alm_tts_request r;
     r.text = req->text;
     if (req->instruct) r.instruct = req->instruct;
-    if (req->preset)   r.preset = req->preset;
-    r.seed = req->seed;
-    r.temperature = req->temperature;
-    r.top_p = req->top_p;
-    r.top_k = req->top_k;
-    r.min_p = req->min_p;
-    r.repetition_penalty = req->repetition_penalty;
+    r.sampler = req->sampler;
+    if (req->sampler.penalty_exempt && req->sampler.n_penalty_exempt > 0) {
+        r.penalty_exempt.assign(req->sampler.penalty_exempt, req->sampler.penalty_exempt + req->sampler.n_penalty_exempt);
+    }
+    if (req->sampler.samplers) r.samplers = req->sampler.samplers;
+    r.sampler.penalty_exempt = nullptr;
+    r.sampler.n_penalty_exempt = 0;
+    r.sampler.samplers = nullptr;
     r.min_frames = req->min_frames;
     r.lm_guidance = req->lm_guidance;
     r.flow_guidance = req->flow_guidance;
@@ -351,8 +352,6 @@ bool codec_audio_lm_get_completion(struct codec_audio_lm * ctx, struct codec_aud
     out->sample_first        = c.sample_first;
     out->streamable          = c.streamable;
     out->max_frames          = c.max_frames;
-    out->min_frames          = c.min_frames;
-    out->stop_token          = c.stop_token;
     return true;
 }
 
@@ -446,20 +445,6 @@ bool codec_audio_lm_stream_finish(struct codec_audio_lm * ctx, struct codec_pcm_
 
 int32_t codec_audio_lm_decodable_frames(const struct codec_audio_lm * ctx) {
     return ctx != nullptr ? ctx->family->decodable_frames() : 0;
-}
-
-int32_t codec_audio_lm_hop(const struct codec_audio_lm * ctx) {
-    return ctx != nullptr ? audio_lm_codec_hop(ctx->alm) : 0;
-}
-
-bool codec_audio_lm_decode_range(struct codec_audio_lm * ctx, int32_t frame_begin, int32_t frame_end,
-                                 struct codec_pcm_buffer * out) {
-    if (ctx == nullptr || out == nullptr) return false;
-    audio_lm_audio_output pcm;
-    if (!audio_lm_decode_audio_range(ctx->alm, frame_begin, frame_end, &pcm)) {
-        return ctx->fail(audio_lm_last_error(ctx->alm));
-    }
-    return fill_pcm(pcm.pcm.data(), pcm.pcm.size(), pcm.sample_rate, pcm.n_channels, out) || ctx->fail("out of memory");
 }
 
 }  // extern "C"

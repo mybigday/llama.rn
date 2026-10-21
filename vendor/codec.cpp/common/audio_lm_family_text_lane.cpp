@@ -71,12 +71,12 @@ protected:
         return true;
     }
 
-    void base_sampler(const alm_tts_request & req, alm_completion * out) const {
-        out->sampler.temp  = pi_.default_temperature;
-        out->sampler.top_p = pi_.default_top_p;
-        out->sampler.top_k = pi_.default_top_k;
-        out->sampler.penalty_repeat = pi_.default_repetition_penalty;
-        req.apply(out->sampler);
+    // The request's llama.cpp settings, with one resolved seed for the heads.
+    codec_audio_lm_sampler head_settings(const alm_tts_request & req, alm_completion * out) const {
+        req.sampling_to(out);
+        codec_audio_lm_sampler hs = req.head_sampler();
+        hs.seed = req.seed();
+        return hs;
     }
 
     audio_lm_prompt_info pi_;
@@ -113,11 +113,11 @@ public:
         out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
         out->n_embd = hidden_;
         out->seqs   = {{alm_chunk::of_embd(std::move(rows), (int32_t) r)}};
-        base_sampler(req, out);
-        // One sampler per codebook, each with its own penalty window.
-        const codec_audio_lm_sampler & sp = out->sampler;
+        // One sampler per codebook, each with its own penalty history.
+        const codec_audio_lm_sampler hs = head_settings(req, out);
         samplers_.assign((size_t) n_cb_, alm_head_sampler());
-        for (auto & s : samplers_) s.init(sp.seed, sp.temp, sp.top_k, sp.top_p, 0.0f, sp.penalty_repeat, pi_.repetition_window);
+        std::string serr;
+        for (auto & s : samplers_) if (!s.init(hs, true, &serr)) return fail(serr);
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->streamable       = true;
@@ -172,12 +172,12 @@ public:
         out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
         out->n_embd = hidden_;
         out->seqs   = {{alm_chunk::of_tokens(toks)}};
-        base_sampler(req, out);
-        out->sampler.penalty_repeat = 1.0f;
-        // One sampler (one random stream) for the text warm-up and the audio codebooks.
-        const codec_audio_lm_sampler & sp = out->sampler;
+        // One sampler (one random stream) for the text warm-up and the audio
+        // codebooks; it takes no penalties (their histories would mix).
+        const codec_audio_lm_sampler hs = head_settings(req, out);
         samplers_.assign(1, alm_head_sampler());
-        samplers_[0].init(sp.seed, sp.temp, sp.top_k, sp.top_p, 0.0f, 1.0f, 0);
+        std::string serr;
+        if (!samplers_[0].init(hs, false, &serr)) return fail(serr);
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->streamable       = true;

@@ -8,8 +8,11 @@
 // operation for operation, so a host that used llama_sampler on these logits
 // before gets the same codes.
 
+#include "codec_audio_lm.h"
+
 #include <cstdint>
 #include <random>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -19,12 +22,12 @@ class alm_head_sampler {
 public:
     enum stage { PENALTIES, TEMPERATURE, TOP_K, TOP_P, MIN_P };
 
-    // temp <= 0: greedy (argmax, no other stage).  penalty_last_n 0: whole history.
-    void init(uint32_t seed, float temp, int32_t top_k, float top_p, float min_p, float penalty_repeat,
-              int32_t penalty_last_n, std::vector<stage> order);
-    // Default order: penalties -> temperature -> top-k -> min-p -> top-p.
-    void init(uint32_t seed, float temp, int32_t top_k, float top_p, float min_p, float penalty_repeat,
-              int32_t penalty_last_n);
+    // The llama.cpp chain of `sp` (common_sampler_init): its stages in
+    // sp.samplers order (llama.cpp's default when empty), then dist; temp <= 0
+    // keeps the most likely candidate.  `penalties` false leaves the penalties
+    // out (heads the model never penalizes).  False + *err when sp.samplers
+    // names an unknown stage, or an active one the heads do not implement (DRY).
+    bool init(const codec_audio_lm_sampler & sp, bool penalties, std::string * err);
 
     // Sample an index of logits[0..n) and record it for the penalties.
     int32_t sample(const float * logits, int32_t n);
@@ -39,8 +42,7 @@ private:
     void penalties(array & cur) const;
     void top_p(array & cur);
 
-    bool    greedy_ = true;
-    float   temp_ = 0.0f, top_p_ = 1.0f, min_p_ = 0.0f, repeat_ = 1.0f;
+    float   temp_ = 0.0f, top_p_ = 1.0f, min_p_ = 0.0f, repeat_ = 1.0f, freq_ = 0.0f, present_ = 0.0f;
     int32_t top_k_ = 0, last_n_ = 0;
     std::vector<stage> order_;
     std::mt19937 rng_;

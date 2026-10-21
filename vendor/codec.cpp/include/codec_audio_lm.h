@@ -25,7 +25,7 @@ extern "C" {
 //   voice = codec_audio_lm_get_voice / create_voice / load_voice   // NULL = default
 //   n = codec_audio_lm_tts_split(ctx, text, 0)                 // optional segmentation
 //   for each segment i (codec_audio_lm_tts_segment(ctx, i)):
-//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, preset}, &vocab)
+//       codec_audio_lm_tts_prompt(ctx, &{segment_text, voice, instruct, sampler}, &vocab)
 //       codec_audio_lm_get_completion(ctx, &c)
 //       if c.flow == SELF_CONTAINED: codec_audio_lm_generate_self_contained(ctx)
 //       else:
@@ -95,7 +95,6 @@ struct codec_audio_lm_caps {
     int32_t  sample_rate;           // output PCM rate
     int32_t  segment_bytes;         // segment size codec_audio_lm_tts_split uses by default
                                     // (0 = the model takes whole texts)
-    const char * presets;           // sampling presets the model defines, ';'-separated ("" = none)
 };
 
 void codec_audio_lm_get_caps(const struct codec_audio_lm * ctx, struct codec_audio_lm_caps * out);
@@ -166,24 +165,52 @@ bool codec_audio_lm_backbone_requirements(struct codec_audio_lm * ctx, const str
 
 // ── Text to speech ───────────────────────────────────────────────────
 
-// Overrides of the model's defaults use "unset" sentinels: negative numbers
-// (seed 0).  They apply to every sampler of the generation, the backbone's
-// (completion.sampler) and the codec-side heads codec_audio_lm samples itself.
+// Sampler settings: llama.cpp's common_params_sampling, field for field, with
+// its defaults (codec_audio_lm_default_tts_request).  The model sets none of
+// them; its card recommends values.  They drive every sampler of a
+// generation: the backbone's (completion.sampler, which the host builds as
+// llama.cpp does, prompt tokens counted for the penalties as llama-server
+// does) and the codec-side heads codec_audio_lm samples itself.
+#define CODEC_AUDIO_LM_DEFAULT_SEED 0xFFFFFFFFu   // LLAMA_DEFAULT_SEED: random
+
+struct codec_audio_lm_sampler {
+    uint32_t seed;                 // CODEC_AUDIO_LM_DEFAULT_SEED: random
+    float    temp;                 // <= 0: greedy
+    int32_t  top_k;                // <= 0: off
+    float    top_p;                // >= 1: off
+    float    min_p;                // <= 0: off
+    int32_t  penalty_last_n;       // penalty window; 0: off, -1: the whole context
+    float    penalty_repeat;       // 1: off
+    float    penalty_freq;         // 0: off
+    float    penalty_present;      // 0: off
+    // Tokens the penalties never touch.  In the completion: the request's plus
+    // the model's (end / pause tokens it must stay free to emit).  Needs a
+    // llama.cpp with patches/penalty-exempt-llamacpp.patch; a stock llama.cpp
+    // ignores the list (the tokens are then penalized too).
+    const int32_t * penalty_exempt;
+    int32_t         n_penalty_exempt;
+    float    dry_multiplier;       // 0: off
+    float    dry_base;
+    int32_t  dry_allowed_length;
+    int32_t  dry_penalty_last_n;   // -1: context size
+    // Sampler order, as llama.cpp's --samplers ("penalties;dry;top_k;top_p;
+    // min_p;temperature"); NULL / "" = llama.cpp's default order.
+    const char * samplers;
+};
+
 struct codec_audio_lm_tts_request {
     const char * text;          // required: one text (one segment)
     // The voice (NULL = the model's default).  Borrowed: keep it alive until
     // the generation is decoded (decode / stream_finish) or the next prompt.
     const struct codec_speaker * voice;
     const char * instruct;      // instruction text, for models that take it (may be NULL)
-    const char * preset;        // a sampling preset the model defines (caps.presets; NULL = default)
-    uint32_t     seed;          // 0 = default
-    float        temperature;
-    float        top_p;
-    int32_t      top_k;
-    float        min_p;
-    float        repetition_penalty;
-    int32_t      min_frames;    // shortest generation before the stop token may end it
-    int32_t      max_frames;    // longest generation (<= 0: the model's default)
+    struct codec_audio_lm_sampler sampler;
+    // Generation length: at least min_frames audio frames before the model's
+    // end (< 0: the model's own minimum), at most max_frames (<= 0: the
+    // model's default).
+    int32_t      min_frames;
+    int32_t      max_frames;
+    // Decoder graph settings; < 0: the model's (GGUF metadata).
     float        lm_guidance;   // classifier-free guidance weight of the backbone pair
     float        flow_guidance; // guidance of a flow / diffusion decoder
     int32_t      flow_steps;    // steps of a flow / diffusion decoder
@@ -235,33 +262,6 @@ enum codec_audio_lm_flow {
     CODEC_AUDIO_LM_FLOW_SELF_CONTAINED = 3,  // no backbone: codec_audio_lm_generate_self_contained
 };
 
-// Backbone sampler settings, named after llama.cpp's common_params_sampling
-// so a host maps them field by field.  "off" values disable a stage.
-struct codec_audio_lm_sampler {
-    uint32_t seed;
-    float    temp;                 // <= 0: greedy
-    int32_t  top_k;                // <= 0: off
-    float    top_p;                // >= 1: off
-    float    min_p;                // <= 0: off
-    int32_t  penalty_last_n;       // penalty window; 0: whole history
-    float    penalty_repeat;       // 1: off
-    float    penalty_freq;         // 0: off
-    float    penalty_present;      // 0: off
-    bool     penalize_prompt;      // the prompt tokens count for the penalties
-    // Tokens the penalties never touch (end / pause tokens a model must stay
-    // free to emit).  Needs a llama.cpp with patches/penalty-exempt-llamacpp.patch;
-    // a stock llama.cpp ignores the list (the tokens are then penalized too).
-    const int32_t * penalty_exempt;
-    int32_t         n_penalty_exempt;
-    float    dry_multiplier;       // 0: off
-    float    dry_base;
-    int32_t  dry_allowed_length;
-    int32_t  dry_penalty_last_n;   // -1: context size
-    // Sampler order, as llama.cpp's --samplers ("penalties;dry;top_k;top_p;
-    // min_p;temperature"); NULL / "" = llama.cpp's default order.
-    const char * samplers;
-};
-
 struct codec_audio_lm_token_range { int32_t begin, end; };   // [begin, end)
 
 struct codec_audio_lm_completion {
@@ -272,9 +272,12 @@ struct codec_audio_lm_completion {
     // decoded in order on sequence s (pad chunks have n == 0).
     const struct codec_audio_lm_chunk * chunks;
     int32_t n_chunks;
-    // Backbone sampling (used when a verdict asks for a backbone token).
+    // Backbone sampling (used when a verdict asks for a backbone token): the
+    // request's settings, the model's penalty_exempt tokens added.
     struct codec_audio_lm_sampler sampler;
-    const char * grammar;                  // GBNF ("" = none); equivalent to allowed below
+    // GBNF ("" = none): the tokens the model may emit, and the minimum length
+    // (min_frames frames before the end token).
+    const char * grammar;
     const struct codec_audio_lm_token_range * allowed;   // allowed backbone tokens
     int32_t n_allowed;                     // 0 = no restriction
     // Host requirements.
@@ -284,13 +287,6 @@ struct codec_audio_lm_completion {
     bool    streamable;                    // stream_poll works during this generation (else
                                            // only the whole generation decodes)
     int32_t max_frames;                    // audio frames to stop after (verdicts with is_audio)
-    // Minimum length: while fewer than min_frames audio frames exist, a
-    // sampled stop_token is replaced by one draw from a second sampler with
-    // the same temp / top_k / top_p, no penalties, no grammar, restricted to
-    // `allowed` minus stop_token (sample with the primary sampler first, so
-    // its random stream advances every step).
-    int32_t min_frames;
-    int32_t stop_token;
 };
 
 // The completion for the prepared prompt.
@@ -373,12 +369,8 @@ bool codec_audio_lm_decode_generation(struct codec_audio_lm * ctx, const struct 
 bool codec_audio_lm_stream_poll  (struct codec_audio_lm * ctx, int32_t chunk_ms, struct codec_pcm_buffer * out);
 bool codec_audio_lm_stream_finish(struct codec_audio_lm * ctx, struct codec_pcm_buffer * out);
 
-// Lower level: frames of the current generation that can be decoded, the codec
-// hop (samples per frame) and the PCM of frames [frame_begin, frame_end).
+// Frames of the current generation that can be decoded.
 int32_t codec_audio_lm_decodable_frames(const struct codec_audio_lm * ctx);
-int32_t codec_audio_lm_hop(const struct codec_audio_lm * ctx);
-bool    codec_audio_lm_decode_range(struct codec_audio_lm * ctx, int32_t frame_begin, int32_t frame_end,
-                                    struct codec_pcm_buffer * out);
 
 #ifdef __cplusplus
 }

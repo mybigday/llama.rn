@@ -85,12 +85,12 @@ it('getFormattedAudioCompletion rejects structured speaker payloads and unknown 
   ).rejects.toThrow("Unknown voice 'nobody'")
 })
 
-it('getFormattedAudioCompletion forwards the request options in snake_case and returns completionParams', async () => {
+it('getFormattedAudioCompletion forwards minFrames as min_frames and returns completionParams', async () => {
   mockGetFormattedAudioCompletion.mockClear()
 
   const f = await ctx.getFormattedAudioCompletion({
     prompt: 'hello',
-    request: { seed: 7, topP: 0.9, maxFrames: 100, lmGuidance: 0 },
+    request: { minFrames: 30 },
   })
 
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
@@ -99,7 +99,7 @@ it('getFormattedAudioCompletion forwards the request options in snake_case and r
     'hello',
     -1,
     undefined,
-    { seed: 7, top_p: 0.9, max_frames: 100, lm_guidance: 0 },
+    { min_frames: 30 },
   )
   expect(f.completionParams.prompt).toBe('hello')
 })

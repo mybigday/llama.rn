@@ -3299,6 +3299,12 @@ const char * llama_model_meta_key_str(llama_model_meta_key key) {
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT:        return "general.sampling.mirostat";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU:    return "general.sampling.mirostat_tau";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA:    return "general.sampling.mirostat_eta";
+        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ:    return "general.sampling.penalty_freq";
+        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT: return "general.sampling.penalty_present";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER:  return "general.sampling.dry_multiplier";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE:        return "general.sampling.dry_base";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH: return "general.sampling.dry_allowed_length";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N: return "general.sampling.dry_penalty_last_n";
         default:                                            return nullptr;
     }
 }

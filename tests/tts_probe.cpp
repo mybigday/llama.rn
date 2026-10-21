@@ -18,11 +18,13 @@
 //   --then TEXT            generate TEXT too, then decode both (the first one
 //                          last, from its saved result) into OUT and OUT.then.wav
 //
-// --lm-guidance F sets the guidance weight (0: none, for a one-sequence context).
+// --sampling JSON sets completion() sampling keys over the backbone GGUF's
+// general.sampling.* ({"temperature":0.9,"top_k":50}); Chatterbox's guidance is
+// --kv-override codec.lm.chatterbox.sampling.cfg_weight=float:0.
 // Backbone: --ngl N, --cache-type T, --fa / --no-fa, --n-parallel N; --codec-gpu runs the
 // codec on the GPU.  The completion runs with getFormattedAudioCompletion's
-// completionParams, as the JS layer passes them; --seed N is the request's
-// seed (codec.cpp's samplers and, through completionParams, the backbone's).
+// completionParams, as the JS layer passes them, and the context's sampling;
+// --seed N seeds it (the backbone's sampler and codec.cpp's).
 
 #include <chrono>
 #include <cmath>
@@ -45,17 +47,25 @@
 using namespace rnllama;
 using json = nlohmann::ordered_json;
 
-// completionParams onto the context, for the keys getFormattedAudioCompletion
-// returns (the subset of JSIParams' parseCompletionParams it uses);
-// `logit_bias` is its Float32Array table.
+// completionParams onto the context (prompt, embedding, grammar and its
+// Float32Array logit_bias), over the sampling the context already has: the
+// backbone GGUF's general.sampling.* and --sampling.
 static void apply_completion_params(llama_rn_context & ctx, const json & p, const std::vector<float> & logit_bias) {
     auto & sp = ctx.params.sampling;
-    sp = common_params_sampling();
     ctx.params.prompt    = p.value("prompt", std::string());
-    ctx.params.n_predict = p.value("n_predict", -1);
     ctx.params.embedding = p.value("embedding", false);
     llama_set_embeddings(ctx.ctx, ctx.params.embedding);
-    sp.seed               = p.value("seed", (uint32_t) LLAMA_DEFAULT_SEED);
+    sp.grammar = p.contains("grammar") ? common_grammar(COMMON_GRAMMAR_TYPE_USER, p["grammar"].get<std::string>())
+                                       : common_grammar();
+    sp.logit_bias.clear();
+    for (size_t t = 0; t < logit_bias.size(); ++t) {
+        if (logit_bias[t] != 0.0f) sp.logit_bias.push_back({(llama_token) t, logit_bias[t]});
+    }
+}
+
+// --sampling JSON: completion() sampling keys onto the context.
+static void apply_sampling(llama_rn_context & ctx, const json & p) {
+    auto & sp = ctx.params.sampling;
     sp.temp               = p.value("temperature", sp.temp);
     sp.top_k              = p.value("top_k", sp.top_k);
     sp.top_p              = p.value("top_p", sp.top_p);
@@ -68,9 +78,10 @@ static void apply_completion_params(llama_rn_context & ctx, const json & p, cons
     sp.dry_base           = p.value("dry_base", sp.dry_base);
     sp.dry_allowed_length = p.value("dry_allowed_length", sp.dry_allowed_length);
     sp.dry_penalty_last_n = p.value("dry_penalty_last_n", sp.dry_penalty_last_n);
+    if (sp.penalty_last_n == -1) sp.penalty_last_n = (int32_t) llama_n_ctx(ctx.ctx);
     if (p.contains("samplers")) {
         std::vector<std::string> names;
-        std::string s = p["samplers"].get<std::string>();
+        const std::string s = p["samplers"].get<std::string>();
         for (size_t at = 0; at <= s.size();) {
             const size_t e = std::min(s.find(';', at), s.size());
             if (e > at) names.push_back(s.substr(at, e - at));
@@ -78,11 +89,6 @@ static void apply_completion_params(llama_rn_context & ctx, const json & p, cons
         }
         sp.samplers = common_sampler_types_from_names(names);
     }
-    if (p.contains("grammar")) sp.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, p["grammar"].get<std::string>());
-    for (size_t t = 0; t < logit_bias.size(); ++t) {
-        if (logit_bias[t] != 0.0f) sp.logit_bias.push_back({(llama_token) t, logit_bias[t]});
-    }
-    ctx.penalize_prompt = p.value("penalize_prompt", false);
 }
 
 // Minimal mono 16-bit PCM WAV writer (no libsndfile dep).
@@ -136,10 +142,10 @@ int main(int argc, char ** argv) {
     std::string backbone_path;
     std::string codec_path;
     std::string text = "Hello world";
-    int  n_predict = 0;      // 0: the model's frame cap
+    int  n_predict = 0;      // 0: none (until the model stops or the context is full)
     int  threads   = 8;
     uint32_t seed  = 0;      // 0: the model's default
-    double lm_guidance = -1; // < 0: the model's default (0: no guidance pair)
+    std::string sampling_json;   // completion() sampling keys over the GGUF's general.sampling.*
     std::string out_wav;
     std::string cache_type;  // e.g. "q8_0" to mirror the example app's TTS init
     bool force_fa = false;
@@ -164,7 +170,7 @@ int main(int argc, char ** argv) {
         else if (is("--n-predict")    && i + 1 < argc) n_predict         = std::atoi(argv[++i]);
         else if (is("--threads")      && i + 1 < argc) threads           = std::atoi(argv[++i]);
         else if (is("--seed")         && i + 1 < argc) seed              = (uint32_t) std::atoll(argv[++i]);
-        else if (is("--lm-guidance")  && i + 1 < argc) lm_guidance       = std::atof(argv[++i]);
+        else if (is("--sampling")     && i + 1 < argc) sampling_json     = argv[++i];
         else if (is("--out-wav")      && i + 1 < argc) out_wav           = argv[++i];
         else if (is("--cache-type")   && i + 1 < argc) cache_type        = argv[++i];
         else if (is("--fa"))                           force_fa          = true;
@@ -277,14 +283,14 @@ int main(int argc, char ** argv) {
     auto synthesize = [&](const std::string & t, generation * g) {
         try {
             json options = json::object();
-            if (seed > 0) options["seed"] = seed;
-            if (lm_guidance >= 0) options["lm_guidance"] = lm_guidance;
+            if (!sampling_json.empty()) apply_sampling(ctx, json::parse(sampling_json));
+            ctx.params.sampling.seed = seed > 0 ? seed : LLAMA_DEFAULT_SEED;
             const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct, options);
             std::printf("[probe] flow=%s completionParams=%s\n", formatted.flow.c_str(),
                         formatted.completion_params.dump().substr(0, 400).c_str());
             ctx.completion->rewind();
             apply_completion_params(ctx, formatted.completion_params, formatted.logit_bias);
-            if (n_predict > 0) ctx.params.n_predict = n_predict;
+            ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");
                 return false;

@@ -449,9 +449,9 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         n_past = 0;
         std::vector<llama_token> prompt_tokens;
         const int n = tts->beginGeneration(parent_ctx, prompt_tokens);
-        if (parent_ctx->penalize_prompt) {
-            for (llama_token t : prompt_tokens) common_sampler_accept(ctx_sampling, t, false);
-        }
+        // codec.cpp's contract: the prompt's tokens count for the penalties,
+        // as llama-server's sampler takes them.
+        for (llama_token t : prompt_tokens) common_sampler_accept(ctx_sampling, t, false);
         embd.assign((size_t) n, 0);
         n_past = n;
         num_prompt_tokens = n;
@@ -684,12 +684,6 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         common_sampler_accept(ctx_sampling, decode_bos, false);
 
         LOG_INFO("[DEBUG] T5 encoding complete, added decoder BOS token: %d", decode_bos);
-    }
-
-    if (parent_ctx->penalize_prompt && !has_media) {
-        for (size_t i = 0; i < num_prompt_tokens && i < embd.size(); ++i) {
-            common_sampler_accept(ctx_sampling, embd[i], false);
-        }
     }
 
     has_next_token = true;

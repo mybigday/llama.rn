@@ -105,13 +105,6 @@ struct audio_lm_prompt {
     // shape as `embeds_prefix` when present; empty when CFG isn't used.
     std::vector<float> embeds_uncond;
 
-    // Sampler hints — model's training-time defaults.  Host may
-    // override; presented for one-call convenience.
-    float                 default_temperature        = 0.0f;
-    float                 default_top_p              = 0.0f;
-    float                 default_min_p              = 0.0f;
-    float                 default_repetition_penalty = 0.0f;
-    float                 default_cfg_weight         = 0.0f;   // 0 = no CFG
     codec_common_token    start_token                = -1;    // -1 = no seed
     codec_common_token    stop_token                 = -1;    // -1 = use vocab EOS
 };
@@ -169,7 +162,6 @@ const char * audio_lm_last_error     (const audio_lm_context * ctx);
 // request (audio_lm_use_decode_speaker, NULL = the model's default); the
 // prompt builders read its slots and decode_audio decodes with it.
 // ─────────────────────────────────────────────────────────────────────
-bool audio_lm_codec_has_speakers         (const audio_lm_context * ctx);
 bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx);
 void audio_lm_use_decode_speaker         (audio_lm_context * ctx, const codec_speaker * spk);
 const codec_speaker * audio_lm_decode_speaker_set(const audio_lm_context * ctx);   // as set (may be NULL)
@@ -203,8 +195,6 @@ const char * audio_lm_meta_str(const audio_lm_context * ctx, const char * key);
 // Borrowed handle to the underlying codec_lm (NULL when none loaded); the
 // families reach their model-specific helpers (src/lm/lm_models.h) through it.
 struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx);
-// The codec context (encode / decode of the codec model itself).
-struct codec_context * audio_lm_get_codec_context(audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
 // Prompt build (one shot, before the AR loop)
@@ -269,50 +259,10 @@ void audio_lm_set_audio_token_ranges(
         int32_t            frame_sentinel_id,
         int32_t            eos_id);
 
-void audio_lm_get_audio_token_range(
-        const audio_lm_context * ctx,
-        int32_t * out_offset,
-        int32_t * out_count,
-        int32_t * out_eos_id);
-
 // Number of complete audio frames accumulated so far (valid during or
 // after observe_token / observe_codes calls; incremented when the last
 // codebook of each frame is filled).
 int32_t audio_lm_codes_n_frames(const audio_lm_context * ctx);
-
-// ─────────────────────────────────────────────────────────────────────
-// Bare-context allocation (unit-test / model-less use)
-//
-// Allocates a zeroed audio_lm_context without loading any model.
-// Only the accumulator and Type A range state are functional; all
-// model-dependent paths (observe_codes, decode_audio, etc.) will fail
-// gracefully.  Free with audio_lm_free_bare (NOT audio_lm_free).
-// ─────────────────────────────────────────────────────────────────────
-audio_lm_context * audio_lm_alloc_bare();
-void               audio_lm_free_bare(audio_lm_context * ctx);
-
-// Debug accessor: returns a pointer to the raw accumulated codes vector
-// and writes the number of codebooks + frames into *out_n_q / *out_n_frames.
-// Valid until the next mutating call (observe_token, reset, free).
-// Returns nullptr when ctx is null or no codes have been accumulated.
-const int32_t * audio_lm_debug_codes(const audio_lm_context * ctx,
-                                      int32_t * out_n_q,
-                                      int32_t * out_n_frames);
-
-// ─────────────────────────────────────────────────────────────────────
-// codec_lm end-of-audio metadata (codebook-AR kinds).
-//
-// Surfaces the codec_lm's `codec.lm.eos_code_c0` / `codec.lm.eos_min_step`
-// (see codec_lm.h).  This is the model-owned end-of-audio decision the
-// host used to hardcode; `audio_lm_observe_codes` already acts on it, but
-// hosts may want to read the raw values (e.g. to display / log the stop
-// code).  Writes -1 / 0 when no codec_lm is loaded or no sentinel exists.
-// Any out-pointer may be NULL.
-// ─────────────────────────────────────────────────────────────────────
-void audio_lm_get_lm_eos(
-        const audio_lm_context * ctx,
-        int32_t * out_eos_code_c0,
-        int32_t * out_eos_min_step);
 
 // ─────────────────────────────────────────────────────────────────────
 // Type B embed-override flag
@@ -334,8 +284,6 @@ void audio_lm_get_lm_eos(
 void audio_lm_set_uses_embed_override(audio_lm_context * ctx,
                                        bool    enabled,
                                        int32_t start_step);
-
-bool audio_lm_get_uses_embed_override(const audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
 // Per-step observe (called by host after each backbone token sample)
@@ -497,13 +445,6 @@ bool audio_lm_decode_codec_codes(audio_lm_context * ctx, const int32_t * codes, 
 bool audio_lm_generation_input(audio_lm_context * ctx, std::vector<int32_t> * codes, std::vector<float> * latents,
                                int32_t * n_frames, int32_t * width);
 
-// Encode mono F32 PCM (any rate; resampled linearly to the codec's) to its continuous
-// latent, channel-major [dim, n_frames] (latent[d*n_frames + t]) — the input
-// codec_lm_flow_speaker_rows takes for Pocket-TTS voice conditioning.
-bool audio_lm_encode_latent(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
-                            int32_t sample_rate, std::vector<float> * latent,
-                            int32_t * n_frames, int32_t * dim);
-
 // ═════════════════════════════════════════════════════════════════════
 // Host-driven AR (Phase B): prompt assembly + codebook step machine
 //
@@ -553,11 +494,6 @@ struct audio_lm_prompt_info {
     int32_t eos_code_c0   = -1;     // cb0 EOS sentinel (-1 = none)
     int32_t eos_min_step  = 0;
 
-    // Sampling defaults (rn-tts convention): temp 0.9 / top_p 0.95 /
-    // top_k 50.  Host may override.  0 → greedy.
-    float   default_temperature = 0.0f;
-    float   default_top_p       = 0.0f;
-    int32_t default_top_k       = 0;
 
     // ── Streaming text↔audio interleave (MOSS-TTS-Realtime) ─────────────
     // When true the per-backbone-step input is composed as
@@ -579,8 +515,6 @@ struct audio_lm_prompt_info {
     int32_t text_pad_id           = -1;     // text lane fill once text ends
     int32_t audio_pad_code        = -1;     // audio lane fill during text-only
     int32_t bos_code_c0           = -1;     // audio BOS in last prefill row cb0
-    float   default_repetition_penalty = 1.0f;
-    int32_t repetition_window          = 0;
 
     // ── Sequential text→audio (LFM2-Audio) ──────────────────────────────
     // When true the model is a *sequential* multimodal LM (LFM2-Audio):
@@ -632,9 +566,7 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
 // it is meaningless for codec_lm audio-codebook heads (arbitrary float
 // arrays, no vocab).
 //
-// Precedent: llama.rn's rn-tts build_dynamic_grammar (OuteTTS/Soprano/
-// NeuTTS families).  The concept is ported; the first real application
-// here is MOSS-TTSD cb0 (merged text+speech vocab): the grammar allows
+// The first application is MOSS-TTSD cb0 (merged text+speech vocab): the grammar allows
 // only the speech-token range [cb0_speech_range_start, cb0_speech_range_end)
 // plus the end-of-audio sentinel eos_code_c0, so the backbone can't drift
 // into arbitrary text tokens mid-utterance.  A non-speech cb0 token is the

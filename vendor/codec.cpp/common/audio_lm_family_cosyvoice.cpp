@@ -7,13 +7,14 @@
 // tokens and a transcript, cross-lingual when it has prompt tokens but no
 // transcript (the LLM sees neither), instruct when an instruction is given
 // (it replaces the prompt text, no prompt tokens), SFT for x-vector-only
-// speakers.  The speech head is sampled codec-side with the reference's
-// ras_sampling (nucleus top_p / top_k, then a full-distribution redraw when
-// the pick repeats inside the last win_size tokens) or BreezyVoice's plain
-// top-k with eos redraw; no temperature.  The flow decodes the whole token
-// sequence at the end.
+// speakers.  The speech head is sampled codec-side with the request's
+// llama.cpp settings (the model card approximates the reference's
+// ras_sampling with top-k / top-p and a repetition penalty over its window),
+// the end token held back for the first min_len tokens.  The flow decodes the
+// whole token sequence at the end.
 
 #include "audio_lm_family.h"
+#include "audio_lm_sampler.h"
 #include "lm/lm_models.h"
 
 #include <algorithm>
@@ -22,45 +23,6 @@
 
 namespace codec_common {
 namespace {
-
-struct cosyvoice_sampler {
-    std::mt19937 rng;
-
-    static void softmax(const std::vector<float> & x, std::vector<double> * p) {
-        double mx = -INFINITY;
-        for (float v : x) mx = std::max(mx, (double) v);
-        p->resize(x.size());
-        double s = 0.0;
-        for (size_t i = 0; i < x.size(); ++i) { (*p)[i] = std::isinf(x[i]) && x[i] < 0 ? 0.0 : std::exp(x[i] - mx); s += (*p)[i]; }
-        for (double & v : *p) v /= s;
-    }
-    int32_t draw(const std::vector<double> & w, const std::vector<int32_t> & ids) {
-        std::discrete_distribution<int32_t> d(w.begin(), w.end());
-        return ids[(size_t) d(rng)];
-    }
-    // nucleus_sampling: sorted probs, keep while cum < top_p and count < top_k.
-    int32_t nucleus(const std::vector<double> & p, float top_p, int32_t top_k) {
-        std::vector<int32_t> order(p.size());
-        for (size_t i = 0; i < p.size(); ++i) order[i] = (int32_t) i;
-        const size_t k = std::min<size_t>((size_t) std::max(top_k, 1), order.size());
-        std::partial_sort(order.begin(), order.begin() + (long) k, order.end(),
-                          [&](int32_t a, int32_t b) { return p[(size_t) a] > p[(size_t) b] || (p[(size_t) a] == p[(size_t) b] && a < b); });
-        std::vector<double> w;
-        std::vector<int32_t> ids;
-        double cum = 0.0;
-        for (size_t i = 0; i < k && cum < top_p; ++i) {
-            cum += p[(size_t) order[i]];
-            w.push_back(p[(size_t) order[i]]);
-            ids.push_back(order[i]);
-        }
-        return draw(w, ids);
-    }
-    int32_t full(const std::vector<double> & p) {
-        std::vector<int32_t> ids(p.size());
-        for (size_t i = 0; i < p.size(); ++i) ids[i] = (int32_t) i;
-        return draw(p, ids);
-    }
-};
 
 class cosyvoice_family : public alm_family {
 public:
@@ -147,11 +109,10 @@ public:
         all_txt.insert(all_txt.end(), ttxt.begin(), ttxt.end());
 
         const int32_t text_len = (int32_t) ttxt.size();
-        min_len_ = (int32_t) (text_len * ci_->min_token_text_ratio);
+        min_len_ = req.min_frames >= 0 ? req.min_frames : (int32_t) (text_len * ci_->min_token_text_ratio);
         max_len_ = (int32_t) (text_len * ci_->max_token_text_ratio);
-        codec_log(CODEC_LOG_LEVEL_INFO, "cosyvoice v%d (%s): %zu prompt-text + %d text tokens, %zu prompt speech tokens, min_len=%d max_len=%d, %s\n",
-                  ci_->version, mode, ptxt.size(), text_len, llm_prompt_tokens.size(), min_len_, max_len_,
-                  ci_->ras_sampling ? "ras" : "top_k");
+        codec_log(CODEC_LOG_LEVEL_INFO, "cosyvoice v%d (%s): %zu prompt-text + %d text tokens, %zu prompt speech tokens, min_len=%d max_len=%d\n",
+                  ci_->version, mode, ptxt.size(), text_len, llm_prompt_tokens.size(), min_len_, max_len_);
 
         *out = alm_completion();
         out->flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
@@ -184,10 +145,9 @@ public:
         chunks.push_back(alm_chunk::of_embd(std::move(tail), n_tail));
         out->seqs = {std::move(chunks)};
 
-        greedy_ = req.temperature == 0.0f;
-        top_k_  = req.top_k >= 0 ? req.top_k : ci_->top_k;
-        top_p_  = req.top_p >= 0.0f ? req.top_p : ci_->top_p;
-        smp_.rng.seed(req.seed);
+        std::string serr;
+        if (!head_.init(req.head_sampler(), true, &serr)) return fail(serr);
+        req.sampling_to(out);
         out->needs_embeddings = true;
         out->sample_first     = false;
         out->max_frames       = max_len_ + 1;   // the text-length bound below stops first
@@ -210,41 +170,9 @@ public:
         int32_t dummy = 0;
         audio_lm_step_finish(alm_, &dummy, 1);
 
-        const bool ignore_eos = step < min_len_;
-        int32_t id = 0;
-        if (greedy_) {
-            if (ignore_eos) logits[(size_t) ci_->ignore_eos_id] = -INFINITY;
-            id = (int32_t) (std::max_element(logits.begin(), logits.end()) - logits.begin());
-        } else if (ci_->ras_sampling) {
-            if (ignore_eos) logits[(size_t) ci_->ignore_eos_id] = -INFINITY;
-            cosyvoice_sampler::softmax(logits, &prob_);
-            id = smp_.nucleus(prob_, top_p_, top_k_);
-            const int32_t win = ci_->win_size;
-            int32_t rep = 0;
-            for (size_t i = decoded_.size() > (size_t) win ? decoded_.size() - (size_t) win : 0; i < decoded_.size(); ++i) {
-                rep += decoded_[i] == id;
-            }
-            if ((float) rep >= (float) win * ci_->tau_r) {
-                logits[(size_t) id] = -INFINITY;
-                cosyvoice_sampler::softmax(logits, &prob_);
-                id = smp_.full(prob_);
-            }
-        } else {
-            // TransformerLM.sampling_ids: top-k multinomial, redraw while eos is ignored.
-            cosyvoice_sampler::softmax(logits, &prob_);
-            std::vector<int32_t> order(prob_.size());
-            for (size_t i = 0; i < prob_.size(); ++i) order[i] = (int32_t) i;
-            const size_t k = std::min<size_t>((size_t) std::max(top_k_, 1), order.size());
-            std::partial_sort(order.begin(), order.begin() + (long) k, order.end(),
-                              [&](int32_t x, int32_t y) { return prob_[(size_t) x] > prob_[(size_t) y]; });
-            std::vector<int32_t> ids(order.begin(), order.begin() + (long) k);
-            std::vector<double> w;
-            for (int32_t i : ids) w.push_back(prob_[(size_t) i]);
-            for (int32_t tries = 0; tries < 100; ++tries) {
-                id = smp_.draw(w, ids);
-                if (!ignore_eos || id != ci_->ignore_eos_id) break;
-            }
-        }
+        // The reference holds the end token back for the first min_len tokens.
+        if (step < min_len_) logits[(size_t) ci_->ignore_eos_id] = -INFINITY;
+        const int32_t id = head_.sample(logits.data(), n);
         if (id >= ci_->stop_begin && id < ci_->stop_end) {
             stop_reason_ = "eos";
             *v = {CODEC_AUDIO_LM_STOP, false, false, -1};
@@ -281,12 +209,9 @@ private:
 
     codec_lm * lm_;
     const codec_lm_cosyvoice_info * ci_;
-    int32_t hidden_ = 0, min_len_ = 0, max_len_ = 0, top_k_ = 0;
-    float top_p_ = 1.0f;
-    bool greedy_ = false;
-    cosyvoice_sampler smp_;
+    int32_t hidden_ = 0, min_len_ = 0, max_len_ = 0;
+    alm_head_sampler head_;
     std::vector<int32_t> decoded_;
-    std::vector<double> prob_;
     std::vector<float> next_;
 };
 

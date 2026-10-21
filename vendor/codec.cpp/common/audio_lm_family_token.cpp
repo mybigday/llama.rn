@@ -117,17 +117,13 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        out->sampler.temp  = 1.0f;
-        out->sampler.top_k = 50;
+        req.sampling_to(out);
         out->allowed = {{off, off + count}, {eos, eos + 1}};
-        // Some seeds sample the end token first at temp 1 / top-k 50; keep it
-        // out for the first 25 frames (~0.3 s).
-        out->min_frames = 25;
-        out->stop_token = eos;
+        // Some seeds sample the end token first at temp 1 / top-k 50; by
+        // default it stays out for the first 25 frames (~0.3 s).
+        out->grammar = alm_min_length_grammar(eos, req.min_frames >= 0 ? req.min_frames : 25);
         out->max_frames = 512;
         out->streamable = true;
-        if (req.min_frames > 0) out->min_frames = req.min_frames;
-        req.apply(out->sampler);
         return true;
     }
 
@@ -324,20 +320,13 @@ public:
         *out = alm_completion();
         out->flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         out->seqs = {{alm_chunk::of_tokens(std::move(toks))}};
-        // 1.0 (README): temp 1.0, top-k 50, penalty 1.1 over a 64-token window;
-        // 0.2 / 0.3 (GenerationConfig): temp 0.1, top-k 50, penalty 1.1 over everything.
-        const bool legacy = v != outetts_version::V3;
-        out->sampler.temp           = legacy ? 0.1f : 1.0f;
-        out->sampler.top_k          = 50;
-        out->sampler.penalty_repeat = 1.1f;
-        out->sampler.penalty_last_n = legacy ? 0 : 64;
+        req.sampling_to(out);
         // Free generation (word blocks interleave with the codes) kept well
         // formed by the prompt-derived grammar: only the input's words,
         // complete headers, in-range codes.
         out->grammar    = outetts_build_grammar(v, in_words);
         out->max_frames = INT32_MAX;   // the context bounds it
         out->streamable = true;
-        req.apply(out->sampler);
         return true;
     }
 

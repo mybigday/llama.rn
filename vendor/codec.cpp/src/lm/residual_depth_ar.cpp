@@ -1571,23 +1571,6 @@ enum codec_status step_finish(codec_lm_state * st, int32_t * out_codes) {
     return CODEC_STATUS_SUCCESS;
 }
 
-// ---------------------------------------------------------------------
-// audio embd
-// ---------------------------------------------------------------------
-
-const float * audio_embd(codec_lm * lm, int32_t cb_idx, int32_t code) {
-    rda_impl * impl = static_cast<rda_impl *>(lm->impl);
-    if (!impl) return nullptr;
-    // Vector size depends on mode: shared = N, flexible = N-1 (the
-    // last codebook is never an input under Moshi's flexible layout).
-    if (cb_idx < 0 || (size_t) cb_idx >= impl->audio_embds.size()) return nullptr;
-    ggml_tensor * t = impl->audio_embds[(size_t) cb_idx];
-    if (t == nullptr) return nullptr;
-    const float * data = codec_tensor_data_f32(t);
-    if (!data) return nullptr;
-    return data + (size_t) code * impl->audio_embed_dim;
-}
-
 enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float * out_embd) {
     if (!lm || !lm->impl || !codes || !out_embd) return CODEC_STATUS_INVALID_ARG;
     rda_impl * impl = static_cast<rda_impl *>(lm->impl);
@@ -1768,8 +1751,7 @@ bool codec_lm_project_text(struct codec_lm * lm, int32_t text_token,
 
 // Read one row of the codec_embedding table (audio_embd cb 0) into `out`,
 // dequanting from F16/BF16/F32 as needed.  Used for the Qwen3-TTS talker
-// codec control-tag lane, which needs codes (2148..2157) that
-// `codec_lm_audio_embd`'s F32-data fast path can't serve for an F16 table.
+// codec control-tag lane (codes 2148..2157), from a table of any float type.
 bool codec_lm_codec_embd_row(struct codec_lm * lm, int32_t code,
                              float * out, int32_t out_cap) {
     if (!lm || !lm->impl || !out) return false;
@@ -1807,7 +1789,6 @@ const codec_lm_kind_vtable codec_lm_vtable_residual_depth_ar = {
     /*.step_logits        =*/ step_logits,
     /*.step_push_code     =*/ step_push_code,
     /*.step_finish        =*/ step_finish,
-    /*.audio_embd         =*/ audio_embd,
     /*.compose_audio_embd =*/ compose_audio_embd,
     /*.compose_next_embd  =*/ nullptr,   // CSM has no learned per-step pos emb;
                                          // public function falls back to
