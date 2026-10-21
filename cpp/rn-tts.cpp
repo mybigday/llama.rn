@@ -170,6 +170,8 @@ void llama_rn_context_tts::reset() {
     audio_latents.clear();
     audio_latent_dim = 0;
     n_frames = 0;
+    stop_reason.clear();
+    has_generation = false;
 }
 
 // ── Capabilities ──────────────────────────────────────────────────────
@@ -447,6 +449,7 @@ llama_rn_tts_prompt llama_rn_context_tts::buildPrompt(llama_rn_context* main_ctx
     pending_next_embd.clear();
     stop_reason.clear();
     n_frames = 0;
+    has_generation = true;
     return out;
 }
 
@@ -516,6 +519,7 @@ void llama_rn_context_tts::collectGeneration() {
     audio_tokens.clear();
     audio_latents.clear();
     audio_latent_dim = 0;
+    if (!has_generation) return;
     codec_audio_lm_generation gen{};
     if (!codec_audio_lm_get_generation(alm, &gen)) throw std::runtime_error(alm_error(alm, "TTS generation"));
     if (gen.n_frames <= 0) return;

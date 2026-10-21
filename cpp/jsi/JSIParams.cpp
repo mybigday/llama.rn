@@ -624,8 +624,9 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         }
 
 
-        // Sampler order: "penalties;top_k;..." or an array; llama.cpp's default when absent.
-        sparams.samplers = common_params_sampling().samplers;
+        // Sampler order: "penalties;top_k;..." or an array; the model's
+        // (general.sampling.sequence, else llama.cpp's) when absent.
+        sparams.samplers = ctx->default_samplers;
         if (const json* samplers = findProperty(params, "samplers"); samplers) {
             std::vector<std::string> names;
             if (samplers->is_string()) {

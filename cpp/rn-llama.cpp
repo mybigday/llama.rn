@@ -570,6 +570,7 @@ bool llama_rn_context::loadModel(common_params &params_)
         }
         return false;
     }
+    default_samplers = params.sampling.samplers;
 
     if (params.speculative.has_dft() &&
         has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {

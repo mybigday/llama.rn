@@ -1059,9 +1059,14 @@ completion_token_output llama_rn_context_completion::nextToken()
         const int n_left    = n_past - parent_ctx->params.n_keep - 1;
         const int n_discard = n_left/2;
 
+        // A TTS guidance pair decodes sequences 0..n_seq-1 at the same
+        // positions; shift them all so the next step's batch lines up.
+        const int n_seq = parent_ctx->isVocoderEnabled() ? parent_ctx->tts_wrapper->n_seq : 1;
         auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm (kv, 0, parent_ctx->params.n_keep + 1            , parent_ctx->params.n_keep + n_discard + 1);
-        llama_memory_seq_add(kv, 0, parent_ctx->params.n_keep + 1 + n_discard, n_past, -n_discard);
+        for (int q = 0; q < n_seq; ++q) {
+            llama_memory_seq_rm (kv, q, parent_ctx->params.n_keep + 1            , parent_ctx->params.n_keep + n_discard + 1);
+            llama_memory_seq_add(kv, q, parent_ctx->params.n_keep + 1 + n_discard, n_past, -n_discard);
+        }
 
         for (size_t i = parent_ctx->params.n_keep + 1 + n_discard; i < embd.size(); i++)
         {

@@ -117,6 +117,9 @@ struct llama_rn_context {
     float loading_progress = 0;
     bool is_load_interrupted = false;
     common_params params;
+    // Sampler order at load: the GGUF's general.sampling.sequence, else
+    // llama.cpp's default.  A completion without `samplers` uses it.
+    std::vector<common_sampler_type> default_samplers;
     // n_probs readout mode for the next completion (see get_token_probabilities);
     // false = softmax of the raw logits, true = the sampler chain's candidates
     bool post_sampling_probs = true;

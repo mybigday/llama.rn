@@ -239,6 +239,9 @@ private:
 
     // The voice of the last completion, kept for decoding its generation later.
     rn_voice gen_voice;
+    // This completion built a prompt (buildPrompt); without one the codec
+    // still holds an earlier completion's generation.
+    bool has_generation = false;
 
     int n_embd = 0;
     bool needs_hidden = false;
