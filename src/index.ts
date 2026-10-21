@@ -1356,8 +1356,9 @@ export class LlamaContext {
 
   /**
    * PCM (at `getAudioSampleRate()`) of a text-to-speech completion's
-   * `audio_tokens`, with the current voice. Any earlier completion's tokens
-   * decode, in any order.
+   * `audio_tokens`, with the voice of the last text-to-speech completion. Any
+   * earlier completion's tokens decode, in any order; tokens generated with
+   * another voice decode with this one.
    */
   async decodeAudioTokens(
     tokens: number[] | Int32Array,
@@ -1402,6 +1403,12 @@ export class LlamaContext {
     return await llamaGenerateAudioCodes(this.id, rest, onFrame)
   }
 
+  /**
+   * Clone a voice from a reference clip (mono, any sample rate) and its
+   * transcript `refText`, for models with `canSpeakerFromAudio`. All of the
+   * voice's conditioning is computed here, once; `emotion` and `bake` are
+   * not used.
+   */
   async createSpeaker(config: {
     refAudio: Float32Array | number[]
     refAudioSampleRate: number
@@ -1421,9 +1428,10 @@ export class LlamaContext {
   }
 
   /**
-   * Write a speaker's decoder conditioning (codec_speaker) to a speaker file,
-   * for codecs with `canSpeakerFromAudio` (Chatterbox S3G, CosyVoice).
-   * `options.name` names it inside the file. Reload it with `loadSpeaker`.
+   * Write a speaker's voice (all of its conditioning, a codec_speaker) to a
+   * speaker file of this model. `options.name` names it inside the file
+   * (default: codec.cpp's name). Reload it with `loadSpeaker`; the reloaded
+   * voice is identical.
    */
   async saveSpeaker(
     speaker: LlamaSpeaker,
@@ -1438,8 +1446,8 @@ export class LlamaContext {
   /**
    * Load a speaker from a speaker file (written by `saveSpeaker` or codec.cpp's
    * `tts-cli --save-speaker`). `options.name` picks a speaker inside the file
-   * (default: the file's default speaker). It conditions the decoder only;
-   * there is no reference audio for the LM side.
+   * (default: the file's default speaker). Files of another model are
+   * refused.
    */
   async loadSpeaker(
     path: string,

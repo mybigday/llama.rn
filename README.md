@@ -769,9 +769,9 @@ await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
 await spk.release()         // free the native speaker when done
 ```
 
-For codecs whose decoder is conditioned on a voice (Chatterbox S3G, CosyVoice), the same reference clip also conditions the decoder when `caps.canSpeakerFromAudio` is true. Decoding uses the voice of the latest `getFormattedAudioCompletion`, so decode a result before arming another voice when the decoder depends on it. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone the decoder; re-convert them for that.
+`createSpeaker` clones the voice once (`caps.canSpeakerFromAudio`): it computes everything the model conditions on, the backbone prompt (x-vector, reference codes, transcript), the decoder, or both, and every request with that speaker reuses it. Decoding uses the voice of the latest text-to-speech completion, so decode a result before generating with another voice when the decoder depends on it (Chatterbox, CosyVoice, Qwen3-TTS Base with `refText`). Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone; re-convert them for that.
 
-The decoder conditioning can be saved to a speaker file and reloaded without the reference audio (a file speaker conditions the decoder only, not the LM):
+A speaker can be saved to a speaker file of the same model and reloaded without the reference audio; the reloaded voice is identical:
 
 ```ts
 await ctx.saveSpeaker(spk, `${dir}/my-voice.gguf`)

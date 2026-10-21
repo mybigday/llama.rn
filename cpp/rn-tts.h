@@ -14,6 +14,7 @@ using json = nlohmann::ordered_json;
 
 struct codec_audio_lm;
 struct codec_audio_lm_generation;
+struct codec_speaker;
 struct common_sampler;
 struct common_params_sampling;
 
@@ -75,16 +76,17 @@ struct llama_rn_audio_codes_result {
     bool aborted = false;
 };
 
-// A registry speaker (LlamaSpeaker): reference audio with its transcript, or
-// a speaker in a speaker file.  codec_audio_lm derives the conditioning when
-// the speaker is used.
+// A codec voice (codec_speaker.h).  Created and loaded voices are freed with
+// codec_speaker_free; builtin ones belong to the model and are not.  Shared, so
+// a generation keeps its voice for a later decode after the speaker is released.
+using rn_voice = std::shared_ptr<const ::codec_speaker>;
+
+// A registry speaker (LlamaSpeaker): a voice cloned from reference audio
+// (all its conditioning is computed once, at creation) or loaded from a
+// speaker file.
 struct rn_speaker {
-    std::vector<float> pcm;
-    int sample_rate = 0;
-    std::string ref_text;
-    std::string speaker_file;
-    std::string speaker_name;   // in speaker_file ("" = its default)
-    // Kept for the JS shape of LlamaSpeaker; nothing is baked ahead of use.
+    rn_voice voice;
+    // Kept for the JS shape of LlamaSpeaker; the voice is ready when created.
     int rows = 0;
     bool baked = true;
 };
@@ -152,7 +154,7 @@ struct llama_rn_context_tts {
 
     // Arms a request: `text`, plus the voice from `speakerId` (registry), else
     // `speaker.codec_voice` (builtin voice name), else the model's default.
-    // The voice is applied here so an unknown voice fails early.  `instruct`
+    // The voice is resolved here so an unknown voice fails early.  `instruct`
     // describes how to speak, for models that take one (can_take_instruct).
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker,
                                                                  const std::string &text_to_speak, int speakerId = -1,
@@ -198,13 +200,13 @@ struct llama_rn_context_tts {
     void releaseSpeaker(int id);
     // Throws on failure.
     int loadSpeaker(const std::string &path, const std::string &name);
-    // Writes the decoder speaker a registry speaker conditions to a speaker
-    // file.  Throws on failure.
+    // Writes a registry speaker's voice to a speaker file as `name` ("" = the
+    // codec's default name).  Throws on failure.
     void saveSpeaker(int id, const std::string &path, const std::string &name);
     std::vector<llama_rn_speaker_info> listSpeakers(const std::string &path);
 
     // PCM of a generation's codes (`audio_tokens`) or latents (`embeddings`),
-    // with the current decoder speaker.  Throws on failure.
+    // with the voice of the last generation.  Throws on failure.
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
     std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings,
                                              int embedding_dim);
@@ -217,9 +219,9 @@ private:
         bool operator==(const armed_voice &o) const { return voice == o.voice && speaker_id == o.speaker_id; }
     };
 
-    // Applies `v` with codec_audio_lm_tts_set_voice unless it is already in
-    // use.  Throws on failure.
-    void applyVoice(const armed_voice &v);
+    // The codec voice for `v`; null for the model's default when it has none.
+    // Throws on an unknown voice.
+    rn_voice resolveVoice(const armed_voice &v);
     // Prompt of segment `seg` (codec_audio_lm), decoded from position 0.
     int beginSegment(llama_rn_context* main_ctx);
     // Appends the current segment's decoder input to audio_tokens / audio_latents.
@@ -231,8 +233,8 @@ private:
     std::string armed_text;
     std::string armed_instruct;
     armed_voice armed_v;
-    bool voice_applied = false;
-    armed_voice applied_v;
+    // The voice of the generation in progress, or of the last one (decode).
+    rn_voice gen_voice;
 
     // The generation in progress.
     bool generating = false;

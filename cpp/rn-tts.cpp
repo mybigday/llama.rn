@@ -4,6 +4,7 @@
 #include "common.h"
 #include "codec.h"
 #include "codec_audio_lm.h"
+#include "codec_speaker.h"
 #include "codec_common.h"
 #include "llama.h"
 #include "sampling.h"
@@ -291,6 +292,8 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 }
 
 llama_rn_context_tts::~llama_rn_context_tts() {
+    speakers.clear();
+    gen_voice.reset();
     if (alm != nullptr) codec_audio_lm_free(alm);
 }
 
@@ -402,28 +405,16 @@ std::string llama_rn_context_tts::checkBackbone(llama_rn_context* main_ctx) {
 
 // ── Requests ──────────────────────────────────────────────────────────
 
-void llama_rn_context_tts::applyVoice(const armed_voice &v) {
-    if (voice_applied && applied_v == v) return;
-    codec_audio_lm_tts_voice voice = codec_audio_lm_default_tts_voice();
+rn_voice llama_rn_context_tts::resolveVoice(const armed_voice &v) {
     if (v.speaker_id >= 0) {
         const rn_speaker * spk = getSpeaker(v.speaker_id);
         if (spk == nullptr) throw std::runtime_error("TTS: speaker " + std::to_string(v.speaker_id) + " not found");
-        if (!spk->speaker_file.empty()) {
-            voice.speaker_file = spk->speaker_file.c_str();
-            voice.voice = spk->speaker_name.empty() ? nullptr : spk->speaker_name.c_str();
-        } else {
-            voice.ref_pcm         = spk->pcm.data();
-            voice.ref_n_samples   = (int32_t) spk->pcm.size();
-            voice.ref_sample_rate = spk->sample_rate;
-            voice.ref_text        = spk->ref_text.empty() ? nullptr : spk->ref_text.c_str();
-        }
-    } else if (!v.voice.empty()) {
-        voice.voice = v.voice.c_str();
+        return spk->voice;
     }
-    voice_applied = false;
-    if (!codec_audio_lm_tts_set_voice(alm, &voice)) throw std::runtime_error(alm_error(alm, "TTS voice"));
-    applied_v = v;
-    voice_applied = true;
+    // Builtin voices belong to the model: borrowed, never freed.
+    const codec_speaker * builtin = codec_audio_lm_get_voice(alm, v.voice.empty() ? nullptr : v.voice.c_str());
+    if (builtin == nullptr && !v.voice.empty()) throw std::runtime_error("TTS: no voice '" + v.voice + "'");
+    return rn_voice(builtin, [](const codec_speaker *) {});
 }
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
@@ -444,10 +435,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     } else if (speakerId < 0 && speaker.is_object() && !speaker.empty()) {
         LOG_WARNING("TTS: speaker payloads are not used; the codec's builtin voices and LlamaSpeaker are");
     }
-    {
-        codec_affinity_scope affinity(main_ctx);
-        applyVoice(v);
-    }
+    resolveVoice(v);
     armed = true;
     armed_text = text_to_speak;
     armed_instruct = instruct;
@@ -473,10 +461,10 @@ int llama_rn_context_tts::beginGeneration(llama_rn_context* main_ctx) {
 
     armed_voice v = armed_v;
     if (pending_speaker_id >= 0) v = armed_voice{"", pending_speaker_id};
+    gen_voice = resolveVoice(v);
     segments.clear();
     {
         codec_affinity_scope affinity(main_ctx);
-        applyVoice(v);
         const int32_t n = codec_audio_lm_tts_split(alm, armed_text.c_str(), 0);
         if (n < 0) throw std::runtime_error(alm_error(alm, "TTS split"));
         for (int32_t i = 0; i < n; ++i) segments.emplace_back(codec_audio_lm_tts_segment(alm, i));
@@ -498,6 +486,7 @@ int llama_rn_context_tts::beginSegment(llama_rn_context* main_ctx) {
 
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
     req.text = segments[seg].c_str();
+    req.voice = gen_voice.get();
     req.instruct = armed_instruct.empty() ? nullptr : armed_instruct.c_str();
     // The completion's seed, when it sets one; the rest of the sampling is the model's.
     if (saved_sampling && saved_sampling->seed != LLAMA_DEFAULT_SEED) req.seed = saved_sampling->seed;
@@ -727,15 +716,19 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(llama_rn_co
 
 int llama_rn_context_tts::createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
                                         const std::string &ref_text, float emotion, bool has_emotion, bool bake) {
-    (void) main_ctx;
     (void) emotion;
     (void) has_emotion;
     (void) bake;
     if (pcm.empty() || sample_rate <= 0) throw std::runtime_error("createSpeaker: empty reference audio");
+    codec_speaker * voice = nullptr;
+    {
+        codec_affinity_scope affinity(main_ctx);
+        voice = codec_audio_lm_create_voice(alm, pcm.data(), (int32_t) pcm.size(), sample_rate,
+                                            ref_text.empty() ? nullptr : ref_text.c_str());
+    }
+    if (voice == nullptr) throw std::runtime_error(alm_error(alm, "createSpeaker"));
     rn_speaker spk;
-    spk.pcm = pcm;
-    spk.sample_rate = sample_rate;
-    spk.ref_text = ref_text;
+    spk.voice = rn_voice(voice, [](const codec_speaker * p) { codec_speaker_free(const_cast<codec_speaker *>(p)); });
     const int id = next_speaker_id++;
     speakers[id] = std::move(spk);
     return id;
@@ -753,42 +746,24 @@ const rn_speaker* llama_rn_context_tts::getSpeaker(int id) const {
 
 void llama_rn_context_tts::releaseSpeaker(int id) {
     speakers.erase(id);
-    if (voice_applied && applied_v.speaker_id == id) voice_applied = false;
 }
 
 int llama_rn_context_tts::loadSpeaker(const std::string &path, const std::string &name) {
-    const std::vector<llama_rn_speaker_info> in_file = listSpeakers(path);
-    if (!name.empty() && std::none_of(in_file.begin(), in_file.end(),
-                                      [&](const llama_rn_speaker_info & s) { return s.name == name; })) {
-        throw std::runtime_error("loadSpeaker: no speaker '" + name + "' in " + path);
-    }
+    codec_speaker * voice = codec_audio_lm_load_voice(alm, path.c_str(), name.empty() ? nullptr : name.c_str());
+    if (voice == nullptr) throw std::runtime_error(alm_error(alm, "loadSpeaker"));
     rn_speaker spk;
-    spk.speaker_file = path;
-    spk.speaker_name = name;
+    spk.voice = rn_voice(voice, [](const codec_speaker * p) { codec_speaker_free(const_cast<codec_speaker *>(p)); });
     const int id = next_speaker_id++;
     speakers[id] = std::move(spk);
     return id;
 }
 
 void llama_rn_context_tts::saveSpeaker(int id, const std::string &path, const std::string &name) {
-    if (!name.empty()) LOG_WARNING("saveSpeaker: codec.cpp names the saved speaker itself; '%s' is not used", name.c_str());
     const rn_speaker * spk = getSpeaker(id);
     if (spk == nullptr) throw std::runtime_error("saveSpeaker: speaker " + std::to_string(id) + " not found");
-    codec_audio_lm_tts_voice voice = codec_audio_lm_default_tts_voice();
-    if (!spk->speaker_file.empty()) {
-        voice.speaker_file = spk->speaker_file.c_str();
-        voice.voice = spk->speaker_name.empty() ? nullptr : spk->speaker_name.c_str();
-    } else {
-        voice.ref_pcm         = spk->pcm.data();
-        voice.ref_n_samples   = (int32_t) spk->pcm.size();
-        voice.ref_sample_rate = spk->sample_rate;
-        voice.ref_text        = spk->ref_text.empty() ? nullptr : spk->ref_text.c_str();
+    if (!codec_audio_lm_save_voice(alm, spk->voice.get(), path.c_str(), name.empty() ? nullptr : name.c_str())) {
+        throw std::runtime_error(alm_error(alm, "saveSpeaker"));
     }
-    voice.save_speaker = path.c_str();
-    voice_applied = false;
-    if (!codec_audio_lm_tts_set_voice(alm, &voice)) throw std::runtime_error(alm_error(alm, "saveSpeaker"));
-    applied_v = armed_voice{"", id};
-    voice_applied = true;
 }
 
 std::vector<llama_rn_speaker_info> llama_rn_context_tts::listSpeakers(const std::string &path) {
@@ -810,7 +785,7 @@ std::vector<llama_rn_speaker_info> llama_rn_context_tts::listSpeakers(const std:
 
 std::vector<float> llama_rn_context_tts::decodeGeneration(const codec_audio_lm_generation &gen, const char * what) {
     codec_pcm_buffer buf{};
-    if (!codec_audio_lm_decode_generation(alm, &gen, &buf)) throw std::runtime_error(alm_error(alm, what));
+    if (!codec_audio_lm_decode_generation(alm, &gen, gen_voice.get(), &buf)) throw std::runtime_error(alm_error(alm, what));
     const int32_t n_ch = std::max(1, buf.n_channels);
     std::vector<float> pcm((size_t) buf.n_samples);
     for (int32_t i = 0; i < buf.n_samples; ++i) {
