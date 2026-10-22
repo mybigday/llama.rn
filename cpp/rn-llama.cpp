@@ -803,9 +803,9 @@ std::string llama_rn_context::getFormattedChat(
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
         auto tmps = common_chat_templates_init(model, chat_template);
-        return common_chat_templates_apply(tmps.get(), inputs).prompt;
+        return common_chat_templates_apply(tmps.get(), inputs).prompt.str();
     } else {
-        return common_chat_templates_apply(templates.get(), inputs).prompt;
+        return common_chat_templates_apply(templates.get(), inputs).prompt.str();
     }
 }
 

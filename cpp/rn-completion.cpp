@@ -1838,9 +1838,7 @@ completion_token_output llama_rn_context_completion::doCompletion()
 completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_partial) {
     common_chat_parser_params syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
-    syntax.reasoning_format = current_reasoning_format;
     syntax.generation_prompt = common_chat_input(current_generation_prompt);
-    syntax.parse_tool_calls = true;
 
     // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)
     if (!current_chat_parser.empty()) {

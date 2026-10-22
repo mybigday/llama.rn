@@ -1,0 +1,16 @@
+llama.rn: keep common_peg_arena save/load (removed upstream in #30210). The JSI bridge returns the chat parser from getFormattedChat to JS and receives it back with the completion params, so it must round-trip as a string.
+--- a/common/peg-parser.h
++++ b/common/peg-parser.h
+@@ -356,6 +356,12 @@
+     void build_grammar(const common_grammar_builder & builder, bool lazy = false) const;
+ 
+     std::string dump(common_peg_parser_id id) const;
++
++    common_json to_json() const;
++    static common_peg_arena from_json(const common_json & j);
++
++    std::string save() const;
++    void load(const std::string & data);
+ 
+     friend class common_peg_parser_builder;
+ 

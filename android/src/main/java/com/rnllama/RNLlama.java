@@ -27,7 +27,8 @@ public class RNLlama {
     "libggml-htp-v73.so",
     "libggml-htp-v75.so",
     "libggml-htp-v79.so",
-    "libggml-htp-v81.so"
+    "libggml-htp-v81.so",
+    "libggml-htp-v85.so"
   };
   private static final Pattern QUALCOMM_HINT_PATTERN =
     Pattern.compile("(adreno|qcom|qualcomm|snapdragon)", Pattern.CASE_INSENSITIVE);

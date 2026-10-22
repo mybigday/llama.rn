@@ -2,7 +2,7 @@
 # Docker wrapper for Hexagon builds using llama.cpp's toolchain image
 # This ensures consistent builds with all dependencies pre-installed
 
-DOCKER_IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.3"
+DOCKER_IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.8"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Colors for output

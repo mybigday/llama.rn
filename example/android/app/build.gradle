@@ -35,6 +35,7 @@ if (rnllamaBuildFromSource) {
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v75.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v79.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v81.so"),
+        new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v85.so"),
         new File(htpSourceDir, "v73/htp_iface.h"),
         new File(htpSourceDir, "v73/htp_iface_stub.c"),
     )

@@ -47,7 +47,7 @@ common_chat_params common_chat_params_init_function_gemma(const common_chat_temp
         return generation_prompt + tool_calls + p.end();
     });
 
-    data.parser = parser.save();
+    data.parser = parser;
 
     if (include_grammar) {
         data.grammar_lazy = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_AUTO;

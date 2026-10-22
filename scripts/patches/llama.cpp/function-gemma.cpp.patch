@@ -51,7 +51,7 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
 +        return generation_prompt + tool_calls + p.end();
 +    });
 +
-+    data.parser = parser.save();
++    data.parser = parser;
 +
 +    if (include_grammar) {
 +        data.grammar_lazy = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_AUTO;
