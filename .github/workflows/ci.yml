@@ -177,8 +177,8 @@ jobs:
 
       - name: Build example for Android
         env:
-          HEXAGON_SDK_VERSION: 6.4.0.2
-          HEXAGON_TOOLS_VERSION: 19.0.04
+          HEXAGON_SDK_VERSION: 6.7.0.0
+          HEXAGON_TOOLS_VERSION: 21.0.04
           # Each variant recompiles the whole source tree, so build only the ones
           # that exercise distinct code paths: generic CPU, arm64 with
           # dotprod+i8mm+hexagon+opencl, and x86_64. The remaining arm64 variants

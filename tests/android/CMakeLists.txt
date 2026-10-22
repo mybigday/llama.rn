@@ -88,7 +88,7 @@ endif()
 if(ENABLE_HEXAGON)
     set(HEXAGON_SDK_ROOT "$ENV{HEXAGON_SDK_ROOT}")
     if(NOT HEXAGON_SDK_ROOT)
-        set(HEXAGON_SDK_ROOT "$ENV{HOME}/.hexagon-sdk/6.4.0.2")
+        set(HEXAGON_SDK_ROOT "$ENV{HOME}/.hexagon-sdk/6.7.0.0")
     endif()
     set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
     set(HTP_STUB_DIR "${RNLLAMA_GGML_HEXAGON_DIR}/htp/v73")
@@ -98,6 +98,7 @@ if(ENABLE_HEXAGON)
     target_sources(kv_cache_reuse_test PRIVATE
         ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_reuse_test PRIVATE
         ${HEXAGON_SDK_ROOT}/incs
@@ -143,6 +144,7 @@ if(ENABLE_HEXAGON)
     target_sources(kv_cache_bench PRIVATE
         ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_bench PRIVATE
         ${HEXAGON_SDK_ROOT}/incs

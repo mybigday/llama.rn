@@ -140,8 +140,8 @@ android {
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
     def rnllamaBuildFromSourceFlag = isRNLlamaBuildFromSource ? "ON" : "OFF"
     def homeDir = System.getProperty("user.home")
-    def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2"
-    def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2/tools/HEXAGON_Tools/19.0.04"
+    def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.7.0.0"
+    def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.7.0.0/tools/HEXAGON_Tools/21.0.04"
     def hexagonPresent = file(hexagonSdkRoot).exists() && file(hexagonToolsRoot).exists()
     def cmakeArgs = [
       "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
