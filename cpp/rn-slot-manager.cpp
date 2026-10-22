@@ -74,7 +74,7 @@ bool llama_rn_slot_manager::init(int32_t n_parallel_, int32_t n_batch_, int32_t 
 
 common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params& params) {
     if (parent_ctx == nullptr || parent_ctx->ctx == nullptr) {
-        throw std::runtime_error("MTP speculative decoding requires an initialized context");
+        throw std::runtime_error("speculative decoding requires an initialized context");
     }
 
     const auto& draft = params.speculative.draft;
@@ -98,7 +98,7 @@ common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params&
     if (mtp_spec != nullptr || mtp_spec_ctx != nullptr) {
         for (const auto& slot : slots) {
             if (slot.spec_is_shared && slot.state == SLOT_STATE_GENERATING) {
-                throw std::runtime_error("cannot change MTP speculative parameters while queued MTP slots are active");
+                throw std::runtime_error("cannot change speculative parameters while queued speculative slots are active");
             }
         }
         reset_mtp_speculative();
@@ -106,7 +106,7 @@ common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params&
 
     mtp_spec_ctx = parent_ctx->createMTPDraftContext(params);
     if (mtp_spec_ctx == nullptr) {
-        throw std::runtime_error("failed to create MTP draft context");
+        throw std::runtime_error("failed to create draft context");
     }
 
     params.speculative.draft.ctx_tgt = parent_ctx->ctx;
@@ -117,7 +117,7 @@ common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params&
     if (mtp_spec == nullptr) {
         llama_free(mtp_spec_ctx);
         mtp_spec_ctx = nullptr;
-        throw std::runtime_error("failed to initialize MTP speculative decoding");
+        throw std::runtime_error("failed to initialize speculative decoding");
     }
 
     mtp_spec_n_max = draft.n_max;
@@ -128,7 +128,7 @@ common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params&
     mtp_spec_cache_type_k = draft.cache_type_k;
     mtp_spec_cache_type_v = draft.cache_type_v;
 
-    LOG_INFO("Initialized shared MTP speculative state for %d queued slots", n_parallel);
+    LOG_INFO("Initialized shared speculative state for %d queued slots", n_parallel);
     return mtp_spec;
 }
 
@@ -921,16 +921,16 @@ void llama_rn_slot_manager::build_batch() {
         if (slot.state == SLOT_STATE_PROCESSING_PROMPT && slot.task_type != SLOT_TASK_TYPE_DECISION) {
             if (slot.task_type == SLOT_TASK_TYPE_COMPLETION && slot.should_use_mtp()) {
                 if (!slot.media_paths.empty()) {
-                    LOG_ERROR("Slot %d: MTP speculative decoding does not support media inputs", slot.id);
+                    LOG_ERROR("Slot %d: speculative decoding does not support media inputs", slot.id);
                     slot.incomplete = true;
-                    slot.error_message = "MTP speculative decoding currently supports text-only queued completions";
+                    slot.error_message = "speculative decoding currently supports text-only queued completions";
                     complete_slot(slot);
                     continue;
                 }
 
                 slot.state = SLOT_STATE_GENERATING;
                 slot.i_batch = -1;
-                LOG_INFO("Slot %d: Transitioned to GENERATING state with MTP speculative decoding", slot.id);
+                LOG_INFO("Slot %d: Transitioned to GENERATING state with speculative decoding", slot.id);
                 continue;
             }
 
@@ -1350,11 +1350,11 @@ void llama_rn_slot_manager::sample_and_callback() {
                             finish_slot();
                         } else if (!emitted) {
                             slot.incomplete = true;
-                            slot.error_message = "MTP speculative decoding did not produce a token";
+                            slot.error_message = "speculative decoding did not produce a token";
                             finish_slot();
                         }
                     } catch (const std::exception& e) {
-                        LOG_ERROR("Slot %d: MTP speculative decoding failed: %s", slot.id, e.what());
+                        LOG_ERROR("Slot %d: speculative decoding failed: %s", slot.id, e.what());
                         slot.incomplete = true;
                         slot.error_message = e.what();
                         finish_slot();

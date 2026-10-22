@@ -713,8 +713,12 @@ void llama_rn_context_completion::updateGenerationTiming() {
 }
 
 bool llama_rn_context_completion::shouldUseMTP() const {
+    // Draft-simple pairs run the same draft/process/accept cycle as MTP in the direct
+    // completion path; keeping this gate MTP-only silently disabled speculation for
+    // draft-simple in normal (non-queued) completions.
     const auto & types = parent_ctx->params.speculative.types;
-    return std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
+    return (std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() ||
+            std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE) != types.end()) &&
         parent_ctx->params.speculative.draft.n_max > 0;
 }
 
@@ -737,25 +741,43 @@ void llama_rn_context_completion::initMTP() {
         return;
     }
     if (llama_model_has_encoder(parent_ctx->model)) {
-        throw std::runtime_error("MTP speculative decoding is only supported for decoder-only models");
+        throw std::runtime_error("speculative decoding is only supported for decoder-only models");
     }
     if (embd.empty()) {
-        throw std::runtime_error("MTP speculative decoding requires a non-empty prompt");
+        throw std::runtime_error("speculative decoding requires a non-empty prompt");
     }
 
     const auto n_mtp = parent_ctx->params.speculative.draft.n_max;
-    if ((llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
+    // Rollback (rs) sequences are only allocated for MTP-style drafts (see
+    // common_params_speculative::need_n_rs_seq), not for draft-simple.
+    const bool is_mtp = std::find(
+        parent_ctx->params.speculative.types.begin(),
+        parent_ctx->params.speculative.types.end(),
+        COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != parent_ctx->params.speculative.types.end();
+    if (is_mtp &&
+        (llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
         llama_n_rs_seq(parent_ctx->ctx) < (uint32_t) n_mtp) {
         throw std::runtime_error(
             "MTP for recurrent or hybrid models must be enabled when loading the model "
             "with speculative.type='draft-mtp' and speculative.n_max/spec_draft_n_max set");
     }
 
+    // Rejected drafts are removed with seq_rm on the target and the draft context, which
+    // recurrent/hybrid memory can only do through rs sequences, so such a draft-simple
+    // pair would abort on the first rejection.
+    if (!is_mtp) {
+        const llama_model * model_dft = parent_ctx->getMTPDraftModel();
+        if (llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model) ||
+            llama_model_is_recurrent(model_dft) || llama_model_is_hybrid(model_dft)) {
+            throw std::runtime_error("draft-simple does not support recurrent or hybrid models yet");
+        }
+    }
+
     resetSpeculative();
 
     spec_ctx.reset(parent_ctx->createMTPDraftContext(parent_ctx->params));
     if (spec_ctx == nullptr) {
-        throw std::runtime_error("failed to create MTP draft context");
+        throw std::runtime_error("failed to create draft context");
     }
 
     parent_ctx->params.speculative.draft.ctx_tgt = parent_ctx->ctx;
@@ -763,7 +785,7 @@ void llama_rn_context_completion::initMTP() {
 
     spec = common_speculative_init(parent_ctx->params.speculative, 1);
     if (spec == nullptr) {
-        throw std::runtime_error("failed to initialize MTP speculative decoding");
+        throw std::runtime_error("failed to initialize speculative decoding");
     }
 
     spec_batch = common_batch(parent_ctx->ctx);
@@ -836,12 +858,12 @@ void llama_rn_context_completion::evalMTPPrompt() {
             // can't claim never-decoded cells (mirrors nextToken).
             embd.resize(std::min(embd.size(), offset));
             n_past = (llama_pos) offset;
-            throw std::runtime_error("failed to evaluate MTP prompt batch, ret=" + std::to_string(ret));
+            throw std::runtime_error("failed to evaluate speculative prompt batch, ret=" + std::to_string(ret));
         }
         if (!common_speculative_process(spec, spec_batch)) {
             embd.resize(std::min(embd.size(), offset));
             n_past = (llama_pos) offset;
-            throw std::runtime_error("failed to process MTP prompt batch");
+            throw std::runtime_error("failed to process speculative prompt batch");
         }
 
         offset += n_eval;
@@ -926,10 +948,10 @@ bool llama_rn_context_completion::refillMTPTokens() {
 
     const int ret = llama_process(parent_ctx->ctx, LLAMA_PROCESS_TYPE_DECODE, spec_batch.get());
     if (ret != 0) {
-        throw std::runtime_error("failed to evaluate MTP target batch, ret=" + std::to_string(ret));
+        throw std::runtime_error("failed to evaluate speculative target batch, ret=" + std::to_string(ret));
     }
     if (!common_speculative_process(spec, spec_batch)) {
-        throw std::runtime_error("failed to process MTP target batch");
+        throw std::runtime_error("failed to process speculative target batch");
     }
 
     auto accepted = common_sampler_sample_and_accept_n(ctx_sampling, parent_ctx->ctx, spec_draft);

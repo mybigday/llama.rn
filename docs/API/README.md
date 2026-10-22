@@ -994,7 +994,7 @@ ___
 
 ### NativeSpeculativeType
 
-Ƭ **NativeSpeculativeType**: ``"none"`` \| ``"draft-mtp"`` \| ``"mtp"``
+Ƭ **NativeSpeculativeType**: ``"none"`` \| ``"draft-mtp"`` \| ``"draft-simple"`` \| ``"mtp"``
 
 #### Defined in
 

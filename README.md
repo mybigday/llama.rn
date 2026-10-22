@@ -236,6 +236,36 @@ console.log(result.draft_tokens, result.draft_tokens_accepted)
 
 Use `speculative: false` on a completion call to disable MTP for that request. For recurrent or hybrid models, enable MTP at `initLlama` time with a positive `spec_draft_n_max` or `speculative.draft.n_max` so llama.cpp can allocate rollback state. Current MTP support is text-only, including queued parallel completions.
 
+### Classic draft model (draft-simple)
+
+Besides embedded MTP layers, a classic pair of a small draft model and a large target model is
+supported by setting the speculative type to `draft-simple` (both models must share the same
+vocabulary):
+
+```js
+const context = await initLlama({
+  model: modelPath,
+  n_ctx: 4096,
+  n_batch: 1024,
+  n_ubatch: 512,
+  speculative: {
+    type: 'draft-simple',
+    n_max: 3, // also accepted as spec_draft_n_max
+    draft: {
+      model: draftModelPath,
+      n_gpu_layers: 0,
+    },
+  },
+})
+```
+
+The draft model must use the same vocabulary as the target; a mismatch throws
+`draft model vocab type must match target model to use speculation` instead of running without
+speculation. Like MTP, draft-simple is text-only for now, including queued parallel completions,
+and can be disabled per request with `speculative: false`. Acceptance statistics are reported as
+`draft_tokens` / `draft_tokens_accepted` on the completion result. Recurrent or hybrid models
+(as target or draft) are not supported with draft-simple yet.
+
 ## Multimodal (Vision & Audio)
 
 `llama.rn` supports multimodal capabilities including vision (images) and audio processing. This allows you to interact with models that can understand both text and media content.
