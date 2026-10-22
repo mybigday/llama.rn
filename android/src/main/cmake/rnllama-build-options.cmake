@@ -21,6 +21,12 @@ if (RNLLAMA_CCACHE AND NOT CMAKE_C_COMPILER_LAUNCHER)
     endif()
 endif()
 
+# --- experimental Vulkan -----------------------------------------------------
+# Adds the arm64 rnllama_v8_2_dotprod_vulkan variant (ggml-vulkan, aimed at Mali
+# and other non-Adreno GPUs). Build-from-source only; needs a host glslc and a
+# host C++ compiler for vulkan-shaders-gen. See README (Android > Vulkan).
+option(RNLLAMA_VULKAN "Build the experimental Android Vulkan variant" OFF)
+
 # --- variant selection -------------------------------------------------------
 # Every variant is a full copy of the source tree built with different -march
 # flags, so building all of them costs ~4 min each on a 4-core machine. An empty

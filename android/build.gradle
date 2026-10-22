@@ -158,6 +158,18 @@ android {
       cmakeArgs += ["-DRNLLAMA_ANDROID_VARIANTS=${rnllamaVariants}"]
     }
 
+    // Experimental Android Vulkan variant (ggml-vulkan). Off by default and only
+    // available when building from source; needs a host glslc.
+    def rnllamaVulkan = project.findProperty("rnllamaVulkan")?.toString()?.toBoolean() ?: false
+    if (rnllamaVulkan) {
+      if (isRNLlamaBuildFromSource) {
+        println("🧪 Building the experimental Vulkan variant")
+        cmakeArgs += ["-DRNLLAMA_VULKAN=ON"]
+      } else {
+        println("⚠️  rnllamaVulkan needs rnllamaBuildFromSource=true — ignoring")
+      }
+    }
+
     if (hexagonPresent) {
       println("✅ Hexagon SDK detected — enabling DSP build")
       cmakeArgs += [

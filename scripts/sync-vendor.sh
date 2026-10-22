@@ -198,6 +198,36 @@ OPENCL_ICD_LOADER_PATHS=(
 OPENCL_ICD_LOADER_PRUNE=()
 OPENCL_ICD_LOADER_KEEP=()
 
+# Experimental Android Vulkan variant: the NDK sysroot ships an older
+# vulkan_core.h and no vulkan.hpp, which ggml-vulkan needs.
+VULKAN_HEADERS_PATHS=(
+  LICENSE.md
+  include/vulkan
+  include/vk_video
+)
+# vulkan.hpp's optional companions (RAII, hashing, C++ modules, ...): not
+# included by vulkan.hpp itself and not used by ggml-vulkan.
+VULKAN_HEADERS_PRUNE=(
+  include/vulkan/vulkan.cppm
+  include/vulkan/vulkan_video.cppm
+  include/vulkan/vulkan_extension_inspection.hpp
+  include/vulkan/vulkan_format_traits.hpp
+  include/vulkan/vulkan_hash.hpp
+  include/vulkan/vulkan_raii.hpp
+  include/vulkan/vulkan_shared.hpp
+  include/vulkan/vulkan_static_assertions.hpp
+  include/vulkan/vulkan_video.hpp
+)
+VULKAN_HEADERS_KEEP=()
+
+# ggml-vulkan includes spirv/unified1/spirv.hpp only.
+SPIRV_HEADERS_PATHS=(
+  LICENSE
+  include/spirv/unified1/spirv.hpp
+)
+SPIRV_HEADERS_PRUNE=()
+SPIRV_HEADERS_KEEP=()
+
 # ---------------------------------------------------------------------------
 
 log() { printf '\n==> %s\n' "$*"; }
@@ -367,5 +397,7 @@ check_decision_port
 sync_dep codec.cpp CODEC_CPP
 sync_dep OpenCL-Headers OPENCL_HEADERS
 sync_dep OpenCL-ICD-Loader OPENCL_ICD_LOADER
+sync_dep Vulkan-Headers VULKAN_HEADERS
+sync_dep SPIRV-Headers SPIRV_HEADERS
 
 log "Done. Review with: git status vendor src/version.ts"
