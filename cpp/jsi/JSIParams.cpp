@@ -292,6 +292,12 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             cparams.speculative.draft.n_max <= 0) {
             throw std::invalid_argument("draft-simple requires spec_draft_n_max > 0");
         }
+
+        // Without a draft model the target itself would be used as its own draft.
+        if (hasSpeculativeType(cparams.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE) &&
+            !cparams.speculative.has_dft()) {
+            throw std::invalid_argument("draft-simple requires a draft model (speculative.draft.model or model_draft)");
+        }
     }
 
     // ---- context params ---------------------------------------------------

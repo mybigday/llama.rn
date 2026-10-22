@@ -7,6 +7,7 @@ export type NativeSpeculativeType =
   | 'draft-mtp'
   /**
    * Classic standalone draft model (a separate, vocab-compatible GGUF).
+   * Requires a draft model path; recurrent/hybrid models are not supported yet.
    */
   | 'draft-simple'
   /**
@@ -26,6 +27,7 @@ export type NativeSpeculativeParams = {
     /**
      * Optional separate draft model path for MTP/speculative decoding.
      * When omitted, MTP uses the loaded target model's embedded draft layers.
+     * Required for draft-simple.
      */
     model?: string
     path?: string

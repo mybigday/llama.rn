@@ -253,7 +253,7 @@ const context = await initLlama({
     n_max: 3, // also accepted as spec_draft_n_max
     draft: {
       model: draftModelPath,
-      n_gpu_layers: 0, // keep the draft on CPU for best speed on most phones
+      n_gpu_layers: 0,
     },
   },
 })
@@ -263,7 +263,8 @@ The draft model must use the same vocabulary as the target; a mismatch throws
 `draft model vocab type must match target model to use speculation` instead of running without
 speculation. Like MTP, draft-simple is text-only for now, including queued parallel completions,
 and can be disabled per request with `speculative: false`. Acceptance statistics are reported as
-`draft_tokens` / `draft_tokens_accepted` on the completion result.
+`draft_tokens` / `draft_tokens_accepted` on the completion result. Recurrent or hybrid models
+(as target or draft) are not supported with draft-simple yet.
 
 ## Multimodal (Vision & Audio)
 
