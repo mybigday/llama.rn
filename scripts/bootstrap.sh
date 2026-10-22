@@ -34,14 +34,20 @@ if command -v docker &> /dev/null && docker info &> /dev/null 2>&1; then
   echo "  ./scripts/build-hexagon-htp.sh       - Build HTP libraries (auto-detects Docker)"
   echo ""
 
-  # Pull Docker image in background
+  # Pull Docker image in background. The image is amd64-only (same platform as
+  # docker-build-wrapper.sh), so pin it or arm64 hosts find no manifest.
+  # Output goes to a log so the job doesn't hold the caller's stdio open
+  # (package runners like bun wait on it before exiting).
   DOCKER_IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.3"
+  DOCKER_PLATFORM="linux/amd64"
   if ! docker image inspect "$DOCKER_IMAGE" &> /dev/null; then
+    DOCKER_PULL_LOG="${TMPDIR:-/tmp}/rnllama-docker-pull.log"
     echo "Pulling Docker image in background..."
-    echo "  Image: $DOCKER_IMAGE"
-    docker pull "$DOCKER_IMAGE" &
+    echo "  Image: $DOCKER_IMAGE ($DOCKER_PLATFORM)"
+    docker pull --platform "$DOCKER_PLATFORM" "$DOCKER_IMAGE" \
+      < /dev/null > "$DOCKER_PULL_LOG" 2>&1 &
     DOCKER_PULL_PID=$!
-    echo "  (Pull process running in background, PID: $DOCKER_PULL_PID)"
+    echo "  (Pull process running in background, PID: $DOCKER_PULL_PID, log: $DOCKER_PULL_LOG)"
   else
     echo "✓ Docker image already present: $DOCKER_IMAGE"
   fi
