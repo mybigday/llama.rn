@@ -70,6 +70,8 @@ enum llama_vocab_pre_type {
     LLAMA_VOCAB_PRE_TYPE_UFAKZEKA          = 59,
     LLAMA_VOCAB_PRE_TYPE_MMBERT            = 60,
     LLAMA_VOCAB_PRE_TYPE_K2_HORIZON        = 61,
+    LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 62,
+    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 63,
 };
 
 struct LLM_KV;

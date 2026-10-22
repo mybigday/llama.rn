@@ -117,6 +117,9 @@ struct llama_rn_context {
     float loading_progress = 0;
     bool is_load_interrupted = false;
     common_params params;
+    // Sampler order at load: the GGUF's general.sampling.sequence, else
+    // llama.cpp's default.  A completion without `samplers` uses it.
+    std::vector<common_sampler_type> default_samplers;
     // n_probs readout mode for the next completion (see get_token_probabilities);
     // false = softmax of the raw logits, true = the sampler chain's candidates
     bool post_sampling_probs = true;
@@ -216,7 +219,8 @@ struct llama_rn_context {
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;
     bool has_vocoder = false;
-    bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false);
+    bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false,
+                     const std::vector<std::string> &kv_overrides = {});
     bool isVocoderEnabled() const;
     void releaseVocoder();
 

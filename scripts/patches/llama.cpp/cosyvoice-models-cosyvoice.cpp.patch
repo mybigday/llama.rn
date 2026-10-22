@@ -1,0 +1,176 @@
+CosyVoice-300M / BreezyVoice speech LM (llama arch `cosyvoice`), ported from
+codec.cpp's patches/cosyvoice-llamacpp.patch.
+
+--- /dev/null
++++ b/src/models/cosyvoice.cpp
+@@ -0,0 +1,170 @@
++#include "models.h"
++
++// CosyVoice-300M / BreezyVoice speech-token LM: WeNet TransformerEncoder
++// (`llm` in cosyvoice/llm/llm.py TransformerLM) with Espnet relative-position
++// self-attention, used causally with a KV cache.  The model only takes input
++// embeddings (text-encoder rows, speaker row, speech-token rows are built by
++// the host); it outputs the final hidden state — the speech head lives
++// outside llama.cpp.
++//
++//   x = ReLU(LayerNorm(Linear(embd))) * sqrt(n_embd)        (LegacyLinearNoSubsampling)
++//   per layer (pre-norm):
++//     x += out(attn(LN1(x)))   scores = ((q + u)·k + (q + v)·W_pos·pe(i - j)) / sqrt(d)
++//     x += W2(ReLU(W1(LN2(x))))
++//   h = LayerNorm(x)                                       (after_norm)
++//
++// pe(r) is the Espnet sinusoid [sin(r w_k), cos(r w_k)] interleaved, w_k =
++// 10000^(-2k/n_embd).  Its dot product with u_h = W_pos,h^T (q_h + v_h) equals
++// rope_i(u_h) · rope_j(c) with c = (0, 1, 0, 1, ...) under GPT-J pair rotation,
++// so the position term is a KQ bias computed with stock RoPE. Key positions are
++// the KV cell indices (single sequence, filled in order).
++
++void llama_model_cosyvoice::load_arch_hparams(llama_model_loader & ml) {
++    ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
++    type = LLM_TYPE_UNKNOWN;
++}
++
++void llama_model_cosyvoice::load_arch_tensors(llama_model_loader &) {
++    LLAMA_LOAD_LOCALS;
++
++    inp_proj   = create_tensor(tn(LLM_TENSOR_INP_PROJ, "weight"), {n_embd, n_embd}, 0);
++    inp_proj_b = create_tensor(tn(LLM_TENSOR_INP_PROJ, "bias"),   {n_embd}, 0);
++    inp_norm   = create_tensor(tn(LLM_TENSOR_INP_NORM, "weight"), {n_embd}, 0);
++    inp_norm_b = create_tensor(tn(LLM_TENSOR_INP_NORM, "bias"),   {n_embd}, 0);
++
++    output_norm   = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
++    output_norm_b = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "bias"),   {n_embd}, 0);
++
++    ext.resize(n_layer);
++    for (int i = 0; i < n_layer; ++i) {
++        auto & layer = layers[i];
++        auto & x = ext[i];
++
++        layer.attn_norm   = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
++        layer.attn_norm_b = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "bias",   i), {n_embd}, 0);
++        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), {n_embd, n_embd_head_k * n_head}, 0);
++        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K, "weight", i), {n_embd, n_embd_k_gqa}, 0);
++        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V, "weight", i), {n_embd, n_embd_v_gqa}, 0);
++        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0);
++        x.bq        = create_tensor(tn(LLM_TENSOR_ATTN_Q, "bias", i), {n_embd_head_k * n_head}, 0);
++        x.bk        = create_tensor(tn(LLM_TENSOR_ATTN_K, "bias", i), {n_embd_k_gqa}, 0);
++        x.bv        = create_tensor(tn(LLM_TENSOR_ATTN_V, "bias", i), {n_embd_v_gqa}, 0);
++        layer.wo_b  = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd}, 0);
++        x.pos    = create_tensor(tn(LLM_TENSOR_ATTN_POS, "weight", i), {n_embd_head_k, n_embd, n_head}, 0);
++        x.pos_bu = create_tensor(tn(LLM_TENSOR_ATTN_POS_BIAS_U, "weight", i), {n_embd_head_k, n_head}, 0);
++        x.pos_bv = create_tensor(tn(LLM_TENSOR_ATTN_POS_BIAS_V, "weight", i), {n_embd_head_k, n_head}, 0);
++
++        layer.ffn_norm   = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
++        layer.ffn_norm_b = create_tensor(tn(LLM_TENSOR_FFN_NORM, "bias",   i), {n_embd}, 0);
++        layer.ffn_up     = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff}, 0);
++        x.ffn_up_b       = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias",   i), {n_ff}, 0);
++        layer.ffn_down   = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, 0);
++        x.ffn_down_b     = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "bias",   i), {n_embd}, 0);
++    }
++}
++
++std::unique_ptr<llm_graph_context> llama_model_cosyvoice::build_arch_graph(const llm_graph_params & params) const {
++    return std::make_unique<graph>(*this, params);
++}
++
++llama_model_cosyvoice::graph::graph(const llama_model & model_base, const llm_graph_params & params) :
++    llm_graph_context(params) {
++    const auto & model = static_cast<const llama_model_cosyvoice &>(model_base);
++    const int64_t n_embd_head = hparams.n_embd_head_k();
++    const int64_t n_head = hparams.n_head();
++    GGML_ASSERT(n_embd_head == hparams.n_embd_head_v());
++    GGML_ASSERT(n_embd % 2 == 0);
++
++    // Input: embeddings only.  A token batch (used by the scheduler reserve
++    // pass) maps to zero rows — this model has no token-embedding table.
++    auto inp = std::make_unique<llm_graph_input_embd>(n_embd);
++    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
++    ggml_set_input(inp->tokens);
++    res->t_inp_tokens = inp->tokens;
++    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, n_tokens);
++    ggml_set_input(inp->embd);
++    std::array<ggml_tensor *, 2> inps;
++    inps[0] = ggml_repeat(ctx0, ggml_reshape_2d(ctx0, ggml_scale(ctx0, ggml_cast(ctx0, inp->tokens, GGML_TYPE_F32), 0.0f),
++                                                1, n_tokens), inp->embd);
++    inps[1] = inp->embd;
++    ggml_tensor * cur = ggml_build_forward_select(gf, inps.data(), inps.size(), ubatch.token ? 0 : 1);
++    res->t_inp_embd = cur;
++    res->add_input(std::move(inp));
++
++    cur = build_lora_mm(model.inp_proj, cur);
++    cur = ggml_add(ctx0, cur, model.inp_proj_b);
++    cur = build_norm(cur, model.inp_norm, model.inp_norm_b, LLM_NORM, -1);
++    cur = ggml_relu(ctx0, cur);
++    cur = ggml_scale(ctx0, cur, sqrtf((float) n_embd));
++    cb(cur, "inp_scaled", -1);
++
++    auto * inp_attn = build_attn_inp_kv();
++    ggml_tensor * inp_pos = build_inp_pos();
++    ggml_tensor * inp_out_ids = build_inp_out_ids();
++
++    // Rotated position keys rope_j(c) for every KV cell j: [n_embd, n_kv].
++    const int64_t n_kv = inp_attn->get_kq_mask()->ne[0];
++    ggml_tensor * kpos;
++    {
++        ggml_tensor * j = ggml_arange(ctx0, 0.0f, (float) n_kv, 1.0f);                                  // [n_kv]
++        ggml_tensor * k = ggml_arange(ctx0, 0.0f, (float) (n_embd / 2), 1.0f);                          // [n_embd/2]
++        ggml_tensor * w = ggml_exp(ctx0, ggml_scale(ctx0, k, -2.0f * logf(10000.0f) / (float) n_embd));
++        ggml_tensor * ang = ggml_mul_mat(ctx0, ggml_reshape_2d(ctx0, w, 1, n_embd / 2), ggml_reshape_2d(ctx0, j, 1, n_kv));
++        ggml_tensor * s = ggml_reshape_3d(ctx0, ggml_scale(ctx0, ggml_sin(ctx0, ang), -1.0f), 1, n_embd / 2, n_kv);
++        ggml_tensor * c = ggml_reshape_3d(ctx0, ggml_cos(ctx0, ang), 1, n_embd / 2, n_kv);
++        kpos = ggml_reshape_2d(ctx0, ggml_concat(ctx0, s, c, 0), n_embd, n_kv);                       // (-sin, cos) pairs
++    }
++
++    for (int il = 0; il < n_layer; ++il) {
++        const auto & layer = model.layers[il];
++        const auto & x = model.ext[il];
++        ggml_tensor * inpSA = cur;
++
++        cur = build_norm(cur, layer.attn_norm, layer.attn_norm_b, LLM_NORM, il);
++
++        ggml_tensor * q = ggml_add(ctx0, build_lora_mm(layer.wq, cur), x.bq);
++        ggml_tensor * k = ggml_add(ctx0, build_lora_mm(layer.wk, cur), x.bk);
++        ggml_tensor * v = ggml_add(ctx0, build_lora_mm(layer.wv, cur), x.bv);
++        q = ggml_reshape_3d(ctx0, q, n_embd_head, n_head, n_tokens);
++        k = ggml_reshape_3d(ctx0, k, n_embd_head, n_head, n_tokens);
++        v = ggml_reshape_3d(ctx0, v, n_embd_head, n_head, n_tokens);
++
++        // Content term uses q + u; position term (q + v) · W_pos,h · pe(i - j).
++        ggml_tensor * qu = ggml_add(ctx0, q, x.pos_bu);
++        ggml_tensor * qv = ggml_add(ctx0, q, x.pos_bv);
++        ggml_tensor * qv_h = ggml_cont(ctx0, ggml_permute(ctx0, qv, 0, 2, 1, 3));                       // [d, T, H]
++        ggml_tensor * u = ggml_mul_mat(ctx0, x.pos, qv_h);                                             // [n_embd, T, H]
++        u = ggml_cont(ctx0, ggml_permute(ctx0, u, 0, 2, 1, 3));                                        // [n_embd, H, T]
++        u = ggml_rope_ext(ctx0, u, inp_pos, nullptr, (int) n_embd, LLAMA_ROPE_TYPE_NORM, 0, 10000.0f, 1.0f,
++                          0.0f, 1.0f, 0.0f, 0.0f);
++        u = ggml_cont(ctx0, ggml_permute(ctx0, u, 0, 2, 1, 3));                                        // [n_embd, T, H]
++        ggml_tensor * kq_b = ggml_mul_mat(ctx0, kpos, u);                                              // [n_kv, T, H]
++        cb(kq_b, "kq_pos", il);
++
++        cur = build_attn(inp_attn, layer.wo, layer.wo_b, nullptr, qu, k, v, kq_b, nullptr, nullptr,
++                         1.0f / sqrtf((float) n_embd_head), il);
++
++        if (il == n_layer - 1 && inp_out_ids) {
++            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
++            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
++        }
++        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
++
++        cur = build_norm(ffn_inp, layer.ffn_norm, layer.ffn_norm_b, LLM_NORM, il);
++        cur = build_ffn(cur,
++                layer.ffn_up,   x.ffn_up_b,   NULL,
++                NULL,           NULL,         NULL,
++                layer.ffn_down, x.ffn_down_b, NULL,
++                NULL, LLM_FFN_RELU, LLM_FFN_SEQ, il);
++        cur = ggml_add(ctx0, cur, ffn_inp);
++        cb(cur, "l_out", il);
++    }
++
++    // after_norm (WeNet hard-codes eps 1e-5 there; the block eps is the GGUF value).
++    cur = ggml_norm(ctx0, cur, 1e-5f);
++    cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.output_norm), model.output_norm_b);
++    cb(cur, "result_norm", -1);
++    res->t_embd = cur;
++
++    ggml_build_forward_expand(gf, cur);
++}

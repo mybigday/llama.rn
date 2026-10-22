@@ -29,6 +29,7 @@ enum codec_arch {
     CODEC_ARCH_XY_TOKENIZER = 14,
     CODEC_ARCH_BLUEMAGPIE_AUDIOVAE = 15,
     CODEC_ARCH_POCKET_MIMI = 16,
+    CODEC_ARCH_COSYVOICE = 17,
 };
 
 enum codec_status {
@@ -58,6 +59,27 @@ struct codec_model_params {
     int32_t n_threads;
 };
 
+// GGUF metadata override applied at load time, mirroring llama.cpp's
+// llama_model_kv_override. Lets published GGUFs that predate a metadata key
+// opt into it without re-conversion (e.g. chatterbox_s3g.flow.n_timesteps).
+enum codec_model_kv_override_type {
+    CODEC_KV_OVERRIDE_TYPE_INT,
+    CODEC_KV_OVERRIDE_TYPE_FLOAT,
+    CODEC_KV_OVERRIDE_TYPE_BOOL,
+    CODEC_KV_OVERRIDE_TYPE_STR,
+};
+
+struct codec_model_kv_override {
+    enum codec_model_kv_override_type tag;
+    char key[128];
+    union {
+        int64_t val_i64;
+        double  val_f64;
+        bool    val_bool;
+        char    val_str[128];
+    };
+};
+
 struct codec_context_params {
     int32_t seed;
 };
@@ -69,9 +91,16 @@ struct codec_encode_params {
     int32_t n_q;
 };
 
+// Speaker conditioning a decoder can take (codec_speaker.h).
+struct codec_speaker;
+
 struct codec_decode_params {
     int32_t n_threads;
     int32_t n_q;
+    // Reference speaker for decoders conditioned on one (e.g. Chatterbox-S3G).
+    // NULL = the model's default speaker. Passing a speaker to a model without
+    // speaker support returns CODEC_STATUS_NOT_SUPPORTED.
+    const struct codec_speaker * speaker;
 };
 
 struct codec_audio {
@@ -150,6 +179,11 @@ struct codec_encode_params codec_encode_default_params(void);
 struct codec_decode_params codec_decode_default_params(void);
 
 struct codec_model * codec_model_load_from_file(const char * path_model, struct codec_model_params params);
+// kv_overrides: NULL, or an array terminated by an entry with key[0] == 0.
+struct codec_model * codec_model_load_from_file_ext(
+    const char * path_model,
+    struct codec_model_params params,
+    const struct codec_model_kv_override * kv_overrides);
 void codec_model_free(struct codec_model * model);
 
 struct codec_context * codec_init_from_model(struct codec_model * model, struct codec_context_params params);
@@ -202,9 +236,35 @@ int32_t codec_model_n_mels(const struct codec_model * model);
 int32_t codec_model_latent_dim(const struct codec_model * model);
 
 const struct codec_gguf_metadata * codec_model_metadata(const struct codec_model * model);
-void codec_metadata_free(struct codec_gguf_metadata * meta);
 
 const char * codec_arch_name(enum codec_arch arch);
+
+// Logging.  Everything codec.cpp reports (and the log of the ggml backends
+// libcodec runs on) goes to one callback, as llama.cpp's llama_log_set; the
+// levels have ggml_log_level's values, so a ggml / llama.cpp log callback can
+// be passed as is.  The default prints INFO / DEBUG to stdout and WARN /
+// ERROR to stderr.  `callback` NULL restores it.  Not thread-safe against
+// concurrent logging: set it before using the library.
+enum codec_log_level {
+    CODEC_LOG_LEVEL_NONE  = 0,
+    CODEC_LOG_LEVEL_INFO  = 1,
+    CODEC_LOG_LEVEL_WARN  = 2,
+    CODEC_LOG_LEVEL_ERROR = 3,
+    CODEC_LOG_LEVEL_DEBUG = 4,
+    CODEC_LOG_LEVEL_CONT  = 5,  // continues the previous message
+};
+
+typedef void (*codec_log_callback)(enum codec_log_level level, const char * text, void * user_data);
+
+void codec_log_set(codec_log_callback callback, void * user_data);
+
+// Emit through the current callback (printf-style); for hosts and the
+// layers above libcodec (codec_audio_lm, the TTS runners) so one callback sees all.
+void codec_log(enum codec_log_level level, const char * fmt, ...)
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((format(printf, 2, 3)))
+#endif
+    ;
 
 #ifdef __cplusplus
 }

@@ -1,10 +1,14 @@
 #include "chatterbox_s3g.h"
 
-#include "../ops/conv1d.h"
-#include "../ops/convtr1d.h"
+#include "../blocks/campplus.h"
+#include "../blocks/chatterbox_voice_encoder.h"
+#include "../blocks/cfm.h"
+#include "../blocks/conformer.h"
+#include "../blocks/hift.h"
+#include "../blocks/s3_tokenizer.h"
+#include "../blocks/xvector_sincnet.h"
+#include "../ops/audio_frontend.h"
 #include "../ops/ggml_ops.h"
-#include "../ops/lm_attn.h"
-#include "../runtime/audio_dsp.h"
 #include "../runtime/graph.h"
 #include "../runtime/tensor_utils.h"
 
@@ -16,36 +20,9 @@
 #include <string>
 #include <vector>
 
-// Architectural constants for the Chatterbox S3GenSR HiFTGenerator
-// (S3Token2Wav.__init__ in chatterbox/s3gen/s3gen.py).
+// Architectural constants for Chatterbox S3Gen (S3Token2Wav in
+// chatterbox/s3gen/s3gen.py): CosyVoice2's token2wav, see src/blocks/.
 namespace {
-
-constexpr int32_t kHiftInChannels = 80;
-constexpr int32_t kHiftNFft = 16;
-constexpr int32_t kHiftHop = 4;
-constexpr int32_t kHiftNFftBins = kHiftNFft / 2 + 1;          // 9
-constexpr int32_t kHiftHeadOutDim = kHiftNFft + 2;            // 18
-constexpr int32_t kHiftNbHarmonics = 8;
-constexpr float   kHiftNsfAlpha = 0.1f;
-constexpr float   kHiftNsfSigma = 0.003f;
-constexpr float   kHiftNsfVoicedThreshold = 10.0f;
-constexpr float   kHiftLreluSlope = 0.1f;
-constexpr float   kHiftLreluSlopeDefault = 0.01f; // PyTorch F.leaky_relu default
-constexpr float   kHiftAudioLimit = 0.99f;
-constexpr int32_t kHiftF0NumLayers = 5;
-constexpr int32_t kHiftNumUps = 3;
-constexpr int32_t kHiftUpsampleRates[kHiftNumUps] = {8, 5, 3};
-constexpr int32_t kHiftUpsampleKernels[kHiftNumUps] = {16, 11, 7};
-constexpr int32_t kHiftSourceDownStrides[kHiftNumUps] = {15, 3, 1};
-constexpr int32_t kHiftSourceDownPads[kHiftNumUps] = {7, 1, 0};
-constexpr int32_t kHiftResblockKernels[kHiftNumUps] = {3, 7, 11};
-
-// Per-up-stage source resblock (one per upsample, each has 3 dilations [1, 3, 5])
-constexpr int32_t kHiftSourceResblockKernels[kHiftNumUps] = {7, 7, 11};
-constexpr int32_t kHiftResblockDilations[3] = {1, 3, 5};
-
-// f0_upsamp scale factor = prod(upsample_rates) * istft_hop = 8*5*3*4 = 480.
-constexpr int32_t kHiftSourceUpsample = 480;
 
 constexpr int32_t kFlowSpkEmbedDim = 192;
 constexpr int32_t kFlowVocabSize = 6561;
@@ -55,474 +32,31 @@ constexpr int32_t kFlowEncoderUpLayers = 4;
 
 // Tunable params for flow decode (matches CFM_PARAMS in chatterbox/s3gen/configs.py).
 constexpr int32_t kFlowDefaultNTimesteps = 10;
+constexpr int32_t kFlowMeanflowNTimesteps = 2;
+constexpr int32_t kFlowMaxNTimesteps = 64;
 constexpr float   kFlowCfgRate = 0.7f;
-constexpr float   kFlowTSchedulerCosineHalfPi = 0.5f * 3.14159265358979323846f;
 
-// CFM estimator (ConditionalDecoder) constants — match
-// chatterbox/s3gen/decoder.py / matcha/decoder.py / matcha/transformer.py.
 constexpr int32_t kCfmInChannels = 320;        // packed [x, mu, spks, cond] = 80*4
 constexpr int32_t kCfmOutChannels = 80;
-constexpr int32_t kCfmChannels = 256;          // channels[0]
-constexpr int32_t kCfmTimeEmbedDim = kCfmChannels * 4;  // 1024
-constexpr int32_t kCfmNumMidBlocks = 12;
-constexpr int32_t kCfmTransformersPerBlock = 4;
-constexpr int32_t kCfmAttentionHeadDim = 64;
-constexpr int32_t kCfmAttentionHeads = 8;
-constexpr int32_t kCfmAttnInner = kCfmAttentionHeadDim * kCfmAttentionHeads;  // 512
+constexpr int32_t kCfmTimeEmbedDim = 1024;
 constexpr float   kCfmTimeEmbedScale = 1000.0f;
+constexpr int32_t kS3gSampleRate = 24000;   // S3GEN_SR
+constexpr int32_t kS3SampleRate = 16000;    // S3_SR (tokenizer + CAMPPlus)
+constexpr int32_t kSpkRefMaxSeconds = 10;   // DEC_COND_LEN
+constexpr int32_t kSpkMelNFft = 1920;
+constexpr int32_t kSpkMelHop = 480;
+
+codec_hift_params s3g_hift_params(int32_t sample_rate) {
+    codec_hift_params p;   // defaults are the S3Gen 24 kHz HiFT
+    p.sample_rate = sample_rate;
+    return p;
+}
 
 }  // namespace
 
-// ---------------- HiFT in-graph forwards -------------------
-
-// f0_predictor (mel → f0). Mel input is [T_mel, 80] column-major.
-static ggml_tensor * codec_s3g_hift_f0_forward(
-    ggml_context * ctx, ggml_tensor * mel_tc, const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    ggml_tensor * x = mel_tc;
-    for (int32_t i = 0; i < kHiftF0NumLayers; ++i) {
-        ggml_tensor * w = W("s3g.hift.f0.cn." + std::to_string(i) + ".w");
-        ggml_tensor * b = W("s3g.hift.f0.cn." + std::to_string(i) + ".b");
-        if (w == nullptr || b == nullptr) return nullptr;
-        x = codec_conv1d(ctx, x, w, b, /*stride=*/1, /*dilation=*/1, /*padding=*/1);
-        if (x == nullptr) return nullptr;
-        x = codec_op_unary(ctx, x, CODEC_UNARY_ELU);
-        if (x == nullptr) return nullptr;
-    }
-    ggml_tensor * cls_w = W("s3g.hift.f0.cls.w");
-    ggml_tensor * cls_b = W("s3g.hift.f0.cls.b");
-    if (cls_w == nullptr || cls_b == nullptr) return nullptr;
-    ggml_tensor * x_ct = ggml_cont(ctx, ggml_transpose(ctx, x));
-    ggml_tensor * f0 = ggml_mul_mat(ctx, cls_w, x_ct);
-    if (f0 == nullptr) return nullptr;
-    f0 = ggml_add(ctx, f0, cls_b);
-    f0 = ggml_abs(ctx, f0);
-    return ggml_reshape_1d(ctx, f0, x->ne[0]);
-}
-
-// ---------------- HiFT main path (mel + s_stft → conv_post head) ----------------
-
-// HiFi-GAN ResBlock with 3 dilation branches at the chatterbox dilations.
-// Each branch is the shared `codec_op_hifigan_resblock_branch_ct`.
-static ggml_tensor * codec_s3g_apply_resblock(
-    ggml_context * ctx_eval,
-    ggml_tensor * x,
-    const codec_model * model,
-    const std::string & prefix,
-    int32_t kernel_size) {
-    for (int32_t idx = 0; idx < 3; ++idx) {
-        const int32_t d = kHiftResblockDilations[idx];
-        ggml_tensor * a1 = codec_graph_weight(ctx_eval, model, prefix + ".a1." + std::to_string(idx));
-        ggml_tensor * a2 = codec_graph_weight(ctx_eval, model, prefix + ".a2." + std::to_string(idx));
-        ggml_tensor * c1w = codec_graph_weight(ctx_eval, model, prefix + ".cv1." + std::to_string(idx) + ".w");
-        ggml_tensor * c1b = codec_graph_weight(ctx_eval, model, prefix + ".cv1." + std::to_string(idx) + ".b");
-        ggml_tensor * c2w = codec_graph_weight(ctx_eval, model, prefix + ".cv2." + std::to_string(idx) + ".w");
-        ggml_tensor * c2b = codec_graph_weight(ctx_eval, model, prefix + ".cv2." + std::to_string(idx) + ".b");
-        x = codec_op_hifigan_resblock_branch_ct(ctx_eval, x, a1, a2, c1w, c1b, c2w, c2b, kernel_size, d);
-        if (x == nullptr) return nullptr;
-    }
-    return x;
-}
-
-// HiFT main forward: (mel_tc, s_stft_tc) → head [n_fft+2, T_head] (column-major: ne[0]=T).
-static ggml_tensor * codec_s3g_hift_main_forward(
-    ggml_context * ctx_eval,
-    ggml_tensor * t_mel,
-    ggml_tensor * t_stft,
-    const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx_eval, model, n); };
-    if (t_mel == nullptr || t_stft == nullptr) return nullptr;
-
-    ggml_tensor * conv_pre_w = W("s3g.hift.conv_pre.w");
-    ggml_tensor * conv_pre_b = W("s3g.hift.conv_pre.b");
-    if (conv_pre_w == nullptr || conv_pre_b == nullptr) return nullptr;
-    ggml_tensor * x = codec_conv1d(ctx_eval, t_mel, conv_pre_w, conv_pre_b, 1, 1, 3);
-    if (x == nullptr) return nullptr;
-
-    for (int32_t i = 0; i < kHiftNumUps; ++i) {
-        const int32_t u = kHiftUpsampleRates[i];
-        const int32_t k = kHiftUpsampleKernels[i];
-        const int32_t up_pad = (k - u) / 2;
-
-        x = ggml_leaky_relu(ctx_eval, x, kHiftLreluSlope, /*inplace=*/false);
-
-        ggml_tensor * up_w = W("s3g.hift.up." + std::to_string(i) + ".w");
-        ggml_tensor * up_b = W("s3g.hift.up." + std::to_string(i) + ".b");
-        if (up_w == nullptr || up_b == nullptr) return nullptr;
-        x = codec_convtr1d(ctx_eval, x, up_w, up_b, /*stride=*/u, /*padding=*/up_pad, /*dilation=*/1);
-        if (x == nullptr) return nullptr;
-
-        if (i == kHiftNumUps - 1) {
-            // ReflectionPad1d((1, 0)) — left pad 1, right pad 0. With T >= 2 the reflected sample is x[1].
-            const int32_t T = (int32_t) x->ne[0];
-            ggml_tensor * x_left = ggml_view_2d(
-                ctx_eval, x,
-                /*ne0=*/1, /*ne1=*/x->ne[1],
-                /*nb1=*/x->nb[1],
-                /*offset=*/(size_t) 1 * x->nb[0]);
-            x_left = ggml_cont(ctx_eval, x_left);
-            ggml_tensor * x_full = ggml_view_2d(
-                ctx_eval, x,
-                /*ne0=*/T, /*ne1=*/x->ne[1],
-                /*nb1=*/x->nb[1],
-                /*offset=*/0);
-            x_full = ggml_cont(ctx_eval, x_full);
-            x = ggml_concat(ctx_eval, x_left, x_full, /*dim=*/0);
-            if (x == nullptr) return nullptr;
-        }
-
-        // Source path: source_downs[i] is plain Conv1d (no weight_norm output reshape needed since converter materialised).
-        ggml_tensor * sd_w = W("s3g.hift.src_dn." + std::to_string(i) + ".w");
-        ggml_tensor * sd_b = W("s3g.hift.src_dn." + std::to_string(i) + ".b");
-        if (sd_w == nullptr || sd_b == nullptr) return nullptr;
-        ggml_tensor * si = codec_conv1d(
-            ctx_eval, t_stft, sd_w, sd_b,
-            /*stride=*/kHiftSourceDownStrides[i],
-            /*dilation=*/1,
-            /*padding=*/kHiftSourceDownPads[i]);
-        if (si == nullptr) return nullptr;
-
-        si = codec_s3g_apply_resblock(
-            ctx_eval, si, model,
-            "s3g.hift.src_rb." + std::to_string(i),
-            kHiftSourceResblockKernels[i]);
-        if (si == nullptr) return nullptr;
-
-        // Source x and main x must align in the time dimension. ConvTranspose1d output
-        // length = (T_in - 1) * stride + kernel - 2*pad. After the trailing reflection
-        // pad on the last stage the +1 sample shows up. The source path produces the
-        // matching length for stages 0/1; on stage 2 we right-trim si to x's length.
-        if (si->ne[0] != x->ne[0]) {
-            const int32_t common = (int32_t) std::min<int64_t>(si->ne[0], x->ne[0]);
-            ggml_tensor * si_trim = ggml_cont(ctx_eval, ggml_view_2d(
-                ctx_eval, si,
-                /*ne0=*/common, /*ne1=*/si->ne[1],
-                /*nb1=*/si->nb[1],
-                /*offset=*/0));
-            ggml_tensor * x_trim = ggml_cont(ctx_eval, ggml_view_2d(
-                ctx_eval, x,
-                /*ne0=*/common, /*ne1=*/x->ne[1],
-                /*nb1=*/x->nb[1],
-                /*offset=*/0));
-            si = si_trim;
-            x = x_trim;
-        }
-        x = ggml_add(ctx_eval, x, si);
-
-        // 3 parallel resblocks averaged.
-        ggml_tensor * xs = nullptr;
-        for (int32_t j = 0; j < 3; ++j) {
-            ggml_tensor * branch = codec_s3g_apply_resblock(
-                ctx_eval, x, model,
-                "s3g.hift.rb." + std::to_string(i * 3 + j),
-                kHiftResblockKernels[j]);
-            if (branch == nullptr) return nullptr;
-            xs = (xs == nullptr) ? branch : ggml_add(ctx_eval, xs, branch);
-        }
-        x = ggml_scale(ctx_eval, xs, 1.0f / 3.0f);
-    }
-
-    x = ggml_leaky_relu(ctx_eval, x, kHiftLreluSlopeDefault, /*inplace=*/false);
-
-    ggml_tensor * cp_w = W("s3g.hift.conv_post.w");
-    ggml_tensor * cp_b = W("s3g.hift.conv_post.b");
-    if (cp_w == nullptr || cp_b == nullptr) return nullptr;
-    x = codec_conv1d(ctx_eval, x, cp_w, cp_b, 1, 1, 3);  // [t_pcm/4, 18]
-    if (x == nullptr) return nullptr;
-    return x;
-}
-
-// ---------------- HiFT runtime orchestration -------------------
-
-
-// ---------------- CFM estimator (ConditionalDecoder) graph ---------------
-
-// CausalResnetBlock1D forward:
-//   h = block1(x);  h += mlp(t).unsqueeze(-1);  h = block2(h);
-//   return h + res_conv(x)
-// where mlp = Mish + Linear(time_embed_dim, dim_out) and res_conv = Conv1d(dim_in, dim_out, 1).
-// `t_emb` is [time_embed_dim] (1D); the shared CFM Resnet block handles the
-// `mish + Linear` projection and broadcasting along the time axis.
-static ggml_tensor * codec_s3g_cfm_causal_resnet(
-    ggml_context * ctx,
-    ggml_tensor * x_tc,
-    ggml_tensor * t_emb,
-    const codec_model * model,
-    const std::string & prefix) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    return codec_op_cfm_causal_resnet_block_tc(ctx, x_tc, t_emb,
-        W(prefix + ".b1.cv.w"), W(prefix + ".b1.cv.b"),
-        W(prefix + ".b1.ln.w"), W(prefix + ".b1.ln.b"),
-        W(prefix + ".b2.cv.w"), W(prefix + ".b2.cv.b"),
-        W(prefix + ".b2.ln.w"), W(prefix + ".b2.ln.b"),
-        W(prefix + ".mlp.w"),   W(prefix + ".mlp.b"),
-        W(prefix + ".res.w"),   W(prefix + ".res.b"));
-}
-
-// Diffusers BasicTransformerBlock (no cross-attn) — thin model-side wrapper
-// that resolves weights by name and delegates to the shared op.
-static ggml_tensor * codec_s3g_cfm_basic_transformer(
-    ggml_context * ctx,
-    ggml_tensor * x_tc,
-    const codec_model * model,
-    const std::string & prefix) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    return codec_op_basic_transformer_block_tc(ctx, x_tc,
-        W(prefix + ".norm1.w"), W(prefix + ".norm1.b"),
-        W(prefix + ".attn.q.w"), W(prefix + ".attn.k.w"), W(prefix + ".attn.v.w"),
-        W(prefix + ".attn.o.w"), W(prefix + ".attn.o.b"),
-        W(prefix + ".norm3.w"), W(prefix + ".norm3.b"),
-        W(prefix + ".ff.w1.w"), W(prefix + ".ff.w1.b"),
-        W(prefix + ".ff.w2.w"), W(prefix + ".ff.w2.b"),
-        kCfmAttentionHeadDim, kCfmAttentionHeads);
-}
-
-
-// Time-MLP-projected diffusion timestep embedding for a compile-time constant
-// `t_v`. Composes the shared sinusoidal-time-emb op with the model's TimestepMLP
-// (Linear → SiLU → Linear).
-static ggml_tensor * codec_s3g_cfm_time_emb(ggml_context * ctx, float t_v, const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    ggml_tensor * t_emb_in = codec_op_sinusoidal_time_emb(ctx, t_v, kCfmInChannels, kCfmTimeEmbedScale);
-    if (t_emb_in == nullptr) return nullptr;
-
-    ggml_tensor * t_l1w = W("s3g.cfm.t.l1.w");
-    ggml_tensor * t_l1b = W("s3g.cfm.t.l1.b");
-    ggml_tensor * t_l2w = W("s3g.cfm.t.l2.w");
-    ggml_tensor * t_l2b = W("s3g.cfm.t.l2.b");
-    if (t_l1w == nullptr || t_l1b == nullptr || t_l2w == nullptr || t_l2b == nullptr) return nullptr;
-    ggml_tensor * te_2d = ggml_reshape_2d(ctx, t_emb_in, kCfmInChannels, 1);
-    ggml_tensor * te = codec_op_linear(ctx, te_2d, t_l1w, t_l1b);
-    if (te == nullptr) return nullptr;
-    te = codec_op_unary(ctx, te, CODEC_UNARY_SILU);
-    te = codec_op_linear(ctx, te, t_l2w, t_l2b);
-    if (te == nullptr) return nullptr;
-    return ggml_reshape_1d(ctx, te, kCfmTimeEmbedDim);
-}
-
-// Single estimator forward (ConditionalDecoder.forward): given x, mu, spks,
-// cond and an already-projected time embedding, produces dxdt [T, 80].
-static ggml_tensor * codec_s3g_cfm_estimator_forward(
-    ggml_context * ctx,
-    ggml_tensor * x_in,    // [T, 80]
-    ggml_tensor * mu_in,   // [T, 80]
-    ggml_tensor * spks_in, // [80]
-    ggml_tensor * cond_in, // [T, 80]
-    ggml_tensor * t_emb,   // [time_embed_dim]
-    const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    if (x_in == nullptr || mu_in == nullptr || spks_in == nullptr || cond_in == nullptr || t_emb == nullptr) {
-        return nullptr;
-    }
-
-    // Pack input: concat([x, mu, spks_repeat, cond]) along channel dim → [T, 320].
-    ggml_tensor * spks_2d = ggml_reshape_2d(ctx, spks_in, 1, kCfmOutChannels);
-    ggml_tensor * spks_rep = ggml_repeat(ctx, spks_2d, x_in);
-    ggml_tensor * pack1 = ggml_concat(ctx, x_in, mu_in, /*dim=*/1);
-    ggml_tensor * pack2 = ggml_concat(ctx, pack1, spks_rep, /*dim=*/1);
-    ggml_tensor * x_tc  = ggml_concat(ctx, pack2, cond_in, /*dim=*/1);
-    if (x_tc == nullptr) return nullptr;
-
-    // ---- down block ----
-    ggml_tensor * skip = nullptr;
-    {
-        const std::string p_dn = "s3g.cfm.dn.0";
-        x_tc = codec_s3g_cfm_causal_resnet(ctx, x_tc, t_emb, model, p_dn + ".r");
-        if (x_tc == nullptr) return nullptr;
-        for (int32_t ti = 0; ti < kCfmTransformersPerBlock; ++ti) {
-            x_tc = codec_s3g_cfm_basic_transformer(ctx, x_tc, model, p_dn + ".t." + std::to_string(ti));
-            if (x_tc == nullptr) return nullptr;
-        }
-        skip = x_tc;
-        ggml_tensor * dnw = W(p_dn + ".x.w");
-        ggml_tensor * dnb = W(p_dn + ".x.b");
-        if (dnw == nullptr || dnb == nullptr) return nullptr;
-        x_tc = codec_conv1d_causal(ctx, x_tc, dnw, dnb, /*stride=*/1, /*dilation=*/1);
-        if (x_tc == nullptr) return nullptr;
-    }
-
-    // ---- mid blocks ----
-    for (int32_t bi = 0; bi < kCfmNumMidBlocks; ++bi) {
-        const std::string p_md = "s3g.cfm.md." + std::to_string(bi);
-        x_tc = codec_s3g_cfm_causal_resnet(ctx, x_tc, t_emb, model, p_md + ".r");
-        if (x_tc == nullptr) return nullptr;
-        for (int32_t ti = 0; ti < kCfmTransformersPerBlock; ++ti) {
-            x_tc = codec_s3g_cfm_basic_transformer(ctx, x_tc, model, p_md + ".t." + std::to_string(ti));
-            if (x_tc == nullptr) return nullptr;
-        }
-    }
-
-    // ---- up block ----
-    {
-        const std::string p_up = "s3g.cfm.up.0";
-        x_tc = ggml_concat(ctx, x_tc, skip, /*dim=*/1);
-        if (x_tc == nullptr) return nullptr;
-        x_tc = codec_s3g_cfm_causal_resnet(ctx, x_tc, t_emb, model, p_up + ".r");
-        if (x_tc == nullptr) return nullptr;
-        for (int32_t ti = 0; ti < kCfmTransformersPerBlock; ++ti) {
-            x_tc = codec_s3g_cfm_basic_transformer(ctx, x_tc, model, p_up + ".t." + std::to_string(ti));
-            if (x_tc == nullptr) return nullptr;
-        }
-        ggml_tensor * upw = W(p_up + ".x.w");
-        ggml_tensor * upb = W(p_up + ".x.b");
-        if (upw == nullptr || upb == nullptr) return nullptr;
-        x_tc = codec_conv1d_causal(ctx, x_tc, upw, upb, /*stride=*/1, /*dilation=*/1);
-        if (x_tc == nullptr) return nullptr;
-    }
-
-    // ---- final block + final_proj ----
-    ggml_tensor * fcw = W("s3g.cfm.final.cv.w");
-    ggml_tensor * fcb = W("s3g.cfm.final.cv.b");
-    ggml_tensor * flw = W("s3g.cfm.final.ln.w");
-    ggml_tensor * flb = W("s3g.cfm.final.ln.b");
-    ggml_tensor * pw  = W("s3g.cfm.proj.w");
-    ggml_tensor * pb  = W("s3g.cfm.proj.b");
-    if (fcw == nullptr || fcb == nullptr || flw == nullptr || flb == nullptr || pw == nullptr || pb == nullptr) return nullptr;
-    x_tc = codec_op_causal_block1d_tc(ctx, x_tc, fcw, fcb, flw, flb);
-    if (x_tc == nullptr) return nullptr;
-    return codec_conv1d(ctx, x_tc, pw, pb, /*stride=*/1, /*dilation=*/1, /*padding=*/0);
-}
-
-// (Sinusoidal pos emb moved to codec_runtime_sinusoidal_pos_emb in audio_dsp.cpp.)
-
-// ---------------- Flow encoder (UpsampleConformerEncoder) graph -----------
-
-static ggml_tensor * codec_s3g_flow_pre_lookahead(
-    ggml_context * ctx,
-    ggml_tensor * x_tc,
-    const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    ggml_tensor * c1w = W("s3g.flow.enc.pre.cv1.w");
-    ggml_tensor * c1b = W("s3g.flow.enc.pre.cv1.b");
-    ggml_tensor * c2w = W("s3g.flow.enc.pre.cv2.w");
-    ggml_tensor * c2b = W("s3g.flow.enc.pre.cv2.b");
-    if (c1w == nullptr || c1b == nullptr || c2w == nullptr || c2b == nullptr) return nullptr;
-
-    // F.pad(0, 3): right-pad on time → conv1d(k=4) → leaky_relu(default 0.01) → F.pad(2, 0): left-pad → conv1d(k=3) → +residual.
-    ggml_tensor * h = codec_op_pad_1d(ctx, x_tc, /*pad_left=*/0, /*pad_right=*/3);
-    if (h == nullptr) return nullptr;
-    h = codec_conv1d(ctx, h, c1w, c1b, /*stride=*/1, /*dilation=*/1, /*padding=*/0);
-    if (h == nullptr) return nullptr;
-    h = ggml_leaky_relu(ctx, h, 0.01f, /*inplace=*/false);
-    h = codec_op_pad_1d(ctx, h, /*pad_left=*/2, /*pad_right=*/0);
-    if (h == nullptr) return nullptr;
-    h = codec_conv1d(ctx, h, c2w, c2b, /*stride=*/1, /*dilation=*/1, /*padding=*/0);
-    if (h == nullptr) return nullptr;
-    return ggml_add(ctx, h, x_tc);
-}
-
-static ggml_tensor * codec_s3g_flow_up_layer(
-    ggml_context * ctx,
-    ggml_tensor * x_tc,
-    const codec_model * model) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    ggml_tensor * uw = W("s3g.flow.enc.up.w");
-    ggml_tensor * ub = W("s3g.flow.enc.up.b");
-    if (uw == nullptr || ub == nullptr) return nullptr;
-
-    // F.interpolate(scale_factor=2, mode='nearest') along the time axis.
-    // ggml_interpolate operates on ne[0..3] dims. For x_tc with ne[0]=t, ne[1]=c:
-    // resize to (2t, c, 1, 1) with nearest mode = 0.
-    const int64_t t2 = x_tc->ne[0] * 2;
-    const int64_t c = x_tc->ne[1];
-    ggml_tensor * up = ggml_interpolate(ctx, x_tc, t2, c, x_tc->ne[2], x_tc->ne[3], /*mode=*/GGML_SCALE_MODE_NEAREST);
-    if (up == nullptr) return nullptr;
-
-    // F.pad(stride*2=4, 0) on time axis (left=4, right=0).
-    ggml_tensor * up_pad = codec_op_pad_1d(ctx, up, /*pad_left=*/4, /*pad_right=*/0);
-    if (up_pad == nullptr) return nullptr;
-    return codec_conv1d(ctx, up_pad, uw, ub, /*stride=*/1, /*dilation=*/1, /*padding=*/0);
-}
-
-// One UpsampleConformerEncoder Conformer block:
-//   x = norm_mha(x) → rel-pos self-attn → +x_residual
-//   x = norm_ff(x)  → FFN(swish) → +x_residual
-// (no macaron_style, no cnn_module, normalize_before=True.)
-static ggml_tensor * codec_s3g_flow_conformer_block(
-    ggml_context * ctx,
-    ggml_tensor * x_tc,
-    ggml_tensor * pos_emb,  // [d, pe_len] column-major (d=hidden)
-    const codec_model * model,
-    const std::string & prefix) {
-    auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx, model, n); };
-    ggml_tensor * nmw = W(prefix + ".norm_mha.w");
-    ggml_tensor * nmb = W(prefix + ".norm_mha.b");
-    ggml_tensor * nfw = W(prefix + ".norm_ff.w");
-    ggml_tensor * nfb = W(prefix + ".norm_ff.b");
-    ggml_tensor * qw = W(prefix + ".attn.q.w");
-    ggml_tensor * qb = W(prefix + ".attn.q.b");
-    ggml_tensor * kw = W(prefix + ".attn.k.w");
-    ggml_tensor * kb = W(prefix + ".attn.k.b");
-    ggml_tensor * vw = W(prefix + ".attn.v.w");
-    ggml_tensor * vb = W(prefix + ".attn.v.b");
-    ggml_tensor * ow = W(prefix + ".attn.o.w");
-    ggml_tensor * ob = W(prefix + ".attn.o.b");
-    ggml_tensor * pw = W(prefix + ".attn.pos.w");
-    ggml_tensor * pbu = W(prefix + ".attn.pbu");
-    ggml_tensor * pbv = W(prefix + ".attn.pbv");
-    ggml_tensor * f1w = W(prefix + ".ff.w1.w");
-    ggml_tensor * f1b = W(prefix + ".ff.w1.b");
-    ggml_tensor * f2w = W(prefix + ".ff.w2.w");
-    ggml_tensor * f2b = W(prefix + ".ff.w2.b");
-    if (nmw == nullptr || nfw == nullptr || qw == nullptr || pw == nullptr || pbu == nullptr) return nullptr;
-
-    const int32_t T = (int32_t) x_tc->ne[0];
-
-    // norm_mha (LayerNorm over channel axis).
-    ggml_tensor * h_tc = codec_op_layer_norm_tc(ctx, x_tc, /*eps=*/1e-12f, nmw, nmb);
-    if (h_tc == nullptr) return nullptr;
-    ggml_tensor * h_ct = ggml_cont(ctx, ggml_transpose(ctx, h_tc));  // [c, t]
-
-    ggml_tensor * q_ct = codec_op_linear(ctx, h_ct, qw, qb);
-    ggml_tensor * k_ct = codec_op_linear(ctx, h_ct, kw, kb);
-    ggml_tensor * v_ct = codec_op_linear(ctx, h_ct, vw, vb);
-    ggml_tensor * p_ct = codec_op_linear(ctx, pos_emb, pw, /*b=*/nullptr);  // [c, pe_len]
-    if (q_ct == nullptr || k_ct == nullptr || v_ct == nullptr || p_ct == nullptr) return nullptr;
-
-    auto to_dth = [&](ggml_tensor * x_ct_in, int32_t T_in) -> ggml_tensor * {
-        // x_ct_in: [c=heads*d, T_in] → reshape (d, h, T_in) → permute (d, T_in, h).
-        ggml_tensor * r = ggml_reshape_3d(ctx, x_ct_in, kCfmAttentionHeadDim, kCfmAttentionHeads, T_in);
-        return ggml_cont(ctx, ggml_permute(ctx, r, 0, 2, 1, 3));
-    };
-
-    ggml_tensor * q_dth = to_dth(q_ct, T);
-    ggml_tensor * k_dth = to_dth(k_ct, T);
-    ggml_tensor * v_dth = to_dth(v_ct, T);
-    ggml_tensor * p_dth = to_dth(p_ct, 2 * T - 1);
-    if (q_dth == nullptr || k_dth == nullptr || v_dth == nullptr || p_dth == nullptr) return nullptr;
-
-    codec_lm_attn_params attn_p = {};
-    attn_p.scale = 1.0f / std::sqrt((float) kCfmAttentionHeadDim);
-    attn_p.causal = false;
-    ggml_tensor * attn_dth = codec_op_lm_attn_rel_pos_dth(ctx, q_dth, k_dth, v_dth, p_dth, pbu, pbv, &attn_p);
-    if (attn_dth == nullptr) return nullptr;
-
-    // (d, t, h) → (d, h, t) → (d*h, t).
-    ggml_tensor * attn_ct = ggml_reshape_2d(
-        ctx,
-        ggml_cont(ctx, ggml_permute(ctx, attn_dth, 0, 2, 1, 3)),
-        kCfmAttnInner, T);
-    ggml_tensor * proj_ct = codec_op_linear(ctx, attn_ct, ow, ob);  // [c, t]
-    if (proj_ct == nullptr) return nullptr;
-    ggml_tensor * proj_tc = ggml_cont(ctx, ggml_transpose(ctx, proj_ct));
-    x_tc = ggml_add(ctx, x_tc, proj_tc);
-
-    // FFN: norm_ff → Linear(c, ff_inner) → SiLU → Linear(ff_inner, c) → +residual.
-    ggml_tensor * ff_tc = codec_op_layer_norm_tc(ctx, x_tc, /*eps=*/1e-12f, nfw, nfb);
-    if (ff_tc == nullptr) return nullptr;
-    ggml_tensor * ff_ct = ggml_cont(ctx, ggml_transpose(ctx, ff_tc));
-    ggml_tensor * ff = codec_op_linear(ctx, ff_ct, f1w, f1b);  // [ff_inner, t]
-    if (ff == nullptr) return nullptr;
-    ff = codec_op_unary(ctx, ff, CODEC_UNARY_SILU);
-    ff = codec_op_linear(ctx, ff, f2w, f2b);  // [c, t]
-    if (ff == nullptr) return nullptr;
-    ggml_tensor * ff_out_tc = ggml_cont(ctx, ggml_transpose(ctx, ff));
-    return ggml_add(ctx, x_tc, ff_out_tc);
-}
-
 struct codec_s3g_flow_build {
     int32_t t_in = 0;        // total token sequence length (prompt + speech)
-    int32_t mel_len1 = 0;    // builtin prompt_feat frame count (== 2 * prompt_token_len)
+    int32_t mel_len1 = 0;    // speaker prompt_feat frame count (2 * prompt_token_len, +1 when unpadded)
     int32_t sample_rate = 0; // S3GenSR (24000) for NSF harmonic frequencies
     const codec_model * model = nullptr;
 };
@@ -533,324 +67,505 @@ static bool codec_s3g_build_flow(ggml_context * ctx_eval, void * user_data, ggml
         return false;
     }
     const codec_model * model = p->model;
+    const codec_chatterbox_s3g & s3g = *static_cast<const codec_chatterbox_s3g *>(model->impl);
     auto W = [&](const std::string & n) -> ggml_tensor * { return codec_graph_weight(ctx_eval, model, n); };
 
     const int32_t T = p->t_in;
-    const int32_t T_up = T * 2;
+    const int32_t T_total = T * 2;
     const int32_t mel_len1 = p->mel_len1;
-    const int32_t T_total = T_up;
-    const int32_t sample_rate = p->sample_rate;
 
-    // Token IDs are the only graph input on the encoder side; the relative
-    // positional encodings for both sequence lengths are built in-graph via
-    // `codec_op_espnet_rel_pos_emb`.
+    // ---- UpsampleConformerEncoder ----
     ggml_tensor * t_tok = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, T);
     ggml_set_name(t_tok, "s3g.flow.tokens");
-    ggml_tensor * t_pe1 = codec_op_espnet_rel_pos_emb(ctx_eval, T, kFlowEncoderHidden);
-    ggml_tensor * t_pe2 = codec_op_espnet_rel_pos_emb(ctx_eval, T_up, kFlowEncoderHidden);
-    if (t_pe1 == nullptr || t_pe2 == nullptr) return false;
-
-    // Token embedding lookup via ggml_get_rows. Saved table shape (V, hidden) →
-    // ggml ne[0]=hidden, ne[1]=V. ggml_get_rows(table, indices) returns
-    // [hidden, T]: rows of the embedding for each token id.
     ggml_tensor * emb_table = W("s3g.flow.input_emb.w");
     if (emb_table == nullptr) return false;
-    ggml_tensor * x_ct = ggml_get_rows(ctx_eval, emb_table, t_tok);  // [hidden, T]
-    if (x_ct == nullptr) return false;
-
-    // LinearNoSubsampling.out = Sequential(Linear(c, c), LayerNorm(c), Dropout) → +PositionalEncoding(scale=sqrt(d)).
-    ggml_tensor * el_w = W("s3g.flow.enc.embed.lin.w");
-    ggml_tensor * el_b = W("s3g.flow.enc.embed.lin.b");
-    ggml_tensor * en_w = W("s3g.flow.enc.embed.ln.w");
-    ggml_tensor * en_b = W("s3g.flow.enc.embed.ln.b");
-    if (el_w == nullptr || el_b == nullptr || en_w == nullptr || en_b == nullptr) return false;
-    ggml_tensor * h_proj = codec_op_linear(ctx_eval, x_ct, el_w, el_b);
-    if (h_proj == nullptr) return false;
-    ggml_tensor * h_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_proj));
-    h_tc = codec_op_layer_norm_tc(ctx_eval, h_tc, /*eps=*/1e-5f, en_w, en_b);
+    codec_conformer_params cp;
+    cp.hidden = kFlowEncoderHidden;
+    cp.n_heads = 8;
+    ggml_tensor * h_tc = codec_block_conformer_embed(ctx_eval, model, "s3g.flow.enc.embed", cp,
+                                                     ggml_get_rows(ctx_eval, emb_table, t_tok));
+    h_tc = codec_block_pre_lookahead(ctx_eval, model, "s3g.flow.enc.pre", h_tc);
+    h_tc = codec_block_conformer_stack(ctx_eval, model, "s3g.flow.enc.blk", cp, h_tc, kFlowEncoderLayers);
+    h_tc = codec_block_upsample_conv(ctx_eval, model, "s3g.flow.enc.up", h_tc, 2);
     if (h_tc == nullptr) return false;
-    h_tc = ggml_scale(ctx_eval, h_tc, std::sqrt((float) kFlowEncoderHidden));
-
-    // pre_lookahead.
-    h_tc = codec_s3g_flow_pre_lookahead(ctx_eval, h_tc, model);
+    h_tc = codec_block_conformer_embed(ctx_eval, model, "s3g.flow.enc.up_embed", cp,
+                                       ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_tc)));
+    h_tc = codec_block_conformer_stack(ctx_eval, model, "s3g.flow.enc.up_blk", cp, h_tc, kFlowEncoderUpLayers);
     if (h_tc == nullptr) return false;
-
-    // 6 conformer blocks.
-    for (int32_t bi = 0; bi < kFlowEncoderLayers; ++bi) {
-        h_tc = codec_s3g_flow_conformer_block(ctx_eval, h_tc, t_pe1, model,
-                                              "s3g.flow.enc.blk." + std::to_string(bi));
-        if (h_tc == nullptr) return false;
-    }
-
-    // up_layer: 2× nearest upsample + left-pad 4 + Conv1d(k=5).
-    h_tc = codec_s3g_flow_up_layer(ctx_eval, h_tc, model);
+    h_tc = codec_op_layer_norm_tc(ctx_eval, h_tc, cp.embed_eps, W("s3g.flow.enc.after_norm.w"),
+                                  W("s3g.flow.enc.after_norm.b"));
     if (h_tc == nullptr) return false;
-
-    // up_embed (same Linear+LN+scale structure as `embed`).
-    ggml_tensor * eul_w = W("s3g.flow.enc.up_embed.lin.w");
-    ggml_tensor * eul_b = W("s3g.flow.enc.up_embed.lin.b");
-    ggml_tensor * eun_w = W("s3g.flow.enc.up_embed.ln.w");
-    ggml_tensor * eun_b = W("s3g.flow.enc.up_embed.ln.b");
-    if (eul_w == nullptr || eul_b == nullptr || eun_w == nullptr || eun_b == nullptr) return false;
-    {
-        ggml_tensor * h_ct2 = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_tc));
-        ggml_tensor * h_proj2 = codec_op_linear(ctx_eval, h_ct2, eul_w, eul_b);
-        if (h_proj2 == nullptr) return false;
-        h_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_proj2));
-        h_tc = codec_op_layer_norm_tc(ctx_eval, h_tc, /*eps=*/1e-5f, eun_w, eun_b);
-        if (h_tc == nullptr) return false;
-        h_tc = ggml_scale(ctx_eval, h_tc, std::sqrt((float) kFlowEncoderHidden));
-    }
-
-    // 4 conformer blocks for upsampled stream.
-    for (int32_t bi = 0; bi < kFlowEncoderUpLayers; ++bi) {
-        h_tc = codec_s3g_flow_conformer_block(ctx_eval, h_tc, t_pe2, model,
-                                              "s3g.flow.enc.up_blk." + std::to_string(bi));
-        if (h_tc == nullptr) return false;
-    }
-
-    // after_norm.
-    ggml_tensor * an_w = W("s3g.flow.enc.after_norm.w");
-    ggml_tensor * an_b = W("s3g.flow.enc.after_norm.b");
-    if (an_w == nullptr || an_b == nullptr) return false;
-    h_tc = codec_op_layer_norm_tc(ctx_eval, h_tc, /*eps=*/1e-5f, an_w, an_b);
-    if (h_tc == nullptr) return false;
-
-    // encoder_proj: Linear(512, 80) → mu in [T_total, 80] (column-major, ne[0]=T_total).
-    ggml_tensor * pj_w = W("s3g.flow.proj.w");
-    ggml_tensor * pj_b = W("s3g.flow.proj.b");
-    if (pj_w == nullptr || pj_b == nullptr) return false;
-    ggml_tensor * h_ct_after = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_tc));
-    ggml_tensor * mu_ct = codec_op_linear(ctx_eval, h_ct_after, pj_w, pj_b);  // [80, T_total]
+    ggml_tensor * mu_ct = codec_op_linear(ctx_eval, ggml_cont(ctx_eval, ggml_transpose(ctx_eval, h_tc)),
+                                          W("s3g.flow.proj.w"), W("s3g.flow.proj.b"));   // [80, T_total]
     if (mu_ct == nullptr) return false;
-    ggml_tensor * mu_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, mu_ct));  // [T_total, 80]
+    ggml_tensor * mu_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, mu_ct));
     ggml_set_name(mu_tc, "s3g.flow.mu");
 
-    // Speaker embedding: F.normalize(embedding, dim=1) then spk_aff Linear(192, 80).
-    ggml_tensor * sp_emb = W("s3g.cond.embedding");           // ne[0]=192, ne[1]=1
-    ggml_tensor * sa_w = W("s3g.flow.spk_aff.w");
-    ggml_tensor * sa_b = W("s3g.flow.spk_aff.b");
-    if (sp_emb == nullptr || sa_w == nullptr || sa_b == nullptr) return false;
-    // L2 normalise along the embedding dim. ggml_norm divides by RMS(x), so
-    // multiply by sqrt(N) afterwards to recover the actual L2-norm-scaled vector.
-    // ggml_rms_norm computes x / sqrt(mean(x^2) + eps); F.normalize divides by
-    // sqrt(sum(x^2)) = sqrt(mean(x^2) * N) = sqrt(N) * sqrt(mean(x^2)).
-    // So F.normalize(x) = ggml_rms_norm(x) / sqrt(N).
-    ggml_tensor * sp_normed = ggml_rms_norm(ctx_eval, sp_emb, /*eps=*/1e-12f);
-    sp_normed = ggml_scale(ctx_eval, sp_normed, 1.0f / std::sqrt((float) kFlowSpkEmbedDim));
-    // Linear(192, 80) — sp_normed has ne[0]=192, treat it as [c=192, t=1].
-    ggml_tensor * sp_proj = codec_op_linear(ctx_eval, sp_normed, sa_w, sa_b);  // [80, 1]
+    // Speaker embedding: F.normalize(embedding) (= rms_norm / sqrt(N)) → Linear(192, 80).
+    ggml_tensor * sp_emb = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, kFlowSpkEmbedDim, 1);
+    ggml_set_name(sp_emb, "s3g.flow.spk_embedding");
+    ggml_tensor * sp_normed = ggml_scale(ctx_eval, ggml_rms_norm(ctx_eval, sp_emb, 1e-12f),
+                                         1.0f / std::sqrt((float) kFlowSpkEmbedDim));
+    ggml_tensor * sp_proj = codec_op_linear(ctx_eval, sp_normed, W("s3g.flow.spk_aff.w"), W("s3g.flow.spk_aff.b"));
+    if (sp_proj == nullptr) return false;
     ggml_tensor * spks = ggml_reshape_1d(ctx_eval, sp_proj, kCfmOutChannels);
-    ggml_set_name(spks, "s3g.flow.spks");
 
-    // Cond [T_total, 80]: prepend prompt_feat (mel_len1 frames), then zeros.
-    // prompt_feat ggml shape: ne[0]=80=feat_dim, ne[1]=mel_len1, ne[2]=1.
-    ggml_tensor * pf = W("s3g.cond.prompt_feat");
-    if (pf == nullptr) return false;
-    // View prompt_feat as [80, mel_len1] (drop trailing dim 1) → transpose to [mel_len1, 80].
-    ggml_tensor * pf_2d = ggml_reshape_2d(ctx_eval, pf, kCfmOutChannels, mel_len1);
-    ggml_tensor * pf_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, pf_2d));  // [mel_len1, 80]
-    // Zero tail [T_total - mel_len1, 80].
-    const int32_t tail = T_total - mel_len1;
-    ggml_tensor * zero_tail = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, tail, kCfmOutChannels);
-    zero_tail = ggml_scale(ctx_eval, zero_tail, 0.0f);
-    ggml_tensor * cond = ggml_concat(ctx_eval, pf_tc, zero_tail, /*dim=*/0);  // [T_total, 80]
-    ggml_set_name(cond, "s3g.flow.cond");
+    // Cond [T_total, 80]: prompt_feat (mel_len1 frames) then zeros.
+    ggml_tensor * pf_2d = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, kCfmOutChannels, mel_len1);
+    ggml_set_name(pf_2d, "s3g.flow.prompt_feat");
+    ggml_tensor * cond = ggml_pad(ctx_eval, ggml_cont(ctx_eval, ggml_transpose(ctx_eval, pf_2d)),
+                                  T_total - mel_len1, 0, 0, 0);
 
-    // ---- CFM ODE unrolled: 10 Euler steps, each with CFG cond/uncond passes.
-    // The noise z is fed as a graph input (ggml lacks a portable cross-backend
-    // RNG), then x is updated by chained ggml_add nodes; nothing escapes to CPU.
+    // ---- CFM (U-Net estimator, unrolled Euler + CFG) ----
+    // The noise z is a graph input (ggml lacks a portable cross-backend RNG).
     ggml_tensor * t_z = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, T_total, kCfmOutChannels);
     ggml_set_name(t_z, "s3g.flow.noise_z");
-    ggml_tensor * mu_zero   = ggml_scale(ctx_eval, mu_tc, 0.0f);
-    ggml_tensor * spks_zero = ggml_scale(ctx_eval, spks, 0.0f);
-    ggml_tensor * cond_zero = ggml_scale(ctx_eval, cond, 0.0f);
-    ggml_tensor * x = t_z;
-    for (int32_t i = 0; i < kFlowDefaultNTimesteps; ++i) {
-        const float lin_t = (float) i / (float) kFlowDefaultNTimesteps;
-        const float lin_r = (float) (i + 1) / (float) kFlowDefaultNTimesteps;
-        const float t_v = 1.0f - std::cos(lin_t * kFlowTSchedulerCosineHalfPi);
-        const float r_v = 1.0f - std::cos(lin_r * kFlowTSchedulerCosineHalfPi);
-        const float dt = r_v - t_v;
+    codec_cfm_unet_params up;
+    codec_cfm_solver_params sp;
+    sp.n_steps = s3g.n_timesteps;
+    sp.cfg_rate = s3g.cfg_rate;
+    sp.meanflow = s3g.meanflow;
+    sp.batch_cfg = true;
+    auto estimator = [&](ggml_tensor * x, ggml_tensor * mu, ggml_tensor * sk, ggml_tensor * cd,
+                         float t, float r) -> ggml_tensor * {
+        ggml_tensor * t_emb = codec_block_cfm_time_mlp(ctx_eval, model, "s3g.cfm", t, kCfmInChannels, kCfmTimeEmbedScale);
+        if (t_emb == nullptr) return nullptr;
+        if (sp.meanflow) {
+            ggml_tensor * r_emb = codec_block_cfm_time_mlp(ctx_eval, model, "s3g.cfm", r, kCfmInChannels, kCfmTimeEmbedScale);
+            ggml_tensor * mixer = W("s3g.cfm.t_mix.w");
+            if (r_emb == nullptr || mixer == nullptr) return nullptr;
+            t_emb = codec_mul_mat(ctx_eval, mixer, ggml_concat(ctx_eval, t_emb, r_emb, 0));
+        }
+        return codec_block_cfm_unet(ctx_eval, model, "s3g.cfm", up, x, mu, sk, cd, t_emb);
+    };
+    ggml_tensor * x = codec_block_cfm_solve(ctx_eval, sp, t_z, mu_tc, spks, cond, estimator);
+    if (x == nullptr) return false;
 
-        ggml_tensor * t_emb = codec_s3g_cfm_time_emb(ctx_eval, t_v, model);
-        if (t_emb == nullptr) return false;
-
-        ggml_tensor * dxdt_cond   = codec_s3g_cfm_estimator_forward(ctx_eval, x, mu_tc,   spks,      cond,      t_emb, model);
-        ggml_tensor * dxdt_uncond = codec_s3g_cfm_estimator_forward(ctx_eval, x, mu_zero, spks_zero, cond_zero, t_emb, model);
-        if (dxdt_cond == nullptr || dxdt_uncond == nullptr) return false;
-
-        // (1+cfg) * dxdt_cond - cfg * dxdt_uncond → cfg-corrected velocity.
-        ggml_tensor * sub = ggml_sub(ctx_eval,
-            ggml_scale(ctx_eval, dxdt_cond,   1.0f + kFlowCfgRate),
-            ggml_scale(ctx_eval, dxdt_uncond, kFlowCfgRate));
-        x = ggml_add(ctx_eval, x, ggml_scale(ctx_eval, sub, dt));
-    }
-
-    // ---- Trim prompt prefix from the final mel: x[mel_len1:T_total, :] ----
+    // Trim the prompt prefix: mel = x[mel_len1:T_total].
     const int32_t T_speech = T_total - mel_len1;
     ggml_tensor * mel_full = ggml_cont(ctx_eval, x);
-    ggml_tensor * mel_view = ggml_view_2d(
-        ctx_eval, mel_full,
-        /*ne0=*/T_speech, /*ne1=*/kCfmOutChannels,
-        /*nb1=*/mel_full->nb[1],
-        /*offset=*/(size_t) mel_len1 * mel_full->nb[0]);
-    ggml_tensor * mel = ggml_cont(ctx_eval, mel_view);
+    ggml_tensor * mel = ggml_cont(ctx_eval, ggml_view_2d(ctx_eval, mel_full, T_speech, kCfmOutChannels,
+                                                         mel_full->nb[1], (size_t) mel_len1 * mel_full->nb[0]));
     ggml_set_name(mel, "s3g.flow.mel");
 
-    // ============ HiFT (mel → wav) all in-graph ============
-    // f0_predictor.
-    ggml_tensor * f0 = codec_s3g_hift_f0_forward(ctx_eval, mel, model);
-    if (f0 == nullptr) return false;
-
-    // NSF source + STFT inputs. Random phase/noise are fed CPU-side as graph
-    // inputs; STFT / iSTFT bases and the Hann window are constant tables and
-    // also fed in (precomputed once on CPU).
-    const int32_t T_pcm = T_speech * kHiftSourceUpsample;
-    const int32_t T_stft = T_pcm / kHiftHop + 1;
-    const int32_t kHarm = kHiftNbHarmonics + 1;
-    ggml_tensor * t_phase = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, kHarm);                    // [9]
-    ggml_tensor * t_nsf_noise = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, T_pcm, kHarm);         // [T_pcm, 9]
-    ggml_tensor * t_basis_re_k = ggml_new_tensor_3d(ctx_eval, GGML_TYPE_F32, kHiftNFft, 1, kHiftNFftBins);  // [n_fft, 1, n_bins] STFT conv kernel
-    ggml_tensor * t_basis_im_k = ggml_new_tensor_3d(ctx_eval, GGML_TYPE_F32, kHiftNFft, 1, kHiftNFftBins);
-    ggml_tensor * t_istft_re   = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, kHiftNFftBins, kHiftNFft);     // [n_bins, n_fft] iSTFT matmul weights
-    ggml_tensor * t_istft_im   = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, kHiftNFftBins, kHiftNFft);
-    ggml_tensor * t_hann       = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, kHiftNFft);                   // [n_fft]
-    // ggml ConvTranspose1d weight shape: ne = (k, out_c, in_c). Identity kernel has
-    // out_c=1 and in_c=n_fft so each input channel scatters to its own kernel slot.
-    ggml_tensor * t_ola_w      = ggml_new_tensor_3d(ctx_eval, GGML_TYPE_F32, kHiftNFft, 1, kHiftNFft);
+    // ---- HiFT ----
+    const codec_hift_params hp = s3g_hift_params(p->sample_rate);
+    const int32_t T_pcm = T_speech * codec_hift_upsample_factor(hp);
+    ggml_tensor * t_phase = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, hp.nb_harmonics + 1);
+    ggml_tensor * t_noise = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, T_pcm, hp.nb_harmonics + 1);
     ggml_set_name(t_phase, "s3g.hift.nsf_phase");
-    ggml_set_name(t_nsf_noise, "s3g.hift.nsf_noise");
-    ggml_set_name(t_basis_re_k, "s3g.hift.stft_basis_re_k");
-    ggml_set_name(t_basis_im_k, "s3g.hift.stft_basis_im_k");
-    ggml_set_name(t_istft_re, "s3g.hift.istft_basis_re");
-    ggml_set_name(t_istft_im, "s3g.hift.istft_basis_im");
-    ggml_set_name(t_hann, "s3g.hift.hann");
-    ggml_set_name(t_ola_w, "s3g.hift.ola_w");
-
-    // ----- NSF source generation in-graph -----
-    // Upsample f0 [T_speech] → [T_pcm] (nearest neighbour, factor 480).
-    ggml_tensor * f0_4d = ggml_reshape_4d(ctx_eval, f0, T_speech, 1, 1, 1);
-    ggml_tensor * f0_pcm_4d = ggml_interpolate(ctx_eval, f0_4d, T_pcm, 1, 1, 1, GGML_SCALE_MODE_NEAREST);
-    ggml_tensor * f0_pcm = ggml_reshape_2d(ctx_eval, f0_pcm_4d, T_pcm, 1);  // [T_pcm, 1]
-
-    // Per-harmonic frequency scales: (h+1)/sample_rate for h=0..8.
-    ggml_tensor * h_idx = ggml_arange(ctx_eval, 1.0f, (float) (kHarm + 1), 1.0f);  // [9] = [1..9]
-    ggml_tensor * scales = ggml_scale(ctx_eval, h_idx, 1.0f / (float) sample_rate);
-    ggml_tensor * scales_2d = ggml_reshape_2d(ctx_eval, scales, 1, kHarm);
-    ggml_tensor * f_harm_template = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, T_pcm, kHarm);
-    ggml_tensor * f_harm = ggml_mul(ctx_eval,
-        ggml_repeat(ctx_eval, f0_pcm, f_harm_template),
-        ggml_repeat(ctx_eval, scales_2d, f_harm_template));
-
-    // theta = 2π · cumsum_T(f_harm) → [T_pcm, 9].
-    ggml_tensor * theta = ggml_scale(ctx_eval, ggml_cumsum(ctx_eval, f_harm), 2.0f * (float) M_PI);
-
-    // sine_waves = sine_amp * sin(theta + phase_in)
-    ggml_tensor * phase_2d = ggml_reshape_2d(ctx_eval, t_phase, 1, kHarm);
-    ggml_tensor * sine_waves = ggml_sin(ctx_eval,
-        ggml_add(ctx_eval, theta, ggml_repeat(ctx_eval, phase_2d, f_harm_template)));
-    sine_waves = ggml_scale(ctx_eval, sine_waves, kHiftNsfAlpha);
-
-    // uv mask = step(f0_pcm - voiced_threshold) → [T_pcm, 1]; broadcast to [T_pcm, 9].
-    ggml_tensor * uv = ggml_step(ctx_eval, ggml_scale_bias(ctx_eval, f0_pcm, 1.0f, -kHiftNsfVoicedThreshold));
-    ggml_tensor * uv_bcast = ggml_repeat(ctx_eval, uv, f_harm_template);
-
-    // noise_amp = (sigma - alpha/3) * uv + alpha/3; noise = noise_amp * nsf_noise.
-    ggml_tensor * noise_amp = ggml_scale_bias(ctx_eval, uv_bcast,
-        kHiftNsfSigma - kHiftNsfAlpha / 3.0f,
-        kHiftNsfAlpha / 3.0f);
-    ggml_tensor * noise = ggml_mul(ctx_eval, noise_amp, t_nsf_noise);
-
-    // waves = sine_waves * uv + noise; sine_merge = tanh(linear(waves)) along harmonic axis.
-    ggml_tensor * waves = ggml_add(ctx_eval, ggml_mul(ctx_eval, sine_waves, uv_bcast), noise);
-    ggml_tensor * lin_w = W("s3g.hift.src.lin.w");  // [1, 9] PyTorch → ggml ne[0]=9, ne[1]=1.
-    ggml_tensor * lin_b = W("s3g.hift.src.lin.b");
-    if (lin_w == nullptr || lin_b == nullptr) return false;
-    ggml_tensor * waves_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, waves));  // [9, T_pcm]
-    ggml_tensor * sine_merge_ct = codec_op_linear(ctx_eval, waves_ct, lin_w, lin_b);  // [1, T_pcm]
-    ggml_tensor * sine_merge_1d = ggml_tanh(ctx_eval, ggml_reshape_1d(ctx_eval, sine_merge_ct, T_pcm));
-
-    // ----- Source STFT in-graph -----
-    // Zero-pad sine_merge by n_fft/2 each side, then conv1d against basis kernels.
-    ggml_tensor * sm_2d = ggml_reshape_2d(ctx_eval, sine_merge_1d, T_pcm, 1);          // [T_pcm, 1]
-    ggml_tensor * sm_padded = codec_op_pad_1d(ctx_eval, sm_2d,
-        /*pad_left=*/kHiftNFft / 2, /*pad_right=*/kHiftNFft / 2);                       // [T_pcm + n_fft, 1]
-    ggml_tensor * stft_re = codec_conv1d(ctx_eval, sm_padded, t_basis_re_k, /*b=*/nullptr,
-        /*stride=*/kHiftHop, /*dilation=*/1, /*padding=*/0);                            // [T_stft, n_bins]
-    ggml_tensor * stft_im = codec_conv1d(ctx_eval, sm_padded, t_basis_im_k, /*b=*/nullptr,
-        /*stride=*/kHiftHop, /*dilation=*/1, /*padding=*/0);                            // [T_stft, n_bins]
-    if (stft_re == nullptr || stft_im == nullptr) return false;
-    ggml_tensor * s_stft = ggml_concat(ctx_eval, stft_re, stft_im, /*dim=*/1);          // [T_stft, n_fft+2]
-    (void) T_stft;
-
-    // ----- HiFT main path -----
-    ggml_tensor * head = codec_s3g_hift_main_forward(ctx_eval, mel, s_stft, model);     // [T_head, n_fft+2]
-    if (head == nullptr) return false;
-
-    // ----- iSTFT in-graph -----
-    const int32_t T_head = (int32_t) head->ne[0];
-    // Split head into log-mag / phase along channel dim (ne[1]).
-    ggml_tensor * head_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, head));  // [n_fft+2, T_head]
-    ggml_tensor * mag_log = ggml_view_2d(ctx_eval, head_ct, kHiftNFftBins, T_head, head_ct->nb[1], 0);
-    ggml_tensor * phase_v = ggml_view_2d(ctx_eval, head_ct, kHiftNFftBins, T_head, head_ct->nb[1],
-        (size_t) kHiftNFftBins * head_ct->nb[0]);
-    mag_log = ggml_cont(ctx_eval, mag_log);
-    phase_v = ggml_cont(ctx_eval, phase_v);
-
-    // mag = exp(clamp_max(mag_log, 1e2)). Approximate via min then exp.
-    ggml_tensor * mag = ggml_exp(ctx_eval, ggml_clamp(ctx_eval, mag_log, -1e30f, 1e2f));
-    ggml_tensor * phase_sin = ggml_sin(ctx_eval, phase_v);
-    ggml_tensor * re_F = ggml_mul(ctx_eval, mag, ggml_cos(ctx_eval, phase_sin));   // [n_bins, T_head]
-    ggml_tensor * im_F = ggml_mul(ctx_eval, mag, ggml_sin(ctx_eval, phase_sin));
-
-    // Synthesise frames: frame[n, t] = sum_k (basis_re[n, k] * re_F[k, t] - basis_im[n, k] * im_F[k, t]) / N.
-    ggml_tensor * frame_re = codec_op_linear(ctx_eval, re_F, t_istft_re, /*b=*/nullptr); // [n_fft, T_head]
-    ggml_tensor * frame_im = codec_op_linear(ctx_eval, im_F, t_istft_im, /*b=*/nullptr);
-    if (frame_re == nullptr || frame_im == nullptr) return false;
-    ggml_tensor * frame = ggml_scale(ctx_eval, ggml_sub(ctx_eval, frame_re, frame_im), 1.0f / (float) kHiftNFft);
-
-    // The synthesis window is ALREADY baked into the iSTFT basis
-    // (codec_runtime_istft_synthesis_basis multiplies every row by hann[n]), so
-    // `frame` is already `irfft · hann` — the correct overlap-add input.
-    // Re-applying the window here squared it, giving OLA(irfft·hann²)/OLA(hann²)
-    // instead of torch.istft's OLA(irfft·hann)/OLA(hann²); on the model's trained
-    // magnitude/phase that mismatch injected a constant Nyquist (sr/2) tone.
-    // Single-window reconstruction matches torch.istft to machine epsilon.
-    ggml_tensor * windowed = frame;
-
-    // OLA via ConvTranspose1d with identity weight (kernel n_fft, in=n_fft, out=1).
-    // Input layout [t, c]: codec_convtr1d expects ne[0]=t, ne[1]=in_c. Our `windowed`
-    // is [n_fft, T_head] (ne[0]=n_fft, ne[1]=T_head); transpose to [T_head, n_fft].
-    ggml_tensor * windowed_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, windowed));
-    ggml_tensor * ola_signal = codec_convtr1d(ctx_eval, windowed_tc, t_ola_w, /*b=*/nullptr,
-        /*stride=*/kHiftHop, /*padding=*/0, /*dilation=*/1);                       // [T_pcm + n_fft, 1]
-
-    // OLA envelope: same convtr on a constant [T_head, n_fft] tensor of window^2.
-    // Build window^2 broadcast: hann_sq = hann * hann.
-    ggml_tensor * hann_sq = ggml_mul(ctx_eval, t_hann, t_hann);
-    ggml_tensor * hann_sq_2d = ggml_reshape_2d(ctx_eval, hann_sq, kHiftNFft, 1);
-    ggml_tensor * env_template = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, T_head, kHiftNFft);
-    ggml_tensor * env_in = ggml_repeat(ctx_eval, ggml_cont(ctx_eval, ggml_transpose(ctx_eval, hann_sq_2d)), env_template);
-    ggml_tensor * env = codec_convtr1d(ctx_eval, env_in, t_ola_w, /*b=*/nullptr,
-        /*stride=*/kHiftHop, /*padding=*/0, /*dilation=*/1);
-
-    // Divide signal by envelope (clamp envelope above a small epsilon).
-    ggml_tensor * env_safe = ggml_clamp(ctx_eval, env, 1e-11f, 1e30f);
-    ggml_tensor * signal = ggml_div(ctx_eval, ola_signal, env_safe);                // [out_size, 1]
-
-    // Trim n_fft/2 from each side and squeeze the channel dim.
-    const int32_t out_size = (T_head - 1) * kHiftHop + kHiftNFft;
-    const int32_t pad = kHiftNFft / 2;
-    const int32_t pcm_len = out_size - 2 * pad;
-    ggml_tensor * signal_cont = ggml_cont(ctx_eval, signal);
-    ggml_tensor * signal_view = ggml_view_2d(ctx_eval, signal_cont, pcm_len, 1,
-        signal_cont->nb[1], (size_t) pad * signal_cont->nb[0]);
-    ggml_tensor * pcm = ggml_reshape_1d(ctx_eval, ggml_cont(ctx_eval, signal_view), pcm_len);
-    pcm = ggml_clamp(ctx_eval, pcm, -kHiftAudioLimit, kHiftAudioLimit);
+    ggml_set_name(t_noise, "s3g.hift.nsf_noise");
+    ggml_tensor * pcm = codec_block_hift(ctx_eval, model, "s3g.hift", hp, mel, t_phase, t_noise);
+    if (pcm == nullptr) return false;
     ggml_set_name(pcm, "s3g.flow.pcm");
-
     *out = pcm;
+    return true;
+}
+
+// ---------------- speakers ---------------------
+// Slots: prompt_token I32 [T], prompt_feat F32 [80, F] (24 kHz log-mel,
+// F = 2T or 2T+1), embedding F32 [192] (CAMPPlus x-vector).
+
+static bool codec_s3g_speaker_validate(
+        const codec_model * model, const codec_speaker * spk, std::string * err) {
+    const auto & s3g = *static_cast<const codec_chatterbox_s3g *>(model->impl);
+    const codec_speaker_slot * tok = spk->slot("prompt_token");
+    const codec_speaker_slot * feat = spk->slot("prompt_feat");
+    const codec_speaker_slot * emb = spk->slot("embedding");
+    if (tok == nullptr || feat == nullptr || emb == nullptr) {
+        *err = "Chatterbox-S3G speaker needs prompt_token, prompt_feat and embedding slots";
+        return false;
+    }
+    if (tok->type != GGML_TYPE_I32 || tok->ne[0] <= 0 || tok->nelements() != tok->ne[0]) {
+        *err = "prompt_token must be a non-empty I32 vector";
+        return false;
+    }
+    if (feat->type != GGML_TYPE_F32 || feat->ne[0] != kCfmOutChannels || feat->ne[1] <= 0 ||
+            feat->nelements() != feat->ne[0] * feat->ne[1]) {
+        *err = "prompt_feat must be F32 [80, frames]";
+        return false;
+    }
+    if (feat->ne[1] > 2 * tok->ne[0] + 1) {
+        *err = "prompt_feat has more frames than 2 * prompt_token + 1";
+        return false;
+    }
+    if (emb->type != GGML_TYPE_F32 || emb->nelements() != kFlowSpkEmbedDim) {
+        *err = "embedding must be F32 [192]";
+        return false;
+    }
+    auto tokens_in_range = [](const codec_speaker_slot * t) {
+        const auto * v = reinterpret_cast<const int32_t *>(t->data.data());
+        for (int64_t i = 0; i < t->nelements(); ++i) {
+            if (v[i] < 0 || v[i] >= kFlowVocabSize) return false;
+        }
+        return true;
+    };
+    if (!tokens_in_range(tok)) {
+        *err = "prompt_token id out of range";
+        return false;
+    }
+    const codec_speaker_slot * t3_emb = spk->slot("t3_speaker_emb");
+    const codec_speaker_slot * t3_tok = spk->slot("t3_cond_tokens");
+    if ((t3_emb == nullptr) != (t3_tok == nullptr) ||
+        (t3_emb != nullptr && (t3_emb->type != GGML_TYPE_F32 || t3_emb->nelements() != s3g.ve.embed ||
+                               t3_tok->type != GGML_TYPE_I32 || !tokens_in_range(t3_tok)))) {
+        *err = "t3_speaker_emb (F32 [" + std::to_string(s3g.ve.embed) + "]) and t3_cond_tokens (I32 S3 ids) go together";
+        return false;
+    }
+    if (!s3g.lm_encoder.empty()) {
+        const codec_speaker_slot * lm = spk->slot("lm_cond");
+        if (lm == nullptr || lm->type != GGML_TYPE_F32 || lm->nelements() != s3g.lm_cond_dim) {
+            *err = "speaker needs an F32 lm_cond slot of " + std::to_string(s3g.lm_cond_dim) + " values";
+            return false;
+        }
+        const codec_speaker_slot * ref = spk->slot("ref_tokens");
+        if (ref != nullptr && (ref->type != GGML_TYPE_I32 || !tokens_in_range(ref))) {
+            *err = "ref_tokens must be I32 S3 token ids";
+            return false;
+        }
+    }
+    return true;
+}
+
+// S3Gen.embed_ref as one graph: reference PCM (any rate) → resample to 24 kHz
+// and truncate to the 10 s S3Gen conditions on → matcha log-mel (prompt_feat)
+// and, at 16 kHz, S3 tokens (prompt_token) + CAMPPlus (embedding). Models with
+// `spk.lm_encoder = xvector_sincnet` (KittenTTS 2) add the LM conditioning
+// from the whole clip at 16 kHz: spk_proj(normalize(x-vector)) and the S3
+// tokens of the in-context reference. Chatterbox GGUFs with the T3
+// VoiceEncoder add T3's conditioning as ChatterboxTTS.prepare_conditionals
+// does: the VE embedding of the whole 16 kHz clip and the S3 tokens of its
+// first speech_cond_prompt_len / 25 s (ENC_COND_LEN; 6 s, Turbo 15 s).
+struct codec_s3g_speaker_build {
+    int32_t n_samples = 0;
+    int32_t sample_rate = 0;
+    int32_t with_lm = 0;
+    int32_t with_t3 = 0;
+    int32_t t3_cond_tokens = 0;
+    int64_t t3_trim_begin = 0;   // VE input: 16 kHz samples [begin, end) of the clip
+    int64_t t3_trim_end = 0;
+    codec_voice_encoder_params ve;
+    const codec_model * model = nullptr;
+};
+
+struct codec_s3g_speaker_lengths {
+    int64_t n24 = 0;    // 24 kHz samples after truncation
+    int64_t n16 = 0;    // 16 kHz samples of the truncated clip
+    int64_t full16 = 0; // 16 kHz samples of the whole clip (LM conditioning)
+    int64_t full24 = 0; // 24 kHz samples of the whole clip
+    int64_t t3_16 = 0;  // 16 kHz samples of the whole clip via 24 kHz (T3 conditioning)
+};
+
+static codec_s3g_speaker_lengths codec_s3g_speaker_lengths_for(int64_t n, int32_t sample_rate) {
+    codec_s3g_speaker_lengths l;
+    l.n24 = std::min<int64_t>(codec_resample_out_len(n, sample_rate, kS3gSampleRate),
+                              (int64_t) kSpkRefMaxSeconds * kS3gSampleRate);
+    l.n16 = codec_resample_out_len(l.n24, kS3gSampleRate, kS3SampleRate);
+    l.full16 = codec_resample_out_len(n, sample_rate, kS3SampleRate);
+    l.full24 = codec_resample_out_len(n, sample_rate, kS3gSampleRate);
+    l.t3_16 = codec_resample_out_len(l.full24, kS3gSampleRate, kS3SampleRate);
+    return l;
+}
+
+static bool codec_s3g_build_speaker(ggml_context * ctx, void * user_data, ggml_tensor ** out) {
+    const auto * p = static_cast<const codec_s3g_speaker_build *>(user_data);
+    if (ctx == nullptr || p == nullptr || p->model == nullptr || out == nullptr || p->n_samples <= 0) {
+        return false;
+    }
+    const codec_s3g_speaker_lengths len = codec_s3g_speaker_lengths_for(p->n_samples, p->sample_rate);
+    const codec_s3_tokenizer_params s3t;
+
+    ggml_tensor * pcm = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, p->n_samples);
+    ggml_set_name(pcm, "s3g.spk.pcm");
+
+    ggml_tensor * wav24 = codec_op_resample_sinc_hann(ctx, pcm, p->sample_rate, kS3gSampleRate);
+    if (wav24 == nullptr) return false;
+    ggml_tensor * wav24_full = wav24;
+    if (ggml_nelements(wav24) > len.n24) {
+        wav24 = ggml_cont(ctx, ggml_view_1d(ctx, wav24, len.n24, 0));
+    }
+    ggml_tensor * wav16 = codec_op_resample_sinc_hann(ctx, wav24, kS3gSampleRate, kS3SampleRate);
+    ggml_tensor * mel_fb = codec_graph_weight(ctx, p->model, "s3g.spk.mel_fb");
+    if (wav16 == nullptr || mel_fb == nullptr) return false;
+
+    ggml_tensor * feat = codec_op_matcha_log_mel(ctx, wav24, mel_fb, kSpkMelNFft, kSpkMelHop);   // [80, F]
+    ggml_tensor * tokens = codec_block_s3_tokenizer(ctx, p->model, s3t, wav16);
+    ggml_tensor * emb = codec_block_campplus(ctx, p->model, "s3g.cp", wav16);
+    if (feat == nullptr || tokens == nullptr || emb == nullptr) return false;
+    ggml_set_name(feat, "s3g.spk.prompt_feat");
+    ggml_set_name(tokens, "s3g.spk.prompt_token");
+    ggml_set_name(emb, "s3g.spk.embedding");
+    ggml_set_output(feat);
+    ggml_set_output(tokens);
+
+    if (p->with_lm) {
+        ggml_tensor * full16 = codec_op_resample_sinc_hann(ctx, pcm, p->sample_rate, kS3SampleRate);
+        if (full16 == nullptr) return false;
+        ggml_tensor * lm_cond = codec_block_xvector_sincnet(ctx, p->model, "kt.xv", "kt.spk_proj", full16);
+        ggml_tensor * ref_tokens = codec_block_s3_tokenizer(ctx, p->model, s3t, full16);
+        if (lm_cond == nullptr || ref_tokens == nullptr) return false;
+        ggml_set_name(lm_cond, "s3g.spk.lm_cond");
+        ggml_set_name(ref_tokens, "s3g.spk.ref_tokens");
+        ggml_set_output(lm_cond);
+        ggml_set_output(ref_tokens);
+    }
+    if (p->with_t3) {
+        // ref_16k_wav = librosa.resample(<24 kHz clip>, 24000, 16000).
+        ggml_tensor * t3_16 = codec_op_resample_sinc_hann(ctx, wav24_full, kS3gSampleRate, kS3SampleRate);
+        if (t3_16 == nullptr) return false;
+        ggml_tensor * ve_in = t3_16;
+        if (p->t3_trim_begin > 0 || p->t3_trim_end < ggml_nelements(t3_16)) {
+            ve_in = ggml_cont(ctx, ggml_view_1d(ctx, t3_16, p->t3_trim_end - p->t3_trim_begin,
+                                                (size_t) p->t3_trim_begin * sizeof(float)));
+        }
+        ggml_tensor * ve = codec_block_chatterbox_voice_encoder(ctx, p->model, "speaker.voice_encoder", p->ve, ve_in);
+        const int64_t n_cond = std::min<int64_t>(ggml_nelements(t3_16), (int64_t) p->t3_cond_tokens * kS3SampleRate / 25);
+        ggml_tensor * cond16 = n_cond < ggml_nelements(t3_16) ? ggml_cont(ctx, ggml_view_1d(ctx, t3_16, n_cond, 0)) : t3_16;
+        ggml_tensor * cond_tokens = codec_block_s3_tokenizer(ctx, p->model, s3t, cond16);
+        if (ve == nullptr || cond_tokens == nullptr) return false;
+        ggml_set_name(ve, "s3g.spk.t3_speaker_emb");
+        ggml_set_name(cond_tokens, "s3g.spk.t3_cond_tokens");
+        ggml_set_output(ve);
+        ggml_set_output(cond_tokens);
+    }
+    *out = emb;
+    return true;
+}
+
+// pyloudnorm Meter(rate).integrated_loudness (ITU-R BS.1770-4, K-weighting,
+// 400 ms blocks with 75 % overlap, -70 LUFS absolute and -10 LU relative
+// gates), mono. An IIR filter has no ggml form; the result is one gain.
+static double codec_s3g_integrated_lufs(const std::vector<float> & x, int32_t rate) {
+    struct biquad { double b[3], a[3]; };
+    auto design = [&](double G, double Q, double fc, bool shelf) {
+        const double A = std::pow(10.0, G / 40.0), w0 = 2.0 * M_PI * fc / rate, alpha = std::sin(w0) / (2.0 * Q);
+        const double c = std::cos(w0), sA = std::sqrt(A);
+        biquad f;
+        if (shelf) {
+            f = {{A * ((A + 1) + (A - 1) * c + 2 * sA * alpha), -2 * A * ((A - 1) + (A + 1) * c),
+                  A * ((A + 1) + (A - 1) * c - 2 * sA * alpha)},
+                 {(A + 1) - (A - 1) * c + 2 * sA * alpha, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - 2 * sA * alpha}};
+        } else {
+            f = {{(1 + c) / 2, -(1 + c), (1 + c) / 2}, {1 + alpha, -2 * c, 1 - alpha}};
+        }
+        return f;
+    };
+    std::vector<double> y(x.begin(), x.end());
+    for (const biquad & f : {design(4.0, 1.0 / std::sqrt(2.0), 1500.0, true), design(0.0, 0.5, 38.0, false)}) {
+        // scipy.signal.lfilter, direct form II transposed, coefficients / a0.
+        const double b0 = f.b[0] / f.a[0], b1 = f.b[1] / f.a[0], b2 = f.b[2] / f.a[0];
+        const double a1 = f.a[1] / f.a[0], a2 = f.a[2] / f.a[0];
+        double z1 = 0.0, z2 = 0.0;
+        for (double & v : y) {
+            const double in = v, out = b0 * in + z1;
+            z1 = b1 * in - a1 * out + z2;
+            z2 = b2 * in - a2 * out;
+            v = out;
+        }
+    }
+    const double T_g = 0.4, step = 0.25, T = (double) y.size() / rate;
+    const int64_t n_blocks = (int64_t) std::llround((T - T_g) / (T_g * step)) + 1;
+    std::vector<double> z;
+    for (int64_t j = 0; j < n_blocks; ++j) {
+        const int64_t l = (int64_t) (T_g * (j * step) * rate), u = (int64_t) (T_g * (j * step + 1) * rate);
+        double acc = 0.0;
+        for (int64_t i = l; i < u && i < (int64_t) y.size(); ++i) acc += y[(size_t) i] * y[(size_t) i];
+        z.push_back(acc / (T_g * rate));
+    }
+    auto lufs = [](double ms) { return -0.691 + 10.0 * std::log10(ms); };
+    auto gated_mean = [&](double gate) {
+        double acc = 0.0;
+        int64_t n = 0;
+        for (double zj : z) {
+            if (lufs(zj) > gate && lufs(zj) >= -70.0) { acc += zj; ++n; }
+        }
+        return n > 0 ? acc / n : 0.0;
+    };
+    const double rel = lufs(gated_mean(-INFINITY)) - 10.0;
+    return lufs(gated_mean(rel));
+}
+
+// librosa.effects.trim(y, top_db) bounds (RMS over 2048-sample frames, hop
+// 512, centered, against the loudest frame) of the 16 kHz clip, measured on
+// the reference at its own rate with the same frame durations. The bounds
+// fix the VoiceEncoder's input length, so they are found before the graph.
+static void codec_s3g_trim_bounds(const std::vector<float> & x, int32_t rate, float top_db, int64_t n16,
+                                  int64_t * begin, int64_t * end) {
+    *begin = 0;
+    *end = n16;
+    if (top_db <= 0.0f || x.empty()) return;
+    const int64_t frame = std::max<int64_t>(1, std::llround(2048.0 * rate / kS3SampleRate));
+    const int64_t hop = std::max<int64_t>(1, std::llround(512.0 * rate / kS3SampleRate));
+    const int64_t n = (int64_t) x.size(), n_frames = 1 + n / hop;
+    std::vector<double> mse((size_t) n_frames, 0.0);
+    double peak = 0.0;
+    for (int64_t t = 0; t < n_frames; ++t) {
+        double acc = 0.0;
+        for (int64_t i = t * hop - frame / 2; i < t * hop - frame / 2 + frame; ++i) {
+            if (i >= 0 && i < n) acc += (double) x[(size_t) i] * x[(size_t) i];
+        }
+        mse[(size_t) t] = acc / frame;
+        peak = std::max(peak, mse[(size_t) t]);
+    }
+    const double ref_db = 10.0 * std::log10(std::max(1e-10, peak));
+    int64_t first = -1, last = -1;
+    for (int64_t t = 0; t < n_frames; ++t) {
+        if (10.0 * std::log10(std::max(1e-10, mse[(size_t) t])) - ref_db > -top_db) {
+            if (first < 0) first = t;
+            last = t;
+        }
+    }
+    if (first < 0) return;
+    const double to16 = (double) kS3SampleRate / rate;
+    *begin = std::min<int64_t>(n16, std::llround((double) (first * hop) * to16));
+    *end = std::min<int64_t>(n16, std::llround((double) std::min(n, (last + 1) * hop) * to16));
+    if (*end <= *begin) { *begin = 0; *end = n16; }
+}
+
+static enum codec_status codec_s3g_speaker_from_audio(
+        codec_context * ctx, const std::vector<float> & pcm, int32_t sample_rate, codec_speaker * out) {
+    const auto & s3g = *static_cast<const codec_chatterbox_s3g *>(ctx->model->impl);
+    if (pcm.empty() || sample_rate <= 0 || pcm.size() > (size_t) INT32_MAX) {
+        codec_context_set_error(ctx, "invalid reference audio");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    const bool with_lm = s3g.lm_encoder == "xvector_sincnet";
+    const codec_s3g_speaker_lengths len = codec_s3g_speaker_lengths_for((int64_t) pcm.size(), sample_rate);
+    // ChatterboxTurboTTS.prepare_conditionals(norm_loudness=True): one gain on the whole reference.
+    std::vector<float> ref = pcm;
+    if (s3g.ref_lufs != 0.0f) {
+        const double gain = std::pow(10.0, (s3g.ref_lufs - codec_s3g_integrated_lufs(ref, sample_rate)) / 20.0);
+        if (std::isfinite(gain) && gain > 0.0) {
+            for (float & v : ref) v = (float) (v * gain);
+        }
+    }
+    int64_t trim_begin = 0, trim_end = len.t3_16;
+    if (s3g.with_t3) codec_s3g_trim_bounds(ref, sample_rate, s3g.t3_trim_db, len.t3_16, &trim_begin, &trim_end);
+    if (len.n24 <= (kSpkMelNFft - kSpkMelHop) / 2 || !codec_campplus_accepts(len.n16) ||
+        (with_lm && !codec_xvector_sincnet_accepts(len.full16)) ||
+        (s3g.with_t3 && codec_voice_encoder_n_partials(s3g.ve, trim_end - trim_begin) <= 0)) {
+        codec_context_set_error(ctx, "reference audio too short for the speaker encoders");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+
+    codec_s3g_speaker_build build;
+    build.n_samples = (int32_t) pcm.size();
+    build.sample_rate = sample_rate;
+    build.with_lm = with_lm ? 1 : 0;
+    build.with_t3 = s3g.with_t3 ? 1 : 0;
+    build.t3_cond_tokens = s3g.t3_cond_tokens;
+    build.t3_trim_begin = trim_begin;
+    build.t3_trim_end = trim_end;
+    build.ve = s3g.ve;
+    build.model = ctx->model;
+
+    std::string err;
+    codec_graph_eval_guard guard(ctx);
+    codec_graph_cache_entry * entry = nullptr;
+    if (!codec_graph_cache_get_or_build(
+            ctx, {CODEC_GRAPH_CHATTERBOX_S3G_SPEAKER, build.n_samples, build.with_lm | (build.with_t3 << 1), sample_rate,
+                  (int32_t) trim_begin, (int32_t) trim_end},
+            codec_s3g_build_speaker, &build, sizeof(build), &entry, &err)) {
+        codec_context_set_error(ctx, "speaker graph: " + err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "s3g.spk.pcm");
+    ggml_tensor * t_tok = codec_graph_get_tensor(ctx, entry, "s3g.spk.prompt_token");
+    ggml_tensor * t_feat = codec_graph_get_tensor(ctx, entry, "s3g.spk.prompt_feat");
+    ggml_tensor * t_emb = codec_graph_get_tensor(ctx, entry, "s3g.spk.embedding");
+    ggml_tensor * t_lm = with_lm ? codec_graph_get_tensor(ctx, entry, "s3g.spk.lm_cond") : nullptr;
+    ggml_tensor * t_ref = with_lm ? codec_graph_get_tensor(ctx, entry, "s3g.spk.ref_tokens") : nullptr;
+    ggml_tensor * t_ve = s3g.with_t3 ? codec_graph_get_tensor(ctx, entry, "s3g.spk.t3_speaker_emb") : nullptr;
+    ggml_tensor * t_ct = s3g.with_t3 ? codec_graph_get_tensor(ctx, entry, "s3g.spk.t3_cond_tokens") : nullptr;
+    if (t_pcm == nullptr || t_tok == nullptr || t_feat == nullptr || t_emb == nullptr ||
+        (with_lm && (t_lm == nullptr || t_ref == nullptr)) || (s3g.with_t3 && (t_ve == nullptr || t_ct == nullptr))) {
+        codec_context_set_error(ctx, "invalid speaker graph IO");
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (!codec_graph_prepare_io(ctx, entry, &err) ||
+        !codec_runtime_write_tensor(t_pcm, ref.data(), ref.size() * sizeof(float), &err) ||
+        !codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
+        codec_context_set_error(ctx, "speaker graph: " + err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+
+    std::vector<int32_t> tokens((size_t) ggml_nelements(t_tok));
+    std::vector<float> feat((size_t) ggml_nelements(t_feat));
+    std::vector<float> embedding((size_t) ggml_nelements(t_emb));
+    std::vector<float> lm_cond(t_lm ? (size_t) ggml_nelements(t_lm) : 0);
+    std::vector<int32_t> ref_tokens(t_ref ? (size_t) ggml_nelements(t_ref) : 0);
+    std::vector<float> t3_emb(t_ve ? (size_t) ggml_nelements(t_ve) : 0);
+    std::vector<int32_t> t3_tokens(t_ct ? (size_t) ggml_nelements(t_ct) : 0);
+    if (!codec_runtime_read_tensor(t_tok, tokens.data(), tokens.size() * sizeof(int32_t), &err) ||
+        !codec_runtime_read_tensor(t_feat, feat.data(), feat.size() * sizeof(float), &err) ||
+        !codec_runtime_read_tensor(t_emb, embedding.data(), embedding.size() * sizeof(float), &err) ||
+        (t_lm && !codec_runtime_read_tensor(t_lm, lm_cond.data(), lm_cond.size() * sizeof(float), &err)) ||
+        (t_ref && !codec_runtime_read_tensor(t_ref, ref_tokens.data(), ref_tokens.size() * sizeof(int32_t), &err)) ||
+        (t_ve && !codec_runtime_read_tensor(t_ve, t3_emb.data(), t3_emb.size() * sizeof(float), &err)) ||
+        (t_ct && !codec_runtime_read_tensor(t_ct, t3_tokens.data(), t3_tokens.size() * sizeof(int32_t), &err))) {
+        codec_context_set_error(ctx, "speaker graph: " + err);
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    // embed_ref keeps mel_len == 2 * token_len by dropping trailing tokens.
+    const int64_t n_feat = t_feat->ne[1];
+    tokens.resize((size_t) std::min<int64_t>((int64_t) tokens.size(), n_feat / 2));
+
+    const int64_t ne_tok[1] = {(int64_t) tokens.size()};
+    const int64_t ne_feat[2] = {kCfmOutChannels, n_feat};
+    const int64_t ne_emb[1] = {kFlowSpkEmbedDim};
+    codec_speaker_add_slot(out, "prompt_token", GGML_TYPE_I32, ne_tok, 1, tokens.data());
+    codec_speaker_add_slot(out, "prompt_feat", GGML_TYPE_F32, ne_feat, 2, feat.data());
+    codec_speaker_add_slot(out, "embedding", GGML_TYPE_F32, ne_emb, 1, embedding.data());
+    if (with_lm) {
+        const int64_t ne_lm[1] = {(int64_t) lm_cond.size()};
+        const int64_t ne_ref[1] = {(int64_t) ref_tokens.size()};
+        codec_speaker_add_slot(out, "lm_cond", GGML_TYPE_F32, ne_lm, 1, lm_cond.data());
+        codec_speaker_add_slot(out, "ref_tokens", GGML_TYPE_I32, ne_ref, 1, ref_tokens.data());
+    }
+    if (s3g.with_t3) {
+        // s3_tokzr.forward(..., max_len=speech_cond_prompt_len)
+        t3_tokens.resize((size_t) std::min<int64_t>((int64_t) t3_tokens.size(), s3g.t3_cond_tokens));
+        const int64_t ne_ve[1] = {(int64_t) t3_emb.size()};
+        const int64_t ne_ct[1] = {(int64_t) t3_tokens.size()};
+        codec_speaker_add_slot(out, "t3_speaker_emb", GGML_TYPE_F32, ne_ve, 1, t3_emb.data());
+        codec_speaker_add_slot(out, "t3_cond_tokens", GGML_TYPE_I32, ne_ct, 1, t3_tokens.data());
+    }
+    return CODEC_STATUS_SUCCESS;
+}
+
+// GGUFs converted before the speaker format carry one builtin voice as
+// `chatterbox_s3g.cond.*` metadata + `s3g.cond.*` tensors; expose it as the
+// speaker "default" so they keep decoding unchanged.
+static bool codec_s3g_add_legacy_speaker(codec_model * model) {
+    if (!codec_read_bool_kv(model->gguf, "chatterbox_s3g.has_builtin_conditioning", false)) {
+        return true;
+    }
+    std::vector<int32_t> prompt_token;
+    codec_read_i32_array_kv_vec(model->gguf, "chatterbox_s3g.cond.prompt_token", &prompt_token);
+    const int32_t tok_len = codec_read_i32_kv(model->gguf, "chatterbox_s3g.cond.prompt_token_len", 0);
+    if (tok_len <= 0 || tok_len > (int32_t) prompt_token.size()) return false;
+    prompt_token.resize((size_t) tok_len);
+
+    ggml_tensor * feat = ggml_get_tensor(model->weights, "s3g.cond.prompt_feat");
+    ggml_tensor * emb = ggml_get_tensor(model->weights, "s3g.cond.embedding");
+    if (feat == nullptr || emb == nullptr || feat->type != GGML_TYPE_F32 || emb->type != GGML_TYPE_F32 ||
+            feat->ne[0] != kCfmOutChannels || ggml_nelements(emb) != kFlowSpkEmbedDim) {
+        return false;
+    }
+    std::vector<float> feat_data((size_t) ggml_nelements(feat));
+    std::vector<float> emb_data((size_t) ggml_nelements(emb));
+    ggml_backend_tensor_get(feat, feat_data.data(), 0, ggml_nbytes(feat));
+    ggml_backend_tensor_get(emb, emb_data.data(), 0, ggml_nbytes(emb));
+
+    codec_speaker spk;
+    spk.name = "default";
+    const int64_t ne_tok[1] = {tok_len};
+    const int64_t ne_feat[2] = {kCfmOutChannels, ggml_nelements(feat) / kCfmOutChannels};
+    const int64_t ne_emb[1] = {kFlowSpkEmbedDim};
+    codec_speaker_add_slot(&spk, "prompt_token", GGML_TYPE_I32, ne_tok, 1, prompt_token.data());
+    codec_speaker_add_slot(&spk, "prompt_feat", GGML_TYPE_F32, ne_feat, 2, feat_data.data());
+    codec_speaker_add_slot(&spk, "embedding", GGML_TYPE_F32, ne_emb, 1, emb_data.data());
+    model->speakers.push_back(std::move(spk));
     return true;
 }
 
@@ -867,18 +582,46 @@ enum codec_status codec_chatterbox_s3g_init(struct codec_model * model) {
     s3g.n_q = codec_read_i32_kv(model->gguf, "codec.n_q", s3g.n_q);
     s3g.codebook_size = codec_read_i32_kv(model->gguf, "codec.codebook_size", s3g.codebook_size);
     s3g.meanflow = codec_read_bool_kv(model->gguf, "chatterbox_s3g.meanflow", s3g.meanflow);
-    s3g.has_builtin_conditioning = codec_read_bool_kv(
-        model->gguf, "chatterbox_s3g.has_builtin_conditioning", s3g.has_builtin_conditioning);
-    s3g.builtin_prompt_token_len = codec_read_i32_kv(
-        model->gguf, "chatterbox_s3g.cond.prompt_token_len", s3g.builtin_prompt_token_len);
-    s3g.builtin_prompt_feat_frames = codec_read_i32_kv(
-        model->gguf, "chatterbox_s3g.cond.prompt_feat_frames", s3g.builtin_prompt_feat_frames);
-    s3g.builtin_prompt_feat_dim = codec_read_i32_kv(
-        model->gguf, "chatterbox_s3g.cond.prompt_feat_dim", s3g.builtin_prompt_feat_dim);
-    s3g.builtin_embedding_dim = codec_read_i32_kv(
-        model->gguf, "chatterbox_s3g.cond.embedding_dim", s3g.builtin_embedding_dim);
-    codec_read_i32_array_kv_vec(model->gguf, "chatterbox_s3g.cond.prompt_token", &s3g.builtin_prompt_token);
+    s3g.n_timesteps = codec_read_i32_kv(model->gguf, "chatterbox_s3g.flow.n_timesteps",
+        s3g.meanflow ? kFlowMeanflowNTimesteps : kFlowDefaultNTimesteps);
+    s3g.cfg_rate = codec_read_f32_kv(model->gguf, "chatterbox_s3g.flow.cfg_rate", kFlowCfgRate);
+    s3g.max_prompt_s = codec_read_f32_kv(model->gguf, "chatterbox_s3g.flow.max_prompt_s", 0.0f);
     s3g.has_encoder = codec_read_bool_kv(model->gguf, "codec.has_encoder", s3g.has_encoder);
+    s3g.has_speaker_encoder = codec_read_bool_kv(model->gguf, "chatterbox_s3g.spk.has_encoder", false);
+    model->can_speaker_from_audio = s3g.has_speaker_encoder;
+    s3g.lm_encoder = codec_read_str_kv(model->gguf, "chatterbox_s3g.spk.lm_encoder", "");
+    s3g.lm_cond_dim = codec_read_i32_kv(model->gguf, "chatterbox_s3g.spk.lm_cond_dim", 0);
+    if (!s3g.lm_encoder.empty() && (s3g.lm_encoder != "xvector_sincnet" || s3g.lm_cond_dim <= 0)) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    // T3's VoiceEncoder ships in Chatterbox codec GGUFs (codec.speaker.*, the
+    // LM adaptor's speaker section); its cond prompt length is the builtin's.
+    s3g.with_t3 = s3g.has_speaker_encoder &&
+                  codec_read_str_kv(model->gguf, "codec.speaker.encoder_arch", "") == "chatterbox_voice_encoder" &&
+                  ggml_get_tensor(model->weights, "speaker.voice_encoder.proj.weight") != nullptr;
+    if (s3g.with_t3) {
+        codec_voice_encoder_params & ve = s3g.ve;
+        gguf_context * gf = model->gguf;
+        ve.n_mels         = codec_read_i32_kv(gf, "codec.speaker.ve.num_mels", ve.n_mels);
+        ve.hidden         = codec_read_i32_kv(gf, "codec.speaker.ve.hidden_size", ve.hidden);
+        ve.n_layers       = codec_read_i32_kv(gf, "codec.speaker.ve.num_layers", ve.n_layers);
+        ve.embed          = codec_read_i32_kv(gf, "codec.speaker.ve.speaker_embed_dim", ve.embed);
+        ve.n_fft          = codec_read_i32_kv(gf, "codec.speaker.ve.n_fft", ve.n_fft);
+        ve.hop            = codec_read_i32_kv(gf, "codec.speaker.ve.hop_size", ve.hop);
+        ve.partial_frames = codec_read_i32_kv(gf, "codec.speaker.ve.partial_frames", ve.partial_frames);
+        ve.sample_rate    = codec_read_i32_kv(gf, "codec.speaker.ref_sample_rate", ve.sample_rate);
+        ve.overlap        = codec_read_f32_kv(gf, "codec.speaker.ve.overlap", ve.overlap);
+        ve.rate           = codec_read_f32_kv(gf, "codec.speaker.ve.rate", ve.rate);
+        ve.min_coverage   = codec_read_f32_kv(gf, "codec.speaker.ve.min_coverage", ve.min_coverage);
+        ve.final_relu     = codec_read_bool_kv(gf, "codec.speaker.ve.final_relu", ve.final_relu);
+        std::vector<int32_t> builtin;
+        codec_read_i32_array_kv_vec(gf, "codec.lm.chatterbox.builtin.cond_prompt_speech_tokens", &builtin);
+        s3g.t3_cond_tokens = builtin.empty() ? 150 : (int32_t) builtin.size();
+        s3g.t3_trim_db = codec_read_f32_kv(gf, "codec.speaker.ve.trim_top_db", s3g.t3_trim_db);
+    }
+    // Turbo normalizes the reference to -27 LUFS before both encoders.
+    const bool turbo = codec_read_str_kv(model->gguf, "codec.lm.chatterbox.variant", "") == "turbo";
+    s3g.ref_lufs = codec_read_f32_kv(model->gguf, "chatterbox_s3g.spk.ref_lufs", turbo ? -27.0f : 0.0f);
     s3g.has_decoder = codec_read_bool_kv(model->gguf, "codec.has_decoder", s3g.has_decoder);
 
     model->sample_rate = s3g.sample_rate;
@@ -896,36 +639,19 @@ enum codec_status codec_chatterbox_s3g_init(struct codec_model * model) {
     if (s3g.n_q != 1 || s3g.codebook_size != kFlowVocabSize || s3g.sample_rate <= 0 || s3g.hop_size <= 0) {
         return CODEC_STATUS_INVALID_ARG;
     }
+    if (s3g.n_timesteps < 1 || s3g.n_timesteps > kFlowMaxNTimesteps || !(s3g.cfg_rate >= 0.0f)) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
     if (s3g.meanflow) {
-        // Meanflow inference path is not implemented yet; flag explicitly.
-        return CODEC_STATUS_NOT_SUPPORTED;
+        auto * mixer = ggml_get_tensor(model->weights, "s3g.cfm.t_mix.w");
+        if (mixer == nullptr || mixer->ne[0] != 2 * kCfmTimeEmbedDim ||
+                mixer->ne[1] != kCfmTimeEmbedDim || mixer->ne[2] != 1 || mixer->ne[3] != 1) {
+            return CODEC_STATUS_INVALID_ARG;
+        }
     }
 
-    if (s3g.has_builtin_conditioning) {
-        if (s3g.builtin_prompt_token_len <= 0 ||
-            s3g.builtin_prompt_feat_frames <= 0 ||
-            s3g.builtin_prompt_feat_dim <= 0 ||
-            s3g.builtin_embedding_dim <= 0 ||
-            s3g.builtin_prompt_token.empty() ||
-            s3g.builtin_prompt_token_len > (int32_t) s3g.builtin_prompt_token.size()) {
-            return CODEC_STATUS_INVALID_ARG;
-        }
-
-        ggml_tensor * prompt_feat = ggml_get_tensor(model->weights, "s3g.cond.prompt_feat");
-        ggml_tensor * embedding = ggml_get_tensor(model->weights, "s3g.cond.embedding");
-        if (prompt_feat == nullptr || embedding == nullptr) {
-            return CODEC_STATUS_INVALID_ARG;
-        }
-        if (prompt_feat->type != GGML_TYPE_F32 || embedding->type != GGML_TYPE_F32) {
-            return CODEC_STATUS_INVALID_ARG;
-        }
-        if (prompt_feat->ne[0] != s3g.builtin_prompt_feat_dim ||
-            prompt_feat->ne[1] != s3g.builtin_prompt_feat_frames ||
-            prompt_feat->ne[2] != 1 ||
-            embedding->ne[0] != s3g.builtin_embedding_dim ||
-            embedding->ne[1] != 1) {
-            return CODEC_STATUS_INVALID_ARG;
-        }
+    if (!codec_s3g_add_legacy_speaker(model)) {
+        return CODEC_STATUS_INVALID_ARG;
     }
 
     return CODEC_STATUS_SUCCESS;
@@ -952,23 +678,42 @@ enum codec_status codec_chatterbox_s3g_decode(
         codec_context_set_error(ctx, "model metadata indicates no decoder");
         return CODEC_STATUS_INVALID_STATE;
     }
-    if (!s3g->has_builtin_conditioning) {
-        codec_context_set_error(ctx, "Chatterbox-S3G decode requires builtin conditioning (no ref_wav path yet)");
-        return CODEC_STATUS_NOT_SUPPORTED;
+    const codec_speaker * spk = params.speaker != nullptr
+        ? params.speaker
+        : codec_get_speaker(ctx->model, nullptr);
+    if (spk == nullptr) {
+        codec_context_set_error(ctx, "Chatterbox-S3G decode needs a speaker (model has no default speaker)");
+        return CODEC_STATUS_INVALID_ARG;
     }
-    if (s3g->meanflow) {
-        codec_context_set_error(ctx, "Chatterbox-S3G meanflow path not implemented");
-        return CODEC_STATUS_NOT_SUPPORTED;
-    }
-
     std::string err;
-
-    // Build the full token list: prompt_token (builtin) + speech_token (filtered).
-    std::vector<int32_t> tok_seq;
-    tok_seq.reserve(s3g->builtin_prompt_token_len + tokens->n_tokens);
-    for (int32_t i = 0; i < s3g->builtin_prompt_token_len; ++i) {
-        tok_seq.push_back(s3g->builtin_prompt_token[(size_t) i]);
+    if (params.speaker != nullptr && !codec_s3g_speaker_validate(ctx->model, spk, &err)) {
+        codec_context_set_error(ctx, err);
+        return CODEC_STATUS_INVALID_ARG;
     }
+    const codec_speaker_slot * spk_tok = spk->slot("prompt_token");
+    const codec_speaker_slot * spk_feat = spk->slot("prompt_feat");
+    const codec_speaker_slot * spk_emb = spk->slot("embedding");
+
+    // Build the full token list: prompt_token (speaker) + speech_token (filtered).
+    // The flow prompt (25 Hz tokens + 50 Hz mel) is acoustic context only; max_prompt_s
+    // keeps its trailing seconds, next to the target.
+    int32_t n_prompt = (int32_t) spk_tok->ne[0];
+    int32_t mel_len1 = (int32_t) spk_feat->ne[1];
+    int32_t tok_skip = 0, feat_skip = 0;
+    if (s3g->max_prompt_s > 0.0f) {
+        const int32_t keep = std::max(1, (int32_t) (s3g->max_prompt_s * 25.0f));
+        if (keep < n_prompt) {
+            const int32_t feat_keep = std::min(mel_len1, 2 * keep);
+            tok_skip = n_prompt - keep;
+            feat_skip = mel_len1 - feat_keep;
+            n_prompt = keep;
+            mel_len1 = feat_keep;
+        }
+    }
+    std::vector<int32_t> tok_seq;
+    const auto * prompt = reinterpret_cast<const int32_t *>(spk_tok->data.data()) + tok_skip;
+    tok_seq.reserve((size_t) n_prompt + (size_t) tokens->n_tokens);
+    tok_seq.insert(tok_seq.end(), prompt, prompt + n_prompt);
     for (int32_t i = 0; i < tokens->n_tokens; ++i) {
         const int32_t v = tokens->data[i];
         if (v >= 0 && v < s3g->codebook_size) tok_seq.push_back(v);
@@ -978,14 +723,14 @@ enum codec_status codec_chatterbox_s3g_decode(
         codec_context_set_error(ctx, "empty token sequence");
         return CODEC_STATUS_INVALID_ARG;
     }
-    const int32_t mel_len1 = s3g->builtin_prompt_feat_frames;
     const int32_t T_total = T_tok * 2;
     if (mel_len1 > T_total) {
         codec_context_set_error(ctx, "prompt_feat_frames exceeds encoder output length");
         return CODEC_STATUS_INVALID_ARG;
     }
     const int32_t T_speech = T_total - mel_len1;
-    const int32_t T_pcm = T_speech * kHiftSourceUpsample;
+    const codec_hift_params hp = s3g_hift_params(s3g->sample_rate);
+    const int32_t T_pcm = T_speech * codec_hift_upsample_factor(hp);
 
     // Build/cache the unified graph.
     codec_s3g_flow_build build = {};
@@ -1014,18 +759,11 @@ enum codec_status codec_chatterbox_s3g_decode(
     ggml_tensor * t_z = codec_graph_get_tensor(ctx, entry, "s3g.flow.noise_z");
     ggml_tensor * t_phase = codec_graph_get_tensor(ctx, entry, "s3g.hift.nsf_phase");
     ggml_tensor * t_nsf_noise = codec_graph_get_tensor(ctx, entry, "s3g.hift.nsf_noise");
-    ggml_tensor * t_basis_re_k = codec_graph_get_tensor(ctx, entry, "s3g.hift.stft_basis_re_k");
-    ggml_tensor * t_basis_im_k = codec_graph_get_tensor(ctx, entry, "s3g.hift.stft_basis_im_k");
-    ggml_tensor * t_istft_re = codec_graph_get_tensor(ctx, entry, "s3g.hift.istft_basis_re");
-    ggml_tensor * t_istft_im = codec_graph_get_tensor(ctx, entry, "s3g.hift.istft_basis_im");
-    ggml_tensor * t_hann = codec_graph_get_tensor(ctx, entry, "s3g.hift.hann");
-    ggml_tensor * t_ola_w = codec_graph_get_tensor(ctx, entry, "s3g.hift.ola_w");
     ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "s3g.flow.pcm");
-    if (t_tok == nullptr || t_z == nullptr ||
-        t_phase == nullptr || t_nsf_noise == nullptr ||
-        t_basis_re_k == nullptr || t_basis_im_k == nullptr ||
-        t_istft_re == nullptr || t_istft_im == nullptr ||
-        t_hann == nullptr || t_ola_w == nullptr || t_pcm == nullptr) {
+    ggml_tensor * t_spk_emb = codec_graph_get_tensor(ctx, entry, "s3g.flow.spk_embedding");
+    ggml_tensor * t_prompt_feat = codec_graph_get_tensor(ctx, entry, "s3g.flow.prompt_feat");
+    if (t_tok == nullptr || t_z == nullptr || t_spk_emb == nullptr || t_prompt_feat == nullptr ||
+        t_phase == nullptr || t_nsf_noise == nullptr || t_pcm == nullptr) {
         codec_context_set_error(ctx, "invalid decode graph IO");
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -1035,41 +773,29 @@ enum codec_status codec_chatterbox_s3g_decode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    // STFT/iSTFT bases + Hann window + OLA identity kernel — precomputed once.
-    std::vector<float> hann, stft_re_k, stft_im_k, istft_re, istft_im, ola_w;
-    codec_runtime_stft_basis_kernels(kHiftNFft, &stft_re_k, &stft_im_k, &hann);
-    codec_runtime_istft_synthesis_basis(kHiftNFft, hann, &istft_re, &istft_im);
-    codec_runtime_ola_identity_kernel(kHiftNFft, &ola_w);
-
     // CFM noise + NSF random inputs.
     std::vector<float> noise_z((size_t) T_total * (size_t) kCfmOutChannels, 0.0f);
-    std::vector<float> nsf_phase((size_t) (kHiftNbHarmonics + 1), 0.0f);
-    std::vector<float> nsf_noise((size_t) T_pcm * (size_t) (kHiftNbHarmonics + 1), 0.0f);
+    std::vector<float> nsf_phase, nsf_noise;
     {
         std::mt19937_64 rng(/*seed=*/0);
         std::normal_distribution<float> gauss(0.0f, 1.0f);
-        std::uniform_real_distribution<float> uni_phase(-(float) M_PI, (float) M_PI);
         for (size_t i = 0; i < noise_z.size(); ++i) noise_z[i] = gauss(rng);
-        nsf_phase[0] = 0.0f;  // first harmonic phase fixed to 0 per SineGen.
-        for (int32_t i = 1; i < (kHiftNbHarmonics + 1); ++i) nsf_phase[(size_t) i] = uni_phase(rng);
-        for (size_t i = 0; i < nsf_noise.size(); ++i) nsf_noise[i] = gauss(rng);
+        codec_hift_fill_random(hp, T_pcm, rng, &nsf_phase, &nsf_noise);
     }
 
     if (!codec_runtime_write_tensor(t_tok, tok_seq.data(), tok_seq.size() * sizeof(int32_t), &err) ||
+        !codec_runtime_write_tensor(t_spk_emb, spk_emb->data.data(), spk_emb->data.size(), &err) ||
+        !codec_runtime_write_tensor(t_prompt_feat, reinterpret_cast<const float *>(spk_feat->data.data()) +
+                                        (size_t) spk_feat->ne[0] * feat_skip,
+                                    (size_t) spk_feat->ne[0] * mel_len1 * sizeof(float), &err) ||
         !codec_runtime_write_tensor(t_z, noise_z.data(), noise_z.size() * sizeof(float), &err) ||
         !codec_runtime_write_tensor(t_phase, nsf_phase.data(), nsf_phase.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_nsf_noise, nsf_noise.data(), nsf_noise.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_basis_re_k, stft_re_k.data(), stft_re_k.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_basis_im_k, stft_im_k.data(), stft_im_k.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_istft_re, istft_re.data(), istft_re.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_istft_im, istft_im.data(), istft_im.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_hann, hann.data(), hann.size() * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_ola_w, ola_w.data(), ola_w.size() * sizeof(float), &err)) {
+        !codec_runtime_write_tensor(t_nsf_noise, nsf_noise.data(), nsf_noise.size() * sizeof(float), &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (!codec_graph_compute(ctx, entry, std::max(1, ctx->model->n_threads), &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -1129,6 +855,8 @@ const struct codec_model_vtable * codec_chatterbox_s3g_vtable() {
         nullptr,
         codec_chatterbox_s3g_decode,
         nullptr,
+        codec_s3g_speaker_validate,
+        codec_s3g_speaker_from_audio,
     };
     return &vtable;
 }

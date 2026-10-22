@@ -1143,6 +1143,12 @@ static void common_init_sampler_from_model(
     get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT),        sparams.mirostat,        common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT);
     get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU),    sparams.mirostat_tau,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT_TAU);
     get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA),    sparams.mirostat_eta,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT_ETA);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ),    sparams.penalty_freq,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_PENALTY_FREQ);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT), sparams.penalty_present, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_PENALTY_PRESENT);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER),  sparams.dry_multiplier,  common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_MULTIPLIER);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE),        sparams.dry_base,        common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_BASE);
+    get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH), sparams.dry_allowed_length, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_ALLOWED_LENGTH);
+    get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N), sparams.dry_penalty_last_n, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_PENALTY_LAST_N);
 }
 
 struct common_init_result::impl {

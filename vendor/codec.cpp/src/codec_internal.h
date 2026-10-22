@@ -2,21 +2,65 @@
 #define CODEC_INTERNAL_H
 
 #include "codec.h"
+#include "codec_speaker.h"
 
 #include <ggml-backend.h>
 #include <ggml.h>
 #include <gguf.h>
 
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <cstdint>
 #include <vector>
+
+// One named tensor of a speaker (`spk.<name>.<slot>` in GGUF). Data is host
+// memory; decoders upload what they need as graph inputs.
+struct codec_speaker_slot {
+    std::string name;
+    enum ggml_type type = GGML_TYPE_F32;
+    int64_t ne[GGML_MAX_DIMS] = {1, 1, 1, 1};
+    std::vector<uint8_t> data;
+
+    int64_t nelements() const { return ne[0] * ne[1] * ne[2] * ne[3]; }
+};
+
+struct codec_speaker {
+    std::string arch;          // general.architecture of the producing model
+    std::string encoder_hash;  // <arch>.spk.encoder_hash of the producing model
+    std::string name;
+    std::string ref_text;
+    std::vector<codec_speaker_slot> slots;
+
+    const codec_speaker_slot * slot(const char * slot_name) const {
+        for (const auto & s : slots) {
+            if (s.name == slot_name) return &s;
+        }
+        return nullptr;
+    }
+};
 
 struct codec_model {
     struct gguf_context * gguf;
     struct ggml_context * weights;
+    // name -> tensor of `weights`; ggml_get_tensor is a linear strcmp scan and
+    // graph builders look weights up tens of thousands of times per build.
+    std::unordered_map<std::string, ggml_tensor *> weight_index;
     ggml_backend_t backend = nullptr;
     ggml_backend_buffer_type_t buffer_type = nullptr;
     ggml_backend_buffer_t weights_buffer = nullptr;
+    // Persistent CPU worker pools of the model's contexts. A compute borrows an
+    // idle pool (grown to its thread count) and returns it, so contexts
+    // computing at the same time each get their own; one at a time keeps one.
+    // Without them, ggml-cpu builds without OpenMP create and join a fresh pool
+    // on every graph compute.
+    struct codec_cpu_pool {
+        struct ggml_threadpool * tp = nullptr;
+        int32_t n = 0;
+        bool busy = false;
+    };
+    std::mutex cpu_pools_mutex;
+    std::vector<codec_cpu_pool> cpu_pools;
 
     struct codec_gguf_metadata metadata;
 
@@ -43,6 +87,12 @@ struct codec_model {
     int32_t expected_channels = 1;
     const struct codec_model_vtable * vtable = nullptr;
     void * impl = nullptr;
+
+    std::string arch_name;              // general.architecture as written in the GGUF
+    std::string speaker_encoder_hash;   // <arch>.spk.encoder_hash ("" when absent)
+    std::vector<codec_speaker> speakers;
+    int32_t default_speaker = -1;
+    bool can_speaker_from_audio = false;  // set by arch init when the encoders are bundled
 };
 
 // Graph cache key with named fields to avoid ambiguous p0..p3 usage.
@@ -73,12 +123,23 @@ struct codec_graph_cache_entry {
     int32_t last_sched_graph_size = 0; // exact scheduler base size: n_nodes + n_leafs
 };
 
+// Host data for a constant graph input (DFT basis, resampler kernel, ...),
+// registered while a graph is built and written after it is allocated.
+struct codec_graph_const_input {
+    ggml_tensor * tensor = nullptr;
+    std::vector<uint8_t> data;
+};
+
 struct codec_context {
     struct codec_model * model;
+    // The context's own instance on the model's device (the weights stay in the
+    // model's buffer): backends are not thread safe, so contexts of one model
+    // can compute at the same time only on separate instances.
     ggml_backend_t backend = nullptr;
     ggml_backend_t cpu_backend = nullptr;
     ggml_backend_sched_t sched = nullptr;
     struct codec_context_params params;
+    int32_t n_threads = 1; // threads for the current public call (its params.n_threads, else the model's)
     std::string last_error;
     std::vector<codec_graph_cache_entry> graph_cache;
     void * eval_arena_buf = nullptr;
@@ -87,6 +148,9 @@ struct codec_context {
     ggml_cgraph * eval_graph = nullptr;
     ggml_tensor * eval_output = nullptr;
     codec_graph_cache_entry * eval_entry = nullptr;
+    std::vector<codec_graph_const_input> eval_consts; // constants of the current eval graph
+    std::vector<ggml_tensor *> eval_cpu_nodes;         // nodes pinned to the CPU backend
+    std::unordered_map<const ggml_tensor *, ggml_tensor *> eval_weight_casts; // weight -> its F32 cast in this graph
     bool eval_graph_allocated = false; // sched_alloc_graph done for current eval_ctx
     int32_t sched_reserved_graph_size = 0;
 };
@@ -120,7 +184,34 @@ struct codec_model_vtable {
         int32_t n_frames,
         struct codec_pcm_buffer * out_pcm,
         struct codec_decode_params params);
+    // Speaker support. `speaker_validate` checks that the required slots exist
+    // with valid shapes (nullptr = the arch takes no speaker). `speaker_from_audio`
+    // derives a speaker from mono PCM at `sample_rate` (nullptr = unsupported).
+    bool (*speaker_validate)(
+        const struct codec_model * model,
+        const struct codec_speaker * speaker,
+        std::string * err);
+    enum codec_status (*speaker_from_audio)(
+        struct codec_context * ctx,
+        const std::vector<float> & pcm,
+        int32_t sample_rate,
+        struct codec_speaker * out);
 };
+
+// Loads `spk.<name>.<slot>` tensors + `<arch>.spk.*` metadata from the model
+// GGUF into model->speakers (after arch init, which may add legacy speakers).
+bool codec_model_load_speakers(codec_model * model, std::string * err);
+// Shared speaker_validate bodies for token codecs whose speakers condition
+// the TTS LM rather than the decoder:
+//  * token prompt (OuteTTS): `ref_text` + `audio_prompt` I32 [N], the
+//    backbone token ids of the reference's audio section;
+//  * reference codes (NeuTTS): `ref_codes` I32 [T] codec tokens (n_q = 1).
+bool codec_speaker_validate_token_prompt(const codec_model * model, const codec_speaker * spk, std::string * err);
+bool codec_speaker_validate_ref_codes(const codec_model * model, const codec_speaker * spk, std::string * err);
+// Appends a slot holding a copy of `data`.
+void codec_speaker_add_slot(
+    codec_speaker * spk, const char * slot, enum ggml_type type,
+    const int64_t * ne, int n_dims, const void * data);
 
 enum codec_arch codec_arch_from_string(const std::string & arch);
 

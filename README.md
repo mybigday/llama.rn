@@ -10,7 +10,7 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LL
 
 - **GPU/NPU Acceleration**: Metal (iOS), Hexagon NPU (Android, Experimental) for on-device inference
 - **Multimodal Support**: Support vision/audio understanding models through mmproj projector integration
-- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox, BlueMagpie — with reference-audio voice cloning
+- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox (incl. Turbo), BlueMagpie, CosyVoice / BreezyVoice — with reference-audio voice cloning
 - **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
 - **Tool Calling**: Universal function calling support via Jinja templates
 - **Grammar Sampling**: GBNF and JSON schema support for structured, constrained output generation
@@ -702,66 +702,68 @@ results.forEach((result, index) => {
 
 The model family is auto-detected natively; `getTTSCapabilities()` reports it and `getFormattedAudioCompletion()` returns the right synthesis `flow`.
 
-| Family | Variants | Flow |
-|---|---|---|
-| **OuteTTS** | v0.1 · v0.2 · v0.3 · v1.0 | `tokens` |
-| **Soprano** | 1.1 (80M) | `tokens` |
-| **NeuTTS** | Nano · Air *(needs a phonemizer)* | `tokens` |
-| **CSM** | 1B | `tokens` |
-| **Qwen3-TTS** | 0.6B | `tokens` |
-| **MOSS-TTSD** | v0.5 | `tokens` |
-| **MOSS-TTS-Realtime** | streaming interleave | `tokens` |
-| **Chatterbox (T3)** | English · 23-language multilingual | `tokens` |
-| **BlueMagpie-TTS** | Barbet backbone + AudioVAE | `continuous_embd` |
+| Family | Variants |
+|---|---|
+| **OuteTTS** | v0.1 · v0.2 · v0.3 · v1.0 |
+| **Soprano** | 1.1 (80M) |
+| **NeuTTS** | Nano · Air *(needs a phonemizer)* |
+| **CSM** | 1B |
+| **Qwen3-TTS** | 0.6B · CustomVoice 0.6B / 1.7B |
+| **MOSS-TTSD** | v0.5 |
+| **MOSS-TTS-Realtime** | streaming interleave |
+| **Chatterbox (T3)** | English · 23-language multilingual · Turbo |
+| **BlueMagpie-TTS** | Barbet backbone + AudioVAE |
+| **CosyVoice** | BreezyVoice · CosyVoice-300M · CosyVoice2 · CosyVoice3 |
 
 "Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
 
-There are two synthesis flows:
+codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. The flow is `getFormattedAudioCompletion()` → `completion()` → `decodeAudioTokens()` / `decodeAudioEmbeddings()`:
 
-- **`tokens`** — the standard completion loop drives the model (including the codec-LM AR step machine for CSM / Qwen3-TTS / MOSS / Chatterbox) and appends audio codes to `result.audio_tokens`; decode them with `decodeAudioTokens()`.
-- **`continuous_embd`** — continuous-latent models (BlueMagpie-TTS); the loop collects `result.embeddings` (+ `embedding_dim`), decoded with `decodeAudioEmbeddings()`.
+- `getFormattedAudioCompletion()` is like `getFormattedChat()`: it keeps no state and returns the request's `completionParams` — the complete text `prompt` (the model's template, the instruct, the normalized text, a voice written as text such as OuteTTS / NeuTTS references, and MTMD-style `<__voice__>` / `<__codec:NAME__>` markers where the model needs embedding rows), the grammar (the tokens the model may emit and its minimum length) or a `logit_bias` table (`Float32Array`, one bias per token), and `embedding` when the model reads hidden states. The prompt is plain text: inspect or edit it.
+- `completion()` is the regular completion. On a context with a vocoder, codec.cpp builds its prompt the way MTMD builds media: text is tokenized, the markers become embedding rows, and the `speaker` given to `completion()` (a `LlamaSpeaker` or a builtin voice name; the model's default without one) fills `<__voice__>`. codec.cpp then takes part in every step: it says what the backbone reads next (a token or an embedding row), which steps are audio (never emitted as text; other tokens come out as text, for models that interleave both) and when the speech ends. The sampling is the completion's own, for the backbone and codec.cpp's codebook heads alike: the backbone GGUF's recommended `general.sampling.*` unless you set values; its `seed` also seeds codec.cpp's own noise. `n_predict` is yours to cap it (by default it runs until the model stops or the context is full). The result carries the decoder input — `audio_tokens` (codec codes, `audio_tokens_width` per frame), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — plus `audio_frames` and `audio_stop_reason`.
+- The decoder input decodes to PCM at any later time, in any order.
 
-> Codec-LM AR and continuous-latent models must be initialized with `embedding: true`.
+One request speaks one text. Long text is the app's to split (by sentence, say), one request and one completion per piece.
 
 ### Usage
 
 ```ts
 import { initLlama } from 'llama.rn'
 
-const ctx = await initLlama({
-  model: backbonePath,
-  n_gpu_layers: 99,
-  embedding: true, // required for codec-LM AR / continuous models
-})
+const ctx = await initLlama({ model: backbonePath, n_gpu_layers: 99 })
 
 // Attach the codec / vocoder GGUF
-await ctx.initVocoder({ path: codecGgufPath, n_batch: 4096 }) // + optional use_gpu
+await ctx.initVocoder({ path: codecGgufPath }) // + optional use_gpu, kv_overrides
 
 const caps = await ctx.getTTSCapabilities()
-// { type, family, promptKind, requiresPhonemes, defaultLanguage }
+// { type, family, promptKind, requiresPhonemes, defaultLanguage, builtinVoices, canSpeakerFromAudio,
+//   canTakeInstruct, needsVoice }
 
-// Build the model-specific prompt + resolve the flow
-const { prompt, grammar, embedding, flow } = await ctx.getFormattedAudioCompletion({
+// Arm the request; completionParams are the params to run it with
+const { completionParams } = await ctx.getFormattedAudioCompletion({
   prompt: 'Hello world',
-  speaker: 'default', // built-in voice name, a LlamaSpeaker (voice clone), or omit for the family default
+  speaker: 'ryan', // a builtin voice (caps.builtinVoices), a LlamaSpeaker (voice clone), or omit for the default
+  instruct: caps.canTakeInstruct ? 'Speak cheerfully.' : undefined, // how to speak, for models that take it
   // supply a phonemizer only for models that need it (caps.requiresPhonemes)
   phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
 })
 
-// Drive the completion loop, then decode to PCM float samples
-const result = await ctx.completion({ prompt, grammar, embedding, temperature: 0.7, top_p: 0.9 })
+// Run it with the same speaker and your sampling / length (the GGUF's recommended sampling applies
+// to what you leave out), then decode its result to PCM float samples (now or later)
+const result = await ctx.completion({ ...completionParams, speaker: 'ryan', seed: 42, n_predict: 2048 })
 const sampleRate = await ctx.getAudioSampleRate()
-
-const pcm = flow === 'continuous_embd'
-  ? new Float32Array(await ctx.decodeAudioEmbeddings(result.embeddings, result.embedding_dim))
-  : new Float32Array(await ctx.decodeAudioTokens(result.audio_tokens ?? []))
+const pcm = new Float32Array(
+  result.embeddings?.length
+    ? await ctx.decodeAudioEmbeddings(result.embeddings, result.embedding_dim)
+    : await ctx.decodeAudioTokens(result.audio_tokens ?? []),
+)
 
 await ctx.releaseVocoder() // free the codec graphs when done
 ```
 
 ### Voice cloning
 
-Create a native speaker handle from a reference clip and pass it as `speaker`. The reference is encoded lazily on first use (or eagerly via `spk.bake()`); the embedding lives natively (no per-call copy, no JSON marshaling) and is injected at the model's speaker position automatically:
+Create a native speaker handle from a reference clip and pass it as `speaker`; codec.cpp derives the model's conditioning from it when the request runs. Models without a voice of their own (`caps.needsVoice`, e.g. Qwen3-TTS Base) require one:
 
 ```ts
 const spk = await ctx.createSpeaker({
@@ -769,10 +771,42 @@ const spk = await ctx.createSpeaker({
   refAudioSampleRate: 24000,
   refText: 'reference transcript',
 })
-const { prompt, embedding, flow } = await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
-// ...drive the flow as above — the speaker is armed automatically...
+const { completionParams } = await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
+const result = await ctx.completion({ ...completionParams, speaker: spk })
 await spk.release()         // free the native speaker when done
 ```
+
+`createSpeaker` clones the voice once (`caps.canSpeakerFromAudio`): it computes everything the model conditions on, the backbone prompt (x-vector, reference codes, transcript), the decoder, or both, and every request with that speaker reuses it. Decoding uses the voice of the latest text-to-speech completion, so decode a result before generating with another voice when the decoder depends on it (Chatterbox, CosyVoice, Qwen3-TTS Base with `refText`). Decoding is deterministic. Codec GGUFs converted before codec.cpp's speaker format carry one builtin voice and cannot clone; re-convert them for that.
+
+A speaker can be saved to a speaker file of the same model and reloaded without the reference audio; the reloaded voice is identical:
+
+```ts
+await ctx.saveSpeaker(spk, `${dir}/my-voice.gguf`)
+const speakers = await ctx.listSpeakers(`${dir}/my-voice.gguf`) // TTSSpeakerInfo[]
+const saved = await ctx.loadSpeaker(`${dir}/my-voice.gguf`) // a LlamaSpeaker; { name } picks one in the file
+```
+
+### Codec options
+
+`initVocoder({ kv_overrides })` overrides codec GGUF metadata at load, as llama.cpp-style `KEY=TYPE:VALUE` strings (`TYPE` is `int`, `float`, `bool` or `str`). Model graph settings live here: Chatterbox's guidance weight (`codec.lm.chatterbox.sampling.cfg_weight`), BlueMagpie's CFM steps / guidance (`codec.lm.cfm_n_timesteps`, `codec.lm.cfm_cfg_value`). The flow-matching decoders (Chatterbox S3G, CosyVoice) run `n_timesteps` × 2 (CFG) U-Net passes, which dominates decode time on a phone; fewer steps trade a little speaker fidelity for speed:
+
+```ts
+await ctx.initVocoder({
+  path: codecGgufPath,
+  kv_overrides: ['cosyvoice.flow.n_timesteps=int:6'], // or chatterbox_s3g.flow.n_timesteps; cfg_rate=float:0 drops CFG
+})
+```
+
+### Model notes
+
+- **OuteTTS / NeuTTS**: the codec GGUFs in the `BricksDisplay/OuteTTS-*-GGUF` / `NeuTTS-*-GGUF` repos carry the builtin voices as the reference prompt (`caps.builtinVoices`); OuteTTS codecs without them are not supported. Use a codec GGUF only with its own repo's backbone: OuteTTS voices are stored as that backbone's token ids. OuteTTS 0.2 / 0.3 decode with OuteAI's WavTokenizer (the codec in those repos), not `wavtokenizer-large-speech-75tokens`. NeuTTS voice transcripts are espeak phonemes with stress marks, so phonemize the input the same way.
+- **Qwen3-TTS CustomVoice**: the codec GGUFs in the `BricksDisplay/Qwen3-TTS-12Hz-*-CustomVoice-GGUF` repos carry the builtin voices (`caps.builtinVoices`, default `vivian`); pick one with `getFormattedAudioCompletion({ prompt, speaker: 'ryan' })`. A `LlamaSpeaker` wins over the builtin voice. The 1.7B takes an `instruct` (how to speak, e.g. `'Speak slowly in a sad, quiet whisper.'`); `caps.canTakeInstruct` says whether a model does.
+- **Soprano**: `Soprano-1.1-80M-soprano-tok.*.gguf` declares the `soprano` pre-tokenizer, which llama.rn patches into llama.cpp and which matches the upstream tokenizer; the plain `Soprano-1.1-80M.*.gguf` files keep the `gpt-2` pre-tokenizer for older llama.rn releases.
+- **CSM**: codec GGUFs downloaded from `BricksDisplay/CSM-1B-GGUF` before 2026-10-20 lack the audio-end metadata and run to the frame cap; download them again, or pass `kv_overrides: ['codec.lm.eos_code_c0=int:0', 'codec.lm.eos_min_step=int:1']` to `initVocoder`.
+- **Chatterbox (T3)** decodes a guidance pair: create the context with `n_parallel` >= 2, or turn the guidance off at load with `initVocoder({ kv_overrides: ['codec.lm.chatterbox.sampling.cfg_weight=float:0'] })`; otherwise `getFormattedAudioCompletion` throws. Turbo needs one sequence. The Multilingual backbones in `BricksDisplay/Chatterbox-Multilingual-TTS-GGUF` since 2026-10-21 (`chatterbox-mtl-<q>.gguf` with `codec-<q>.gguf`) carry T3's text tokenizer as their vocab (`tokenizer.ggml.pre = chatterbox`), so llama.rn tokenizes the prompt; the older vocab-less files still work through codec.cpp's own tokenizer. `[lang]` tags and other language preparation stay the caller's.
+- **CosyVoice / BreezyVoice** always needs a decoder speaker: a builtin voice (`caps.builtinVoices`, e.g. `zh_female`) or a `LlamaSpeaker`. A `LlamaSpeaker` with `refText` (the clip's transcript) runs zero-shot cloning; without it, cross-lingual. Zero-shot puts the reference's speech tokens in the backbone context ahead of the text (BreezyVoice: 50 per second, so a 10 s clip is about 500 positions and a 30 s clip about 1500), so `n_ctx` has to cover the reference plus the output. Sampling is the completion's (the backbone GGUF's `general.sampling.*` unless set); upstream's repetition-aware sampling is approximated by a repetition penalty over the last 10 tokens.
+- **BreezyVoice** reads Mandarin with 注音 (bopomofo) annotations that upstream adds with g2pw. `caps.requiresPhonemes` is true for it, and the `phonemizer` hook is where to add them; plain text works but polyphones may be misread.
+- CosyVoice-300M / BreezyVoice use a llama.cpp arch (`cosyvoice`) whose relative positions are a KQ bias, which flash attention does not take. Use an F16 KV cache with them; a quantized V cache forces flash attention.
 
 ### Tested models
 

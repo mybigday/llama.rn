@@ -8,9 +8,8 @@
 // wrapped template literal is whitespace-stripped at decode time.
 
 export const DEFAULT_REF_AUDIO = {
-  /** Speaker text shown in upstream Chatterbox demo. */
-  refText:
-    'Last month, we reached a new milestone with two billion views on our YouTube channel.',
+  /** What the clip says (its transcript, for voice cloning). */
+  refText: "In this piece, we're actually playing husband and wife.",
   sampleRate: 24000,
   durationSec: 3.039,
   /** Base64-encoded raw PCM, signed 16-bit little-endian, mono. */

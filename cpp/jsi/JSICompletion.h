@@ -168,10 +168,23 @@ namespace rnllama_jsi {
         res["stopping_word"] = c.stopping_word;
         res["tokens_cached"] = c.n_past;
 
+        // A completion with a vocoder: its decoder input, codec codes or
+        // latents (as the embeddings), and why it ended.
         if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
-            result.audio_tokens = ctx->tts_wrapper->audio_tokens;
-        }
-        if (!c.embeddings.empty()) {
+            auto * tts = ctx->tts_wrapper;
+            tts->collectGeneration();
+            result.audio_tokens = tts->audio_tokens;
+            if (!tts->audio_tokens.empty()) res["audio_tokens_width"] = tts->getCodeWidth();
+            if (!tts->audio_latents.empty()) {
+                result.embeddings = tts->audio_latents;
+                res["embedding_dim"] = tts->audio_latent_dim;
+            }
+            res["audio_frames"] = tts->n_frames;
+            res["audio_stop_reason"] = !tts->stop_reason.empty() ? tts->stop_reason
+                : c.context_full ? "context_full"
+                : c.is_interrupted ? "interrupted"
+                : "n_predict";
+        } else if (!c.embeddings.empty()) {
             result.embeddings = c.embeddings;
             res["embedding_dim"] = c.embedding_dim;
         }

@@ -396,9 +396,15 @@ export type NativeCompletionParams = {
    * For example, use `"logit_bias": [[15043,1.0]]` to increase the likelihood of the token 'Hello', or `"logit_bias": [[15043,-1.0]]` to decrease its likelihood.
    * Setting the value to false, `"logit_bias": [[15043,false]]` ensures that the token `Hello` is never produced. The tokens can also be represented as strings,
    * e.g.`[["Hello, World!",-0.5]]` will reduce the likelihood of all the individual tokens that represent the string `Hello, World!`, just like the `presence_penalty` does.
+   *
+   * Or a `Float32Array` of exactly `n_vocab` entries, one bias per token id (`0`: none, `-Infinity`: never sampled), read straight from its buffer — the form for large tables.
    * Default: `[]`
    */
-  logit_bias?: Array<Array<number>>
+  logit_bias?: Array<Array<number>> | Float32Array
+  /**
+   * Sampler order, as llama.cpp's `--samplers` (`"penalties;dry;top_k;top_p;min_p;temperature"` or an array of names). Default: the model's `general.sampling.sequence`, else llama.cpp's order.
+   */
+  samplers?: string | Array<string>
   /**
    * Set the random number generator (RNG) seed. Default: `-1`, which is a random seed.
    */
@@ -528,7 +534,14 @@ export type NativeCompletionResult = {
   completion_probabilities?: Array<NativeCompletionTokenProb>
   embeddings?: Array<number>
   embedding_dim?: number
+  /** Text-to-speech: the generation's codec codes, frame-major (`audio_tokens_width` per frame). */
   audio_tokens?: Array<number>
+  /** Text-to-speech: codebooks per frame of `audio_tokens`. */
+  audio_tokens_width?: number
+  /** Text-to-speech: audio frames codec.cpp counted. */
+  audio_frames?: number
+  /** Text-to-speech: why the generation ended (codec.cpp's stop reason, `n_predict`, `context_full` or `interrupted`). */
+  audio_stop_reason?: string
 }
 
 export type NativeTokenizeResult = {

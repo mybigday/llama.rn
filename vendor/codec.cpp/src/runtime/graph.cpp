@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 
 static bool codec_graph_key_equal(const codec_graph_cache_key & a, const codec_graph_cache_key & b) {
     return a.kind == b.kind &&
@@ -16,7 +17,7 @@ static bool codec_graph_key_equal(const codec_graph_cache_key & a, const codec_g
 }
 
 struct codec_graph_count_state {
-    std::vector<ggml_tensor *> visited;
+    std::unordered_set<const ggml_tensor *> visited;
     size_t n_nodes = 0;
     size_t n_leafs = 0;
 };
@@ -26,10 +27,9 @@ static void codec_graph_count_visit(ggml_tensor * node, codec_graph_count_state 
         return;
     }
 
-    if (std::find(state->visited.begin(), state->visited.end(), node) != state->visited.end()) {
+    if (!state->visited.insert(node).second) {
         return;
     }
-    state->visited.push_back(node);
 
     for (int i = 0; i < GGML_MAX_SRC; ++i) {
         codec_graph_count_visit(node->src[i], state);
@@ -56,6 +56,112 @@ size_t codec_graph_size_exact(
 
     const codec_graph_count_state state = codec_graph_count_exact(out);
     return std::max<size_t>(1, std::max(state.n_nodes, state.n_leafs));
+}
+
+// Context whose graph is being built (set around build_fn), so blocks can
+// register constants without threading codec_context through every builder.
+static thread_local codec_context * t_building_ctx = nullptr;
+
+ggml_tensor * codec_graph_const(
+        ggml_context * ctx_eval, const char * name, ggml_type type, int n_dims,
+        const int64_t * ne, const void * data) {
+    codec_context * ctx = t_building_ctx;
+    if (ctx == nullptr || ctx_eval == nullptr || ctx_eval != ctx->eval_ctx || name == nullptr ||
+            data == nullptr || n_dims < 1 || n_dims > GGML_MAX_DIMS) {
+        return nullptr;
+    }
+    // Search the registered constants, not ctx_eval: ggml_get_tensor scans every
+    // object of a graph that can hold 100k+ nodes.
+    for (const codec_graph_const_input & c : ctx->eval_consts) {
+        if (std::strcmp(ggml_get_name(c.tensor), name) == 0) {
+            return c.tensor;
+        }
+    }
+    ggml_tensor * t = ggml_new_tensor(ctx_eval, type, n_dims, ne);
+    if (t == nullptr) {
+        return nullptr;
+    }
+    ggml_set_name(t, name);
+    ggml_set_input(t);
+    codec_graph_const_input c;
+    c.tensor = t;
+    const uint8_t * src = static_cast<const uint8_t *>(data);
+    c.data.assign(src, src + ggml_nbytes(t));
+    ctx->eval_consts.push_back(std::move(c));
+    return t;
+}
+
+ggml_tensor * codec_graph_const_f32(
+        ggml_context * ctx_eval, const char * name, const std::vector<float> & data,
+        int64_t ne0, int64_t ne1, int64_t ne2) {
+    if ((int64_t) data.size() != ne0 * ne1 * ne2) {
+        return nullptr;
+    }
+    const int64_t ne[3] = {ne0, ne1, ne2};
+    const int n_dims = ne2 > 1 ? 3 : (ne1 > 1 ? 2 : 1);
+    return codec_graph_const(ctx_eval, name, GGML_TYPE_F32, n_dims, ne, data.data());
+}
+
+ggml_tensor * codec_graph_pin_cpu(ggml_tensor * node) {
+    if (t_building_ctx != nullptr && node != nullptr) {
+        t_building_ctx->eval_cpu_nodes.push_back(node);
+    }
+    return node;
+}
+
+bool codec_graph_backend_is_gpu() {
+    return t_building_ctx != nullptr && t_building_ctx->backend != nullptr &&
+           ggml_backend_dev_type(ggml_backend_get_device(t_building_ctx->backend)) != GGML_BACKEND_DEVICE_TYPE_CPU;
+}
+
+const char * codec_graph_backend_reg_name() {
+    if (t_building_ctx == nullptr || t_building_ctx->backend == nullptr) return "";
+    ggml_backend_dev_t dev = ggml_backend_get_device(t_building_ctx->backend);
+    return dev != nullptr ? ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev)) : "";
+}
+
+ggml_tensor ** codec_graph_weight_cast_slot(ggml_context * ctx_eval, const ggml_tensor * w) {
+    if (t_building_ctx == nullptr || ctx_eval != t_building_ctx->eval_ctx || w == nullptr) return nullptr;
+    return &t_building_ctx->eval_weight_casts[w];
+}
+
+bool codec_graph_backend_supports(const ggml_tensor * node) {
+#ifdef CODEC_DEBUG_TOOLS
+    static const bool force_composite = [] {
+        const char * v = std::getenv("CODEC_FORCE_COMPOSITE_OPS");
+        return v != nullptr && v[0] != '\0' && v[0] != '0';
+    }();
+    if (force_composite) return false;
+#endif
+    if (t_building_ctx == nullptr || t_building_ctx->backend == nullptr || node == nullptr) return true;
+    return ggml_backend_supports_op(t_building_ctx->backend, node);
+}
+
+static ggml_tensor * codec_graph_last_tensor(ggml_context * ctx) {
+    ggml_tensor * last = nullptr;
+    for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
+        last = t;
+    }
+    return last;
+}
+
+codec_graph_cpu_scope::codec_graph_cpu_scope(ggml_context * ctx_eval)
+    : ctx(ctx_eval), last_before(codec_graph_last_tensor(ctx_eval)) {}
+
+codec_graph_cpu_scope::~codec_graph_cpu_scope() {
+    // A view must live on its source's backend: pin views only of pinned tensors.
+    std::unordered_set<const ggml_tensor *> pinned;
+    ggml_tensor * t = last_before != nullptr ? ggml_get_next_tensor(ctx, last_before) : ggml_get_first_tensor(ctx);
+    for (; t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
+        if (t->op == GGML_OP_NONE) {
+            continue;
+        }
+        if (t->view_src != nullptr && pinned.count(t->view_src) == 0) {
+            continue;
+        }
+        pinned.insert(t);
+        codec_graph_pin_cpu(t);
+    }
 }
 
 void codec_graph_release(codec_context * ctx) {
@@ -86,6 +192,9 @@ void codec_graph_release(codec_context * ctx) {
     ctx->eval_graph = nullptr;
     ctx->eval_output = nullptr;
     ctx->eval_entry = nullptr;
+    ctx->eval_consts.clear();
+    ctx->eval_cpu_nodes.clear();
+    ctx->eval_weight_casts.clear();
     ctx->eval_graph_allocated = false;
 }
 
@@ -234,7 +343,10 @@ bool codec_graph_cache_get_or_build(
 
     ggml_tensor * out = nullptr;
     void * build_data = cached->build_user_data.empty() ? nullptr : cached->build_user_data.data();
-    if (!cached->build_fn(ctx->eval_ctx, build_data, &out) || out == nullptr) {
+    t_building_ctx = ctx;
+    const bool built = cached->build_fn(ctx->eval_ctx, build_data, &out);
+    t_building_ctx = nullptr;
+    if (!built || out == nullptr) {
         if (error != nullptr) {
             *error = "failed to build graph";
         }
@@ -321,6 +433,11 @@ bool codec_graph_cache_get_or_build(
     // realloc-down would just churn since the next entry might want the
     // larger size again.
     const size_t used_mem = ggml_used_mem(ctx->eval_ctx);
+    {
+        char det[96];
+        std::snprintf(det, sizeof(det), "kind=%d meta_bytes=%zu nodes=%d", key.kind, used_mem, (int) counts.n_nodes);
+        codec_perf_event("graph_meta", det);
+    }
     if (used_mem > cached->required_mem_size) {
         cached->required_mem_size = used_mem;
     }

@@ -92,11 +92,6 @@ rnllama_test(parallel_decoding_test parallel_decoding_test.cpp)
 # against llama-server
 rnllama_test(decision_probe decision_probe.cpp NATIVE_SIMD)
 
-# BlueMagpie CLI probe: measures per-step latency of the continuous_embd
-# completion-loop hook on host, so we can pin down the bottleneck without
-# fighting Pixel's OOM killer.
-rnllama_test(bluemagpie_probe bluemagpie_probe.cpp NATIVE_SIMD)
-
 # -DTESTS_METAL=ON (Apple only): compile the Metal backend into tts_probe so
 # host runs exercise the same GPU path the app uses (backbone via --ngl,
 # codec via --codec-gpu). Target-scoped: other test targets stay CPU-only.

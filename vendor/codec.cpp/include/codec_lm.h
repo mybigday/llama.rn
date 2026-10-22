@@ -84,19 +84,18 @@ extern "C" {
 //                                       step_feedback_embd entry points instead
 //                                       of the codebook step machine.
 //                                       Models: BlueMagpie-TTS, VoxCPM2.
-// CODEC_LM_KIND_FLOW_LM             — Kyutai Pocket-TTS.  A SELF-CONTAINED
-//                                     continuous-latent AR model: the AR
-//                                     transformer, text LUT, flow head (LSD
-//                                     SimpleMLPAdaLN) and EOS head all live in
-//                                     the codec GGUF (no external llama.cpp
-//                                     backbone).  The sequence is
-//                                     [text LUT embeds | voice rows | AR latent
-//                                     embeds]; each step runs the transformer
-//                                     over its KV cache, emits an EOS logit and
-//                                     an LSD-decoded 32-d latent, then feeds that
-//                                     latent back as the next input.  Uses the
-//                                     dedicated codec_lm_flow_* entry points
-//                                     below, not the codebook / CFM machinery.
+// CODEC_LM_KIND_FLOW_LM             — Kyutai Pocket-TTS.  Continuous-latent
+//                                     AR: the FlowLM transformer runs in
+//                                     llama.cpp (stock `starcoder2`, text LUT
+//                                     as token_embd); this adaptor owns the
+//                                     voice prefix rows, the step input
+//                                     embedding (input_linear of BOS / the
+//                                     previous latent), the EOS head and the
+//                                     LSD flow head.  Drives the continuous
+//                                     step machine (step_generate: one 32-d
+//                                     latent per step, patch_size 1;
+//                                     step_feedback_embd) plus the
+//                                     internal codec_lm_flow_* prompt helpers.
 //                                     Models: pocket-tts (english_2026-04 etc.).
 enum codec_lm_kind {
     CODEC_LM_KIND_UNKNOWN               = 0,
@@ -122,8 +121,8 @@ struct codec_lm_info {
     // matches `llama_model_n_embd(host_model)`.
     int32_t         hidden_dim;
 
-    // Audio embedding dimension (the dim of vectors returned by
-    // codec_lm_audio_embd).  Used to size the depth-side audio embed
+    // Audio embedding dimension (the width of one codebook's embedding
+    // row).  Used to size the depth-side audio embed
     // rows; equals hidden_dim for shared / in_proj-on-prefix models
     // (CSM / Qwen3-TTS) and depth_hidden for in_proj_per_pos models
     // (Moshi / LFM2).
@@ -230,18 +229,6 @@ enum codec_status codec_lm_state_set_text_context(
 // Audio embedding lookup.
 // ─────────────────────────────────────────────────────────────────────
 
-// Look up the audio embedding row for codebook `cb_idx` and code
-// `code`.  Returns a pointer into the model's weight buffer (read-only;
-// lifetime = lifetime of `lm`).  Returns NULL when the arguments are
-// out of range.
-//
-// `code == -1` is reserved for "skip / pad" by callers and is rejected
-// by this lookup with NULL — use codec_lm_compose_audio_embd to do a
-// pad-aware sum.
-const float * codec_lm_audio_embd(
-    struct codec_lm * lm,
-    int32_t           cb_idx,
-    int32_t           code);
 
 // Qwen3-TTS talker text-projection.  Projects one text-vocab token
 // through the talker `text_projection` MLP (fc2 ∘ silu ∘ fc1 applied to
@@ -408,7 +395,8 @@ enum codec_status codec_lm_step_is_eos(
     int32_t *               out_is_eos);
 
 // ─────────────────────────────────────────────────────────────────────
-// Continuous-latent step machine (CONTINUOUS_LATENT_CFM kind only).
+// Continuous-latent step machine (CONTINUOUS_LATENT_CFM; FLOW_LM — see the
+// FlowLM section of src/lm/lm_models.h for its semantics).
 //
 // Replaces the codebook step machine.  One call runs the whole generation
 // step internally — tslm_adapter + FSQ + RALM step + LocDiT CFM diffusion —
@@ -478,19 +466,6 @@ enum codec_status codec_lm_text_prefill(
 enum codec_status codec_lm_set_continuous_min_len(
     struct codec_lm_state * st,
     int32_t                 min_len);
-
-// Teacher-force the NEXT codec_lm_step_generate's trajectory (parity testing).
-// The supplied reference latent `patch` [patch_size*latent_dim] replaces the
-// codec's own generated patch as the cond for the next step AND as the LocEnc
-// feedback source for THIS step — so codec replays the reference trajectory
-// exactly and every emitted patch stays comparable to the reference (free-
-// running feedback diverges chaotically after a few steps under F16).  The
-// patch the graph emits is still codec's own.  Consumed once per step; re-arm
-// before each step.  Pass NULL to disarm.  CONTINUOUS_LATENT_CFM only.
-enum codec_status codec_lm_set_teacher_patch(
-    struct codec_lm_state * st,
-    const float *           patch,
-    int32_t                 n);
 
 // =====================================================================
 // Speaker-conditioning encoder.
@@ -593,177 +568,6 @@ enum codec_status codec_lm_speaker_encode_from_embedding(
     const float *              emotion,             // NULL = use default
     float *                    out,
     int32_t                    out_n_elems);
-
-// ─── Chatterbox T3 host-orchestration helpers ───────────────────────
-// T3 is an embd-driven Llama backbone: the host owns the llama.cpp
-// decode loop; these helpers supply the T3-specific pieces (tokenizer,
-// prompt embeds, per-step speech embeds) that live on the codec.cpp
-// side.  All return CODEC_STATUS_NOT_SUPPORTED when the loaded model is
-// not a Chatterbox T3 adaptor (no `codec.lm.chatterbox.*` metadata).
-
-// Static config surfaced from `codec.lm.chatterbox.*` metadata.
-struct codec_lm_chatterbox_info {
-    int32_t hidden_dim;             // 1024
-    int32_t text_vocab_size;        // 704 (en) / 2454 (mtl)
-    int32_t speech_vocab_size;      // 8194
-    int32_t start_text_token;       // 255
-    int32_t stop_text_token;        // 0
-    int32_t start_speech_token;     // 6561
-    int32_t stop_speech_token;      // 6562
-    int32_t cond_rows;              // cond_enc output rows (34)
-    int32_t has_tokenizer;          // 1 if BPE tokenizer baked into GGUF
-    int32_t has_builtin_conds;      // 1 if builtin speaker conditioning baked
-    int32_t is_multilingual;        // 1 for the 2454-vocab variants
-};
-
-// Returns the chatterbox info, or NULL if the model is not a T3 adaptor.
-const struct codec_lm_chatterbox_info *
-codec_lm_chatterbox_get_info(struct codec_lm * lm);
-
-// Tokenize `text` with the baked EnTokenizer BPE (punc_norm applied
-// internally, mirroring ChatterboxTTS.generate).  Writes token ids into
-// `out_ids` (capacity `cap`); sets `*n_out` to the count.  Does NOT add
-// the start/stop text tokens — the host wraps those.  Returns
-// CODEC_STATUS_NOT_SUPPORTED if no tokenizer is baked.
-enum codec_status codec_lm_chatterbox_tokenize(
-    struct codec_lm * lm,
-    const char *      text,
-    int32_t *         out_ids,
-    int32_t           cap,
-    int32_t *         n_out);
-
-// Build the full backbone-input embed prefix for T3 inference:
-//   [ cond_emb (cond_rows) | text_emb+text_pos_emb (n_text_wrapped) | BOS ]
-// The caller passes RAW text ids (without start/stop text tokens); this
-// helper prepends start_text_token, appends stop_text_token, adds
-// text_pos_emb, then appends the speech BOS
-// (start_speech_token @ speech_pos_emb[0]).
-//
-// When `cfg_weight > 0` two rows are produced (cond, then uncond): the
-// uncond row is identical except its text-embedding content is zeroed
-// (text_pos_emb preserved), matching T3's `text_emb[1].zero_()`.  The
-// output is laid out row-major as `[n_rows_total × hidden]` where
-// n_rows_total = n_seq * (cond_rows + n_text_wrapped + 1) and n_seq is
-// 2 when cfg_weight>0 else 1.  `*out_seq_len` = per-sequence row count.
-//
-// Conditioning source: if `speaker_emb`!=NULL it is used (with
-// `ref_speech_tokens`/`emotion`); otherwise the builtin conds baked
-// into the GGUF are used (requires has_builtin_conds).
-// Conditioning source precedence:
-//   1. `ref_pcm` (mono F32, `ref_sample_rate`) → run the voice encoder
-//      (VE) + cond_enc to derive the speaker prefix from reference audio.
-//      The cond-prompt speech tokens come from `ref_speech_tokens` if
-//      given, else the builtin prompt tokens.
-//   2. else `speaker_emb` (256-d) → cond_enc from a cached embedding.
-//   3. else the builtin conds baked into the GGUF (has_builtin_conds).
-enum codec_status codec_lm_chatterbox_build_prompt(
-    struct codec_lm * lm,
-    const int32_t *   text_ids,
-    int32_t           n_text,
-    float             cfg_weight,
-    const float *     speaker_emb,          // NULL → builtin/ref
-    int32_t           speaker_emb_dim,
-    const int32_t *   ref_speech_tokens,    // NULL → builtin
-    int32_t           n_ref_speech_tokens,
-    const float *     emotion,              // NULL → builtin/default
-    const float *     ref_pcm,              // NULL → no ref audio
-    int32_t           ref_n_samples,
-    int32_t           ref_sample_rate,
-    float *           out_embeds,
-    int32_t           out_cap_rows,         // capacity in rows
-    int32_t *         out_seq_len,          // per-sequence rows
-    int32_t *         out_n_seq);           // 1 or 2 (CFG)
-
-// Compose the next backbone-input speech embed for AR step `pos`:
-//   speech_emb[code] + speech_pos_emb[pos].
-// `pos` is the speech-position index: BOS is 0, the first generated
-// token is 1, etc.  When CFG is active the host feeds the same embed to
-// both lanes.  Writes `hidden` floats to `out`.
-enum codec_status codec_lm_chatterbox_compose_speech_embd(
-    struct codec_lm * lm,
-    int32_t           code,
-    int32_t           pos,
-    float *           out,
-    int32_t           out_cap);
-
-// ─── Pocket-TTS FlowLM host-orchestration helpers (CODEC_LM_KIND_FLOW_LM) ───
-// FlowLM is self-contained: the AR transformer, text LUT, LSD flow head and EOS
-// head all live in the codec GGUF, so there is no llama.cpp backbone.  The host
-// drives generation entirely through these helpers.  All return
-// CODEC_STATUS_NOT_SUPPORTED when the model is not a FlowLM adaptor.
-
-// Static config surfaced from `codec.lm.*` metadata.
-struct codec_lm_flow_info {
-    int32_t d_model;                 // AR transformer hidden (1024)
-    int32_t ldim;                    // continuous latent dim (32)
-    int32_t n_txt_bins;              // SentencePiece vocab (4000)
-    int32_t insert_bos_before_voice; // 1 if a learned BOS row precedes voice rows
-    int32_t frames_after_eos;        // -1 = derive from word count (1-3), else fixed
-    float   temperature;             // LSD init-noise variance (0.7)
-    float   eos_threshold;           // EOS fires when out_eos logit > this (-4.0)
-    int32_t lsd_decode_steps;        // LSD Euler steps (1)
-    int32_t has_tokenizer;           // 1 if a SentencePiece model is baked in
-};
-
-// Returns the FlowLM info, or NULL if the model is not a FlowLM adaptor.
-const struct codec_lm_flow_info * codec_lm_flow_get_info(struct codec_lm * lm);
-
-// Tokenize `text` with the baked SentencePiece unigram model (identity
-// normalizer, add_dummy_prefix, byte fallback).  Writes ids into `out_ids`
-// (capacity `cap`); sets `*n_out`.  Does NOT prepend/append BOS/EOS.  Returns
-// NOT_SUPPORTED if no tokenizer is baked.
-enum codec_status codec_lm_flow_tokenize(
-    struct codec_lm * lm,
-    const char *      text,
-    int32_t *         out_ids,
-    int32_t           cap,
-    int32_t *         n_out);
-
-// Project a Mimi voice-conditioning latent `mu` [ldim × n_voice] (channel-major,
-// mu[d*n_voice + t]) through `speaker_proj` into `out` [n_voice × d_model] rows
-// (row-major, out[t*d_model + c]).  Used to build the voice-cloning rows for
-// codec_lm_flow_prefill.  Returns NOT_SUPPORTED if the model has no speaker_proj.
-enum codec_status codec_lm_flow_speaker_rows(
-    struct codec_lm * lm,
-    const float *     mu,
-    int32_t           n_voice,
-    float *           out,
-    int32_t           out_cap_rows);
-
-// Prefill the AR transformer KV cache over the prompt prefix:
-//   [ text LUT embeds (n_tok) | (bos_before_voice) | voice rows (n_voice) ]
-// `voice_rows` is [n_voice × d_model] row-major or NULL (text-only / default
-// voice).  Resets any prior generation state.  After this the state is primed
-// for codec_lm_flow_step.
-enum codec_status codec_lm_flow_prefill(
-    struct codec_lm_state * st,
-    const int32_t *         token_ids,
-    int32_t                 n_tok,
-    const float *           voice_rows,   // NULL = no voice conditioning
-    int32_t                 n_voice);
-
-// Advance one AR frame.  Runs the transformer step over the KV cache, computes
-// the EOS logit, samples LSD init noise (or uses `noise` [ldim] when non-NULL
-// for deterministic / parity runs), LSD-decodes the next latent, appends its
-// input embedding to the KV cache, and writes:
-//   out_latent   : [ldim] the generated latent (pre-denormalization).
-//   out_eos_logit: the raw out_eos scalar (optional; may be NULL).
-//   out_is_eos   : 1 if out_eos_logit > eos_threshold, else 0 (optional).
-// Feed successive frames until the EOS + frames_after_eos policy stops (host).
-enum codec_status codec_lm_flow_step(
-    struct codec_lm_state * st,
-    const float *           noise,          // [ldim] or NULL to sample
-    float *                 out_latent,     // [ldim]
-    float *                 out_eos_logit,  // scalar, optional
-    int32_t *               out_is_eos);    // optional
-
-// Denormalize a generated latent for Mimi decode: out = latent * emb_std +
-// emb_mean, elementwise over ldim.  (The FlowLM predicts normalized latents;
-// Mimi consumes the denormalized ones.)
-enum codec_status codec_lm_flow_denorm_latent(
-    struct codec_lm * lm,
-    const float *     latent,     // [ldim]
-    float *           out);       // [ldim]
 
 #ifdef __cplusplus
 }

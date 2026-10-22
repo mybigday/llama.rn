@@ -21,6 +21,16 @@ namespace rnllama_jsi {
     //
     // Semantics follow JSON.stringify: undefined object properties are
     // dropped, functions become null, and numbers stay as double.
+    // A typed array view (Float32Array, Int32Array, ...): an object over an
+    // ArrayBuffer with BYTES_PER_ELEMENT.
+    inline bool isTypedArray(jsi::Runtime& rt, const jsi::Object& obj) {
+        if (!obj.getProperty(rt, "BYTES_PER_ELEMENT").isNumber()) return false;
+        auto buffer = obj.getProperty(rt, "buffer");
+        return buffer.isObject() && buffer.getObject(rt).isArrayBuffer(rt);
+    }
+
+    // Typed arrays are not converted (null): one json node per element is the
+    // cost they exist to avoid.  Read them with readTypedArray instead.
     inline json toJson(jsi::Runtime& rt, const jsi::Value& v) {
         if (v.isUndefined() || v.isNull()) return nullptr;
         if (v.isBool())   return v.getBool();
@@ -30,6 +40,7 @@ namespace rnllama_jsi {
 
         auto obj = v.getObject(rt);
         if (obj.isFunction(rt)) return nullptr;
+        if (isTypedArray(rt, obj)) return nullptr;
 
         if (obj.isArray(rt)) {
             auto arr = obj.getArray(rt);
@@ -169,6 +180,20 @@ namespace rnllama_jsi {
 
         readTypedArray(rt, obj, out);
         return out;
+    }
+
+    // `v` when it is a Float32Array (copied out of its ArrayBuffer), else
+    // nothing.  Int32Array and the other 4-byte views are not taken.
+    inline bool readFloat32Array(jsi::Runtime& rt, const jsi::Value& v, std::vector<float>& out) {
+        if (!v.isObject()) return false;
+        auto obj = v.getObject(rt);
+        if (!isTypedArray(rt, obj)) return false;
+        auto ctor = obj.getProperty(rt, "constructor");
+        if (!ctor.isObject()) return false;
+        auto name = ctor.getObject(rt).getProperty(rt, "name");
+        if (!name.isString() || name.getString(rt).utf8(rt) != "Float32Array") return false;
+        readTypedArray(rt, obj, out);
+        return true;
     }
 
     // Plain JS number[] from a numeric vector (public fields typed as
