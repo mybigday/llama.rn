@@ -85,7 +85,7 @@ struct Bench {
             msgs.dump(-1, ' ', false, json::error_handler_t::replace),
             "", "", "", false, "", /*enable_thinking*/ false, "none",
             /*add_generation_prompt*/ true, "", {}, false);
-        return cp.prompt;
+        return cp.prompt.str();
     }
 
     // One assistant turn; prints a BENCH CSV line and appends the reply.
