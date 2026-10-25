@@ -41,6 +41,11 @@ function(build_rnllama_library target_name arch cpu_flags)
         set(ENABLE_HEXAGON ON)
     endif ()
 
+    set(ENABLE_VULKAN OFF)
+    if (${target_name} MATCHES ".*_vulkan$")
+        set(ENABLE_VULKAN ON)
+    endif ()
+
     if (NOT ${arch} STREQUAL "generic")
         set(SOURCE_FILES_ARCH
             ${RNLLAMA_GGML_CPU_ARCH_DIR}/${arch}/quants.c
@@ -208,6 +213,14 @@ function(build_rnllama_library target_name arch cpu_flags)
         )
     endif ()
 
+    # Experimental Vulkan variant; shaders are generated once by rnllama_vulkan_setup()
+    if (ENABLE_VULKAN)
+        target_sources(${target_name} PRIVATE ${RNLLAMA_VULKAN_SOURCES})
+        target_include_directories(${target_name} BEFORE PRIVATE ${RNLLAMA_VULKAN_INCLUDE_DIRS})
+        target_compile_definitions(${target_name} PRIVATE ${RNLLAMA_VULKAN_DEFINITIONS})
+        target_link_libraries(${target_name} PRIVATE ${RNLLAMA_VULKAN_LIBRARY})
+    endif ()
+
     # Optimize for size and performance
     target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
@@ -231,6 +244,15 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm_hexagon_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
+
+    # Experimental, opt-in (RNLLAMA_VULKAN). dotprod only so it also covers
+    # pre-v8.6 Mali SoCs (e.g. Tensor G2); newer ones lose i8mm on the CPU side.
+    rnllama_variant_enabled("rnllama_v8_2_dotprod_vulkan" VULKAN_VARIANT_ENABLED)
+    if (RNLLAMA_VULKAN AND VULKAN_VARIANT_ENABLED)
+        include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/rnllama-vulkan.cmake)
+        rnllama_vulkan_setup()
+        build_rnllama_library("rnllama_v8_2_dotprod_vulkan" "arm" "-march=armv8.2-a+dotprod")
+    endif ()
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target

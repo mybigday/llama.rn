@@ -198,7 +198,16 @@ public class RNLlama {
       boolean jniLoaded = false;
       String loadedLib = "";
       if (isArm64V8a()) {
-        if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
+        // Experimental Vulkan variant, only present when built with rnllamaVulkan=true.
+        // Adreno devices keep the OpenCL/Hexagon path.
+        if (hasDotProd && !hasAdreno && hasVulkan12(context)) {
+          if (tryLoadLibrary("rnllama_jni_v8_2_dotprod_vulkan")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2_dotprod_vulkan";
+          }
+        }
+
+        if (!jniLoaded && hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
           if (tryLoadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl")) {
             jniLoaded = true;
             loadedLib = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
@@ -299,6 +308,23 @@ public class RNLlama {
     } catch (IOException ignored) {
     }
     return features.toString();
+  }
+
+  // ggml-vulkan needs Vulkan 1.2; the native side also rejects devices whose
+  // driver reports less, this just avoids loading the variant for nothing.
+  // The variant links Vulkan 1.1 symbols that libvulkan.so exports from API 28.
+  private static boolean hasVulkan12(android.content.Context context) {
+    if (Build.VERSION.SDK_INT < 28) {
+      return false;
+    }
+    try {
+      return context.getPackageManager().hasSystemFeature(
+        android.content.pm.PackageManager.FEATURE_VULKAN_HARDWARE_VERSION,
+        0x402000 // VK_API_VERSION_1_2
+      );
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   private static boolean tryLoadLibrary(String libraryName) {
