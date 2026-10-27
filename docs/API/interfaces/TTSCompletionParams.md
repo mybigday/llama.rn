@@ -26,7 +26,7 @@ The model reads the backbone's hidden states (the context returns them).
 
 #### Defined in
 
-[tts.ts:87](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L87)
+[tts.ts:87](https://github.com/mybigday/llama.rn/blob/7ce96e4b/src/tts.ts#L87)
 
 ___
 
@@ -38,7 +38,7 @@ The tokens the model may emit and its minimum length.
 
 #### Defined in
 
-[tts.ts:89](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L89)
+[tts.ts:89](https://github.com/mybigday/llama.rn/blob/7ce96e4b/src/tts.ts#L89)
 
 ___
 
@@ -50,7 +50,7 @@ One bias per vocabulary token (`-Infinity` for tokens the model never samples), 
 
 #### Defined in
 
-[tts.ts:91](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L91)
+[tts.ts:91](https://github.com/mybigday/llama.rn/blob/7ce96e4b/src/tts.ts#L91)
 
 ___
 
@@ -63,7 +63,7 @@ Models whose `grammar` holds the minimum (NeuTTS, Soprano) keep the grammar's wh
 
 #### Defined in
 
-[tts.ts:96](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L96)
+[tts.ts:96](https://github.com/mybigday/llama.rn/blob/7ce96e4b/src/tts.ts#L96)
 
 ___
 
@@ -75,4 +75,4 @@ The armed text; `completion()` must be given this prompt.
 
 #### Defined in
 
-[tts.ts:85](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L85)
+[tts.ts:85](https://github.com/mybigday/llama.rn/blob/7ce96e4b/src/tts.ts#L85)

@@ -1325,56 +1325,6 @@ export class LlamaContext {
   }
 
   /**
-   * DEPRECATED: `getFormattedAudioCompletion` + `completion()` with its
-   * `completionParams`; `maxFrames` is `n_predict`, `temperature`, `topP`,
-   * `topK` and `seed` are the completion's. `onFrame` fires per completion
-   * step with an empty `codes`; the codes come in the result.
-   */
-  async generateAudioCodes(options: {
-    prompt: string
-    maxFrames?: number
-    temperature?: number
-    topP?: number
-    topK?: number
-    seed?: number
-    onFrame?: (step: number, codes: number[]) => void
-  }): Promise<{
-    codes: number[]
-    nCodebook: number
-    nFrames: number
-    stoppedOnEos: boolean
-    aborted: boolean
-  }> {
-    const { onFrame, prompt, maxFrames, temperature, topP, topK, seed } =
-      options
-    const formatted = await this.getFormattedAudioCompletion({ prompt })
-    let step = 0
-    const res = await this.completion(
-      {
-        ...formatted.completionParams,
-        ...(maxFrames !== undefined ? { n_predict: maxFrames } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-        ...(topP !== undefined ? { top_p: topP } : {}),
-        ...(topK !== undefined ? { top_k: topK } : {}),
-        ...(seed !== undefined ? { seed } : {}),
-      },
-      onFrame
-        ? () => {
-            onFrame(step, [])
-            step += 1
-          }
-        : undefined,
-    )
-    return {
-      codes: res.audio_tokens ?? [],
-      nCodebook: res.audio_tokens_width ?? 0,
-      nFrames: res.audio_frames ?? 0,
-      stoppedOnEos: res.stopped_eos,
-      aborted: res.interrupted,
-    }
-  }
-
-  /**
    * Clone a voice from a reference clip (mono, any sample rate) and its
    * transcript `refText`, for models with `canSpeakerFromAudio`. All of the
    * voice's conditioning is computed here, once; `emotion` and `bake` are
