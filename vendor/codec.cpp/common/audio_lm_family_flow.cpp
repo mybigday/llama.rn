@@ -63,15 +63,17 @@ public:
         return spk != nullptr && codec_speaker_get_slot(spk, "latents", &ty, ne, &data);
     }
 
-    // Prompt: {prepared text}<__voice__><__codec:bos__> (the voice's prefix
-    // rows, then the first frame input: input_linear(BOS)).
+    // Prompt: <__voice__>{prepared text}<__codec:bos__> (the voice's prefix
+    // rows, the text, then the first frame input: input_linear(BOS)).  The
+    // reference fills the KV cache in that order: get_state_for_audio_prompt,
+    // then the text, then the frames.
     bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
         if (!has_latents(req.voice)) return fail("Pocket-TTS needs a voice (reference audio or a speaker file)");
         std::string text = req.text;
         flow_prepare_text(text);
         std::vector<int32_t> ids;
         if (req.text_known && !tokenize(text, vocab, &ids)) return false;
-        out->prompt = text + CODEC_AUDIO_LM_MARKER_VOICE + alm_codec_marker("bos");
+        out->prompt = CODEC_AUDIO_LM_MARKER_VOICE + text + alm_codec_marker("bos");
         alm_completion & d = out->desc;
         d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
         d.n_embd = fi_->d_model;
@@ -89,13 +91,7 @@ public:
 
     bool tts_build(const alm_tts_request & req, alm_prompt & prompt, const alm_vocab & vocab, alm_completion * out) override {
         const int32_t ldim = fi_->ldim, hidden = fi_->d_model;
-        std::string text = prompt.text();
-        const int32_t fae_guess = flow_prepare_text(text) + 2;   // the reference adds 2
-        fae_ = fi_->frames_after_eos >= 0 ? fi_->frames_after_eos : fae_guess;
-        std::vector<int32_t> ids;
-        if (!tokenize(text, vocab, &ids)) return false;
-        codec_log(CODEC_LOG_LEVEL_INFO, "pocket: text=\"%s\" -> %zu tokens\n", text.c_str(), ids.size());
-        if (!prompt.voice()) return fail("Pocket-TTS's prompt has <__voice__> after the text");
+        if (!prompt.voice()) return fail("Pocket-TTS's prompt starts with <__voice__>");
 
         // Voice conditioning: the speaker's reference latents -> [bos_before_voice | speaker_proj] rows.
         std::vector<float> rows;
@@ -116,6 +112,12 @@ public:
         }
         rows.resize((size_t) n_rows * hidden);
         codec_log(CODEC_LOG_LEVEL_INFO, "pocket: voice conditioning -> %d rows\n", n_rows);
+        std::string text = prompt.text();
+        const int32_t fae_guess = flow_prepare_text(text) + 2;   // the reference adds 2
+        fae_ = fi_->frames_after_eos >= 0 ? fi_->frames_after_eos : fae_guess;
+        std::vector<int32_t> ids;
+        if (!tokenize(text, vocab, &ids)) return false;
+        codec_log(CODEC_LOG_LEVEL_INFO, "pocket: text=\"%s\" -> %zu tokens\n", text.c_str(), ids.size());
         if (!prompt.codec("bos")) return fail("Pocket-TTS's prompt ends with <__codec:bos__>");
 
         if (st_) codec_lm_state_free(st_);
@@ -138,7 +140,7 @@ public:
         n_frames_ = 0;
         stop_reason_ = "max_frames";
         out->max_frames = max_frames_for(ids);
-        out->seqs = {{alm_chunk::of_tokens(ids), alm_chunk::of_embd(std::move(rows), n_rows),
+        out->seqs = {{alm_chunk::of_embd(std::move(rows), n_rows), alm_chunk::of_tokens(ids),
                       alm_chunk::of_embd(std::move(first), 1)}};
         return true;
     }

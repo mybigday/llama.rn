@@ -229,10 +229,11 @@ struct flow_spk_build { flow_impl imp; int32_t T; const codec_model * model; };
 bool build_spkproj(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     flow_spk_build * p = static_cast<flow_spk_build *>(ud);
     const flow_impl & I = p->imp;
-    ggml_tensor * mu = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, I.ldim, p->T);
+    // The speaker's latents slot is channel-major: mu[d*T + t] -> ne (T, ldim).
+    ggml_tensor * mu = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, p->T, I.ldim);
     ggml_set_name(mu, "flow.sp.mu"); ggml_set_input(mu);
     ggml_tensor * w = codec_graph_weight_mat(ctx, p->model, "lm.speaker_proj.w");   // (ldim, d_model)
-    ggml_tensor * rows = codec_mul_mat(ctx, w, mu);   // (d_model, T)
+    ggml_tensor * rows = codec_mul_mat(ctx, w, ggml_cont(ctx, ggml_transpose(ctx, mu)));   // (d_model, T)
     ggml_set_name(rows, "flow.sp.rows"); ggml_set_output(rows);
     *out = rows;
     return true;

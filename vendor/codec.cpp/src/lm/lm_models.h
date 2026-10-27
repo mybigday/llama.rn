@@ -181,8 +181,9 @@ enum codec_status codec_lm_cosyvoice_text_rows(
 
 // ─── Pocket-TTS FlowLM prompt helpers (CODEC_LM_KIND_FLOW_LM) ───
 // The backbone sequence is
-//   [ text tokens (b.token, backbone token_embd = text LUT) | voice prefix rows
-//     (b.embd) | per-frame input embeddings (b.embd) ]
+//   [ voice prefix rows (b.embd) | text tokens (b.token, backbone token_embd =
+//     text LUT) | per-frame input embeddings (b.embd) ]
+// (the reference's KV-cache order: voice state, then text, then frames)
 // Per frame: codec_lm_step_feedback_embd gives the next input embedding
 // (input_linear(bos_emb) before the first frame), the backbone's hidden goes
 // to codec_lm_step_generate, which writes the denormalized latent (what the
@@ -222,7 +223,7 @@ enum codec_status codec_lm_flow_tokenize(
 // (channel-major, mu[d*n_voice + t]): the learned bos_before_voice row (when
 // insert_bos_before_voice) followed by speaker_proj(mu), written to `out`
 // [*n_out × d_model] row-major (capacity `out_cap_rows` rows, n_voice + 1
-// suffices).  Fed to the backbone right after the text tokens.  Returns
+// suffices).  Fed to the backbone before the text tokens.  Returns
 // NOT_SUPPORTED if the model has no speaker_proj.
 enum codec_status codec_lm_flow_speaker_rows(
     struct codec_lm * lm,
