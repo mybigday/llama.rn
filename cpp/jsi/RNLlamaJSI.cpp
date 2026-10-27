@@ -2311,21 +2311,20 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaListSpeakers", listSpeakers);
 
-        auto decodeAudioEmbeddings = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioEmbeddings"),
-            3,
+        auto decodeAudioLatents = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioLatents"),
+            2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 // Float32Array | number[]
-                std::vector<float> embeddings = toFloatVector(runtime, arguments[1]);
-                int embeddingDim = (int)arguments[2].asNumber();
+                std::vector<float> latents = toFloatVector(runtime, arguments[1]);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, embeddings, embeddingDim]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, latents]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_data = ctx->tts_wrapper->decodeAudioEmbeddings(ctx, embeddings, embeddingDim);
+                        auto audio_data = ctx->tts_wrapper->decodeAudioLatents(ctx, latents);
                         return [audio_data](jsi::Runtime& rt) {
                             return makeFloat32Array(rt, audio_data);
                         };
@@ -2335,7 +2334,7 @@ namespace rnllama_jsi {
                 }, contextId);
             }
         );
-        runtime.global().setProperty(runtime, "llamaDecodeAudioEmbeddings", decodeAudioEmbeddings);
+        runtime.global().setProperty(runtime, "llamaDecodeAudioLatents", decodeAudioLatents);
 
         auto getAudioSampleRate = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetAudioSampleRate"),

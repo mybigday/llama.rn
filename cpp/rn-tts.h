@@ -134,13 +134,11 @@ struct llama_rn_context_tts {
     ::codec_audio_lm * alm = nullptr;
 
     // The last generation's decoder input (codec_audio_lm_get_generation):
-    // codec codes, which the completion result returns as `audio_tokens`
-    // (frame-major, code_width per frame), or latents, which it returns as
-    // `embeddings` / `embedding_dim`.  decodeAudioTokens /
-    // decodeAudioEmbeddings decode such data at any later time.
+    // codec codes or latents, frame-major, which the completion result
+    // returns as `audio_tokens` / `audio_latents`.  decodeAudioTokens /
+    // decodeAudioLatents decode such data at any later time.
     std::vector<llama_token> audio_tokens;
     std::vector<float> audio_latents;
-    int audio_latent_dim = 0;
     int n_frames = 0;               // audio frames of the last generation
     std::string stop_reason;
 
@@ -208,14 +206,11 @@ struct llama_rn_context_tts {
     void saveSpeaker(int id, const std::string &path, const std::string &name);
     std::vector<llama_rn_speaker_info> listSpeakers(const std::string &path);
 
-    // PCM of a generation's codes (`audio_tokens`) or latents (`embeddings`),
+    // PCM of a generation's codes (`audio_tokens`) or latents (`audio_latents`),
     // with the voice of the last generation.  Throws on failure.
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
-    std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings,
-                                             int embedding_dim);
+    std::vector<float> decodeAudioLatents(llama_rn_context* main_ctx, const std::vector<float> &latents);
     int getAudioSampleRate() const;
-    // Codebooks per frame of `audio_tokens` (0 until this model generated).
-    int getCodeWidth() const { return code_width; }
 
 private:
     // Serializes the codec context, the speaker registry and the last
@@ -230,7 +225,10 @@ private:
     // Null for the model's default when it has none.  Throws on an unknown voice.
     rn_voice resolveVoice(int speaker_id, const std::string &voice_name);
     std::vector<float> decodeGeneration(const codec_audio_lm_generation &gen, const char * what);
-    int code_width = 0;             // codebooks per frame of this model's codes (0: none seen yet)
+    // Per frame of this model's generations (0: none seen yet): codebooks of
+    // its codes, or the dimension of its latents.
+    int code_width = 0;
+    int latent_width = 0;
 
     // The voice of the last completion, kept for decoding its generation later.
     rn_voice gen_voice;

@@ -747,10 +747,10 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 
 "Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
 
-codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. The flow is `getFormattedAudioCompletion()` → `completion()` → `decodeAudioTokens()` / `decodeAudioEmbeddings()`:
+codec.cpp's `codec_audio_lm` describes each model: its prompt, its sampling, when it stops and how its output turns into audio. The flow is `getFormattedAudioCompletion()` → `completion()` → `decodeAudioTokens()` / `decodeAudioLatents()`:
 
 - `getFormattedAudioCompletion()` is like `getFormattedChat()`: it keeps no state and returns the request's `completionParams` — the complete text `prompt` (the model's template, the instruct, the normalized text, a voice written as text such as OuteTTS / NeuTTS references, and MTMD-style `<__voice__>` / `<__codec:NAME__>` markers where the model needs embedding rows), the grammar (the tokens the model may emit and its minimum length) or a `logit_bias` table (`Float32Array`, one bias per token), and `embedding` when the model reads hidden states. The prompt is plain text: inspect or edit it.
-- `completion()` is the regular completion. On a context with a vocoder, codec.cpp builds its prompt the way MTMD builds media: text is tokenized, the markers become embedding rows, and the `speaker` given to `completion()` (a `LlamaSpeaker` or a builtin voice name; the model's default without one) fills `<__voice__>`. codec.cpp then takes part in every step: it says what the backbone reads next (a token or an embedding row), which steps are audio (never emitted as text; other tokens come out as text, for models that interleave both) and when the speech ends. The sampling is the completion's own, for the backbone and codec.cpp's codebook heads alike: the backbone GGUF's recommended `general.sampling.*` unless you set values; its `seed` also seeds codec.cpp's own noise. `n_predict` is yours to cap it (by default it runs until the model stops or the context is full). The result carries the decoder input — `audio_tokens` (codec codes, `audio_tokens_width` per frame), or `embeddings` + `embedding_dim` for latent models (Soprano, BlueMagpie) — plus `audio_frames` and `audio_stop_reason`.
+- `completion()` is the regular completion. On a context with a vocoder, codec.cpp builds its prompt the way MTMD builds media: text is tokenized, the markers become embedding rows, and the `speaker` given to `completion()` (a `LlamaSpeaker` or a builtin voice name; the model's default without one) fills `<__voice__>`. codec.cpp then takes part in every step: it says what the backbone reads next (a token or an embedding row), which steps are audio (never emitted as text; other tokens come out as text, for models that interleave both) and when the speech ends. The sampling is the completion's own, for the backbone and codec.cpp's codebook heads alike: the backbone GGUF's recommended `general.sampling.*` unless you set values; its `seed` also seeds codec.cpp's own noise. `n_predict` is yours to cap it (by default it runs until the model stops or the context is full). The result carries what it generated, the decoder input: `audio_tokens` (codec codes) or `audio_latents` for latent models (Soprano, BlueMagpie, Pocket-TTS). `embeddings` keeps its usual meaning, the backbone's hidden states, and is not the decoder input.
 - The decoder input decodes to PCM at any later time, in any order.
 
 One request speaks one text. Long text is the app's to split (by sentence, say), one request and one completion per piece.
@@ -783,8 +783,8 @@ const { completionParams } = await ctx.getFormattedAudioCompletion({
 const result = await ctx.completion({ ...completionParams, speaker: 'ryan', seed: 42, n_predict: 2048 })
 const sampleRate = await ctx.getAudioSampleRate()
 const pcm = new Float32Array(
-  result.embeddings?.length
-    ? await ctx.decodeAudioEmbeddings(result.embeddings, result.embedding_dim)
+  result.audio_latents?.length
+    ? await ctx.decodeAudioLatents(result.audio_latents)
     : await ctx.decodeAudioTokens(result.audio_tokens ?? []),
 )
 

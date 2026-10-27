@@ -394,7 +394,7 @@ if (!NativeModules.RNLlama) {
       jest.fn(async () => [{ name: 'saved', refText: '', isDefault: true }]),
     )
     setGlobal(
-      'llamaDecodeAudioEmbeddings',
+      'llamaDecodeAudioLatents',
       jest.fn(async () => new Float32Array([0.125])),
     )
     setGlobal('llamaGetAudioSampleRate', jest.fn(async () => 24000))

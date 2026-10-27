@@ -158,7 +158,7 @@ const jsiBindingKeys = [
   'llamaLoadSpeaker',
   'llamaSaveSpeaker',
   'llamaListSpeakers',
-  'llamaDecodeAudioEmbeddings',
+  'llamaDecodeAudioLatents',
   'llamaGetAudioSampleRate',
   'llamaReleaseVocoder',
   'llamaClearCache',
@@ -1214,7 +1214,7 @@ export class LlamaContext {
    * Arm a text-to-speech request and report how to run it.
    *
    * The flow is `getFormattedAudioCompletion` → `completion()` →
-   * `decodeAudioTokens` / `decodeAudioEmbeddings`. Like `getFormattedChat`,
+   * `decodeAudioTokens` / `decodeAudioLatents`. Like `getFormattedChat`,
    * this returns what the request's format needs, as `completionParams`: the
    * prompt, the grammar or `logit_bias` token mask, `embedding` and the
    * model's minimum length (`n_min_predict`). Sampling (the backbone GGUF's
@@ -1224,9 +1224,9 @@ export class LlamaContext {
    * `completionParams.prompt`. The completion samples with its own sampler
    * (codec.cpp's own samplers use the same settings) and hands every step to
    * codec.cpp, which decides what the backbone reads next and when the
-   * speech ends; the result carries the decoder input:
-   * `audio_tokens` (codec codes, `audio_tokens_width` per frame) or
-   * `embeddings` + `embedding_dim` (latents, e.g. Soprano / BlueMagpie).
+   * speech ends; the result carries what it generated, the decoder input:
+   * `audio_tokens` (codec codes) or `audio_latents` (e.g. Soprano /
+   * BlueMagpie).
    * Long text is the caller's to split: one request per piece.
    *
    * - `prompt` — text to speak. Phonemized if `phonemizer` is supplied.
@@ -1388,20 +1388,16 @@ export class LlamaContext {
   }
 
   /**
-   * PCM of a text-to-speech completion's `embeddings` / `embedding_dim`
-   * (latent models), like `decodeAudioTokens`.
+   * PCM of a text-to-speech completion's `audio_latents` (latent models),
+   * like `decodeAudioTokens`.
    */
-  async decodeAudioEmbeddings(
-    embeddings: number[] | Float32Array,
-    embeddingDim: number,
+  async decodeAudioLatents(
+    latents: number[] | Float32Array,
   ): Promise<Array<number>> {
-    const { llamaDecodeAudioEmbeddings } = getJsi()
-    const pcm = await llamaDecodeAudioEmbeddings(
+    const { llamaDecodeAudioLatents } = getJsi()
+    const pcm = await llamaDecodeAudioLatents(
       this.id,
-      embeddings instanceof Float32Array
-        ? embeddings
-        : Float32Array.from(embeddings),
-      embeddingDim,
+      latents instanceof Float32Array ? latents : Float32Array.from(latents),
     )
     return Array.from(pcm)
   }

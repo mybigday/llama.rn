@@ -112,12 +112,16 @@ namespace rnllama_jsi {
     struct CompletionResult {
         json body;
         std::vector<llama_token> audio_tokens;
+        std::vector<float> audio_latents;
         std::vector<float> embeddings;
 
         jsi::Value toJsi(jsi::Runtime& rt) const {
             jsi::Object res = fromJson(rt, body).getObject(rt);
             if (!audio_tokens.empty()) {
                 res.setProperty(rt, "audio_tokens", toJsNumberArray(rt, audio_tokens));
+            }
+            if (!audio_latents.empty()) {
+                res.setProperty(rt, "audio_latents", toJsNumberArray(rt, audio_latents));
             }
             if (!embeddings.empty()) {
                 res.setProperty(rt, "embeddings", toJsNumberArray(rt, embeddings));
@@ -168,23 +172,15 @@ namespace rnllama_jsi {
         res["stopping_word"] = c.stopping_word;
         res["tokens_cached"] = c.n_past;
 
-        // A completion with a vocoder: its decoder input, codec codes or
-        // latents (as the embeddings), and why it ended.
+        // A completion with a vocoder: what it generated, codec codes or
+        // latents (the decoder input).
         if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
             auto * tts = ctx->tts_wrapper;
             tts->collectGeneration();
             result.audio_tokens = tts->audio_tokens;
-            if (!tts->audio_tokens.empty()) res["audio_tokens_width"] = tts->getCodeWidth();
-            if (!tts->audio_latents.empty()) {
-                result.embeddings = tts->audio_latents;
-                res["embedding_dim"] = tts->audio_latent_dim;
-            }
-            res["audio_frames"] = tts->n_frames;
-            res["audio_stop_reason"] = !tts->stop_reason.empty() ? tts->stop_reason
-                : c.context_full ? "context_full"
-                : c.is_interrupted ? "interrupted"
-                : "n_predict";
-        } else if (!c.embeddings.empty()) {
+            result.audio_latents = tts->audio_latents;
+        }
+        if (!c.embeddings.empty()) {
             result.embeddings = c.embeddings;
             res["embedding_dim"] = c.embedding_dim;
         }

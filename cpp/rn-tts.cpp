@@ -166,7 +166,6 @@ void llama_rn_context_tts::reset() {
     // The completion result has taken the last generation's data.
     audio_tokens.clear();
     audio_latents.clear();
-    audio_latent_dim = 0;
     n_frames = 0;
     stop_reason.clear();
     has_generation = false;
@@ -517,14 +516,13 @@ void llama_rn_context_tts::collectGeneration() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     audio_tokens.clear();
     audio_latents.clear();
-    audio_latent_dim = 0;
     if (!has_generation) return;
     codec_audio_lm_generation gen{};
     if (!codec_audio_lm_get_generation(alm, &gen)) throw std::runtime_error(alm_error(alm, "TTS generation"));
     if (gen.n_frames <= 0) return;
     const size_t n = (size_t) gen.n_frames * (size_t) gen.width;
     if (gen.kind == CODEC_AUDIO_LM_DATA_LATENTS) {
-        audio_latent_dim = gen.width;
+        latent_width = gen.width;
         audio_latents.assign(gen.latents, gen.latents + n);
     } else {
         code_width = gen.width;
@@ -647,20 +645,22 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
     return decodeGeneration(gen, "decodeAudioTokens");
 }
 
-std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context* main_ctx,
-                                                               const std::vector<float> &embeddings,
-                                                               int embedding_dim) {
+std::vector<float> llama_rn_context_tts::decodeAudioLatents(llama_rn_context* main_ctx,
+                                                            const std::vector<float> &latents) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    if (embeddings.empty() || embedding_dim <= 0 || embeddings.size() % (size_t) embedding_dim != 0) {
-        throw std::runtime_error("decodeAudioEmbeddings: expected whole frames of embedding_dim");
+    if (latents.empty()) throw std::runtime_error("decodeAudioLatents: no audio latents");
+    if (latent_width <= 0) throw std::runtime_error("decodeAudioLatents: this model's latents are unknown until it generates");
+    if (latents.size() % (size_t) latent_width != 0) {
+        throw std::runtime_error("decodeAudioLatents: " + std::to_string(latents.size()) + " values are not whole frames of " +
+                                 std::to_string(latent_width));
     }
     codec_audio_lm_generation gen{};
     gen.kind     = CODEC_AUDIO_LM_DATA_LATENTS;
-    gen.n_frames = (int32_t) (embeddings.size() / (size_t) embedding_dim);
-    gen.width    = embedding_dim;
-    gen.latents  = embeddings.data();
+    gen.n_frames = (int32_t) (latents.size() / (size_t) latent_width);
+    gen.width    = latent_width;
+    gen.latents  = latents.data();
     codec_affinity_scope affinity(main_ctx);
-    return decodeGeneration(gen, "decodeAudioEmbeddings");
+    return decodeGeneration(gen, "decodeAudioLatents");
 }
 
 int llama_rn_context_tts::getAudioSampleRate() const {

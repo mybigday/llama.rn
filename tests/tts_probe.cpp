@@ -277,11 +277,10 @@ int main(int argc, char ** argv) {
     json speaker = voice.empty() ? json(nullptr) : json::object({{"codec_voice", voice}});
 
     // The same entry points the JS layer calls: arm, run the completion, keep
-    // the result's decoder input (audio_tokens, or embeddings for latents).
+    // the result's decoder input (audio_tokens or audio_latents).
     struct generation {
         std::vector<llama_token> tokens;
         std::vector<float> latents;
-        int latent_dim = 0;
     };
     auto synthesize = [&](const std::string & t, generation * g) {
         try {
@@ -313,7 +312,6 @@ int main(int argc, char ** argv) {
             ctx.tts_wrapper->collectGeneration();
             g->tokens = ctx.tts_wrapper->audio_tokens;
             g->latents = ctx.tts_wrapper->audio_latents;
-            g->latent_dim = ctx.tts_wrapper->audio_latent_dim;
             std::printf("\n[probe] === GENERATION ===\n");
             std::printf("  frames                : %d\n", ctx.tts_wrapper->n_frames);
             std::printf("  decoder input         : %s (%zu values)\n", g->latents.empty() ? "codes" : "latents",
@@ -330,7 +328,7 @@ int main(int argc, char ** argv) {
     auto decode = [&](const generation & g, std::vector<float> * pcm) {
         try {
             *pcm = g.latents.empty() ? ctx.tts_wrapper->decodeAudioTokens(&ctx, g.tokens)
-                                     : ctx.tts_wrapper->decodeAudioEmbeddings(&ctx, g.latents, g.latent_dim);
+                                     : ctx.tts_wrapper->decodeAudioLatents(&ctx, g.latents);
             return true;
         } catch (const std::exception & e) {
             std::fprintf(stderr, "[probe] decode failed: %s\n", e.what());

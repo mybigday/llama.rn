@@ -545,14 +545,10 @@ export type NativeCompletionResult = {
   completion_probabilities?: Array<NativeCompletionTokenProb>
   embeddings?: Array<number>
   embedding_dim?: number
-  /** Text-to-speech: the generation's codec codes, frame-major (`audio_tokens_width` per frame). */
+  /** Text-to-speech: the generated codec codes, frame-major (for `decodeAudioTokens`). */
   audio_tokens?: Array<number>
-  /** Text-to-speech: codebooks per frame of `audio_tokens`. */
-  audio_tokens_width?: number
-  /** Text-to-speech: audio frames codec.cpp counted. */
-  audio_frames?: number
-  /** Text-to-speech: why the generation ended (codec.cpp's stop reason, `n_predict`, `context_full` or `interrupted`). */
-  audio_stop_reason?: string
+  /** Text-to-speech: the generated latents, frame-major (for `decodeAudioLatents`). */
+  audio_latents?: Array<number>
 }
 
 export type NativeTokenizeResult = {

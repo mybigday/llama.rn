@@ -139,7 +139,7 @@ declare global {
     embedding: boolean
     // Always 'tokens': a completion() with completionParams runs the request.
     // Its result carries `audio_tokens` (codes, for decodeAudioTokens) or
-    // `embeddings` (latents, for decodeAudioEmbeddings); 'continuous_embd' is
+    // `audio_latents` (for decodeAudioLatents); 'continuous_embd' is
     // no longer produced.
     flow: 'tokens' | 'continuous_embd' | ''
     completionParams: import('./tts').TTSCompletionParams
@@ -179,10 +179,9 @@ declare global {
     contextId: number,
     path: string,
   ) => Promise<TTSSpeakerInfo[]>
-  var llamaDecodeAudioEmbeddings: (
+  var llamaDecodeAudioLatents: (
     contextId: number,
-    embeddings: Float32Array | number[],
-    embeddingDim: number,
+    latents: Float32Array | number[],
   ) => Promise<Float32Array>
   var llamaGetAudioSampleRate: (contextId: number) => Promise<number>
   var llamaReleaseVocoder: (contextId: number) => Promise<void>

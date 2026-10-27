@@ -632,21 +632,15 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           })
         }
 
-      if (
-        result.embeddings &&
-        result.embedding_dim &&
-        result.embeddings.length > 0
-      ) {
-        const frameCount = result.embeddings.length / result.embedding_dim
-        const setStats = finishStats(frameCount, 'frames')
+      if (result.audio_latents && result.audio_latents.length > 0) {
+        const setStats = finishStats(result.tokens_predicted, 'steps')
         setGeneratedAudio(`“${inputText.trim()}”`)
 
         let audioFloat32: Float32Array | null = null
-        if (isVocoderReady && context.decodeAudioEmbeddings) {
+        if (isVocoderReady && context.decodeAudioLatents) {
           try {
-            const decodedAudio = await context.decodeAudioEmbeddings(
-              result.embeddings,
-              result.embedding_dim,
+            const decodedAudio = await context.decodeAudioLatents(
+              result.audio_latents,
             )
             console.log('Generated audio data length:', decodedAudio.length)
 
