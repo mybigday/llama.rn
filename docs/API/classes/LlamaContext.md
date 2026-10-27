@@ -71,7 +71,7 @@
 
 #### Defined in
 
-[index.ts:748](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L748)
+[index.ts:748](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L748)
 
 ## Properties
 
@@ -81,7 +81,7 @@
 
 #### Defined in
 
-[index.ts:437](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L437)
+[index.ts:437](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L437)
 
 ___
 
@@ -91,7 +91,7 @@ ___
 
 #### Defined in
 
-[index.ts:433](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L433)
+[index.ts:433](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L433)
 
 ___
 
@@ -101,7 +101,7 @@ ___
 
 #### Defined in
 
-[index.ts:429](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L429)
+[index.ts:429](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L429)
 
 ___
 
@@ -111,7 +111,7 @@ ___
 
 #### Defined in
 
-[index.ts:427](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L427)
+[index.ts:427](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L427)
 
 ___
 
@@ -157,7 +157,7 @@ ___
 
 #### Defined in
 
-[index.ts:435](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L435)
+[index.ts:435](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L435)
 
 ___
 
@@ -183,7 +183,7 @@ Parallel processing namespace for non-blocking queue operations
 
 #### Defined in
 
-[index.ts:444](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L444)
+[index.ts:444](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L444)
 
 ___
 
@@ -193,7 +193,7 @@ ___
 
 #### Defined in
 
-[index.ts:431](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L431)
+[index.ts:431](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L431)
 
 ___
 
@@ -203,7 +203,7 @@ ___
 
 #### Defined in
 
-[index.ts:439](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L439)
+[index.ts:439](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L439)
 
 ## Methods
 
@@ -223,7 +223,7 @@ ___
 
 #### Defined in
 
-[index.ts:1100](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1100)
+[index.ts:1100](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1100)
 
 ___
 
@@ -246,7 +246,7 @@ ___
 
 #### Defined in
 
-[index.ts:1070](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1070)
+[index.ts:1070](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1070)
 
 ___
 
@@ -277,7 +277,7 @@ use recurrent state that cannot be partially removed - only fully cleared.
 
 #### Defined in
 
-[index.ts:1481](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1481)
+[index.ts:1481](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1481)
 
 ___
 
@@ -298,7 +298,7 @@ ___
 
 #### Defined in
 
-[index.ts:904](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L904)
+[index.ts:904](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L904)
 
 ___
 
@@ -328,7 +328,7 @@ not used.
 
 #### Defined in
 
-[index.ts:1383](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1383)
+[index.ts:1383](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1383)
 
 ___
 
@@ -364,7 +364,7 @@ model of a supported type, or if parallel mode is enabled (use
 
 #### Defined in
 
-[index.ts:1063](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1063)
+[index.ts:1063](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1063)
 
 ___
 
@@ -388,7 +388,7 @@ PCM of a text-to-speech completion's `embeddings` / `embedding_dim`
 
 #### Defined in
 
-[index.ts:1444](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1444)
+[index.ts:1444](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1444)
 
 ___
 
@@ -413,7 +413,7 @@ another voice decode with this one.
 
 #### Defined in
 
-[index.ts:1314](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1314)
+[index.ts:1314](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1314)
 
 ___
 
@@ -433,7 +433,7 @@ ___
 
 #### Defined in
 
-[index.ts:1020](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1020)
+[index.ts:1020](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1020)
 
 ___
 
@@ -454,7 +454,7 @@ ___
 
 #### Defined in
 
-[index.ts:1025](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1025)
+[index.ts:1025](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1025)
 
 ___
 
@@ -486,7 +486,7 @@ step with an empty `codes`; the codes come in the result.
 
 #### Defined in
 
-[index.ts:1333](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1333)
+[index.ts:1333](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1333)
 
 ___
 
@@ -500,7 +500,7 @@ ___
 
 #### Defined in
 
-[index.ts:1459](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1459)
+[index.ts:1459](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1459)
 
 ___
 
@@ -513,9 +513,9 @@ Arm a text-to-speech request and report how to run it.
 The flow is `getFormattedAudioCompletion` → `completion()` →
 `decodeAudioTokens` / `decodeAudioEmbeddings`. Like `getFormattedChat`,
 this returns what the request's format needs, as `completionParams`: the
-prompt, the grammar or `logit_bias` token mask (with the minimum length)
-and `embedding`. Sampling (the backbone GGUF's `general.sampling.*`
-unless set), `n_predict` and `n_min_predict` are the `completion()`'s,
+prompt, the grammar or `logit_bias` token mask, `embedding` and the
+model's minimum length (`n_min_predict`). Sampling (the backbone GGUF's
+`general.sampling.*` unless set) and `n_predict` are the `completion()`'s,
 which runs with
 exactly the params it gets; its `prompt` must be
 `completionParams.prompt`. The completion samples with its own sampler
@@ -555,7 +555,7 @@ Long text is the caller's to split: one request per piece.
 
 #### Defined in
 
-[index.ts:1244](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1244)
+[index.ts:1244](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1244)
 
 ___
 
@@ -588,7 +588,7 @@ ___
 
 #### Defined in
 
-[index.ts:792](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L792)
+[index.ts:792](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L792)
 
 ___
 
@@ -602,7 +602,7 @@ ___
 
 #### Defined in
 
-[index.ts:1113](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1113)
+[index.ts:1113](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1113)
 
 ___
 
@@ -616,7 +616,7 @@ ___
 
 #### Defined in
 
-[index.ts:1155](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1155)
+[index.ts:1155](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1155)
 
 ___
 
@@ -630,7 +630,7 @@ ___
 
 #### Defined in
 
-[index.ts:1208](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1208)
+[index.ts:1208](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1208)
 
 ___
 
@@ -656,7 +656,7 @@ Initialize multimodal support (vision/audio) with a projector model.
 
 #### Defined in
 
-[index.ts:1129](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1129)
+[index.ts:1129](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1129)
 
 ___
 
@@ -686,7 +686,7 @@ table in the README.
 
 #### Defined in
 
-[index.ts:1175](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1175)
+[index.ts:1175](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1175)
 
 ___
 
@@ -700,7 +700,7 @@ ___
 
 #### Defined in
 
-[index.ts:787](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L787)
+[index.ts:787](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L787)
 
 ___
 
@@ -714,7 +714,7 @@ ___
 
 #### Defined in
 
-[index.ts:783](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L783)
+[index.ts:783](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L783)
 
 ___
 
@@ -728,7 +728,7 @@ ___
 
 #### Defined in
 
-[index.ts:1150](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1150)
+[index.ts:1150](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1150)
 
 ___
 
@@ -742,7 +742,7 @@ ___
 
 #### Defined in
 
-[index.ts:1203](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1203)
+[index.ts:1203](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1203)
 
 ___
 
@@ -764,7 +764,7 @@ Speakers stored in a speaker file.
 
 #### Defined in
 
-[index.ts:1434](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1434)
+[index.ts:1434](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1434)
 
 ___
 
@@ -784,7 +784,7 @@ ___
 
 #### Defined in
 
-[index.ts:766](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L766)
+[index.ts:766](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L766)
 
 ___
 
@@ -811,7 +811,7 @@ refused.
 
 #### Defined in
 
-[index.ts:1423](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1423)
+[index.ts:1423](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1423)
 
 ___
 
@@ -825,7 +825,7 @@ ___
 
 #### Defined in
 
-[index.ts:1486](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1486)
+[index.ts:1486](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1486)
 
 ___
 
@@ -839,7 +839,7 @@ ___
 
 #### Defined in
 
-[index.ts:1163](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1163)
+[index.ts:1163](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1163)
 
 ___
 
@@ -853,7 +853,7 @@ ___
 
 #### Defined in
 
-[index.ts:1464](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1464)
+[index.ts:1464](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1464)
 
 ___
 
@@ -867,7 +867,7 @@ ___
 
 #### Defined in
 
-[index.ts:1108](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1108)
+[index.ts:1108](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1108)
 
 ___
 
@@ -889,7 +889,7 @@ ___
 
 #### Defined in
 
-[index.ts:1036](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1036)
+[index.ts:1036](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1036)
 
 ___
 
@@ -911,7 +911,7 @@ ___
 
 #### Defined in
 
-[index.ts:773](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L773)
+[index.ts:773](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L773)
 
 ___
 
@@ -939,7 +939,7 @@ voice is identical.
 
 #### Defined in
 
-[index.ts:1407](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1407)
+[index.ts:1407](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1407)
 
 ___
 
@@ -953,7 +953,7 @@ ___
 
 #### Defined in
 
-[index.ts:1003](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1003)
+[index.ts:1003](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1003)
 
 ___
 
@@ -975,4 +975,4 @@ ___
 
 #### Defined in
 
-[index.ts:1008](https://github.com/mybigday/llama.rn/blob/a5944414/src/index.ts#L1008)
+[index.ts:1008](https://github.com/mybigday/llama.rn/blob/897c824b/src/index.ts#L1008)

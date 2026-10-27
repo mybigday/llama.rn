@@ -283,12 +283,8 @@ export type NativeCompletionParams = {
    */
   n_predict?: number
   /**
-   * Steps to generate before the generation may end: until then end-of-generation tokens are never sampled.
-   * Counts like `n_predict` (one step per token, or per audio frame for text-to-speech), and stop words still end it.
-   * Text-to-speech hands it to codec.cpp as the shortest generation. CosyVoice / BreezyVoice, BlueMagpie and
-   * Pocket-TTS take it; NeuTTS and Soprano keep the minimum in `getFormattedAudioCompletion`'s grammar;
-   * the other models have none.
-   * Default: `-1`, no minimum (text-to-speech: the model's own).
+   * Set the minimum number of tokens to predict before the generation may end; counts like `n_predict`.
+   * Stop words still end it. Default: `-1`, no minimum.
    */
   n_min_predict?: number
   /**

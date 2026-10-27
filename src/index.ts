@@ -1216,9 +1216,9 @@ export class LlamaContext {
    * The flow is `getFormattedAudioCompletion` → `completion()` →
    * `decodeAudioTokens` / `decodeAudioEmbeddings`. Like `getFormattedChat`,
    * this returns what the request's format needs, as `completionParams`: the
-   * prompt, the grammar or `logit_bias` token mask (with the minimum length)
-   * and `embedding`. Sampling (the backbone GGUF's `general.sampling.*`
-   * unless set), `n_predict` and `n_min_predict` are the `completion()`'s,
+   * prompt, the grammar or `logit_bias` token mask, `embedding` and the
+   * model's minimum length (`n_min_predict`). Sampling (the backbone GGUF's
+   * `general.sampling.*` unless set) and `n_predict` are the `completion()`'s,
    * which runs with
    * exactly the params it gets; its `prompt` must be
    * `completionParams.prompt`. The completion samples with its own sampler

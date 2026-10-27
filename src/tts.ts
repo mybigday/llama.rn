@@ -78,8 +78,7 @@ export interface TTSCapabilities {
 /**
  * The `completion()` parameters a text-to-speech request's format needs, as
  * `getFormattedAudioCompletion` reports them. Sampling (the backbone GGUF's
- * `general.sampling.*` unless set), `n_predict` and `n_min_predict` are the
- * caller's.
+ * `general.sampling.*` unless set) and `n_predict` are the caller's.
  */
 export interface TTSCompletionParams {
   /** The armed text; `completion()` must be given this prompt. */
@@ -90,4 +89,9 @@ export interface TTSCompletionParams {
   grammar?: string
   /** One bias per vocabulary token (`-Infinity` for tokens the model never samples), when the model restricts tokens without a grammar. */
   logit_bias?: Float32Array
+  /**
+   * The model's shortest generation for this text, in steps (audio frames), so it does not end too early.
+   * Models whose `grammar` holds the minimum (NeuTTS, Soprano) keep the grammar's when it is changed.
+   */
+  n_min_predict?: number
 }

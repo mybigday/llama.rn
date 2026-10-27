@@ -4,8 +4,7 @@
 
 The `completion()` parameters a text-to-speech request's format needs, as
 `getFormattedAudioCompletion` reports them. Sampling (the backbone GGUF's
-`general.sampling.*` unless set), `n_predict` and `n_min_predict` are the
-caller's.
+`general.sampling.*` unless set) and `n_predict` are the caller's.
 
 ## Table of contents
 
@@ -14,6 +13,7 @@ caller's.
 - [embedding](TTSCompletionParams.md#embedding)
 - [grammar](TTSCompletionParams.md#grammar)
 - [logit\_bias](TTSCompletionParams.md#logit_bias)
+- [n\_min\_predict](TTSCompletionParams.md#n_min_predict)
 - [prompt](TTSCompletionParams.md#prompt)
 
 ## Properties
@@ -26,7 +26,7 @@ The model reads the backbone's hidden states (the context returns them).
 
 #### Defined in
 
-[tts.ts:88](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L88)
+[tts.ts:87](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L87)
 
 ___
 
@@ -38,7 +38,7 @@ The tokens the model may emit and its minimum length.
 
 #### Defined in
 
-[tts.ts:90](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L90)
+[tts.ts:89](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L89)
 
 ___
 
@@ -50,7 +50,20 @@ One bias per vocabulary token (`-Infinity` for tokens the model never samples), 
 
 #### Defined in
 
-[tts.ts:92](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L92)
+[tts.ts:91](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L91)
+
+___
+
+### n\_min\_predict
+
+• `Optional` **n\_min\_predict**: `number`
+
+The model's shortest generation for this text, in steps (audio frames), so it does not end too early.
+Models whose `grammar` holds the minimum (NeuTTS, Soprano) keep the grammar's when it is changed.
+
+#### Defined in
+
+[tts.ts:96](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L96)
 
 ___
 
@@ -62,4 +75,4 @@ The armed text; `completion()` must be given this prompt.
 
 #### Defined in
 
-[tts.ts:86](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L86)
+[tts.ts:85](https://github.com/mybigday/llama.rn/blob/897c824b/src/tts.ts#L85)

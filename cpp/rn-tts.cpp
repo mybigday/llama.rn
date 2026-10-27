@@ -332,11 +332,13 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     check_exempt(f.n_penalty_exempt);
 
     // What the request's format needs, as completion() params: the prompt,
-    // the grammar or token mask, and hidden states.  Sampling and length are
-    // the caller's.
+    // the grammar or token mask, hidden states and the model's minimum
+    // length (buildPrompt hands n_min_predict back to codec.cpp).  Sampling
+    // and the maximum length are the caller's.
     json p = json::object();
     p["prompt"]    = f.prompt ? f.prompt : "";
     p["embedding"] = f.needs_embeddings || f.needs_prompt_hidden;
+    if (f.min_frames > 0) p["n_min_predict"] = f.min_frames;
     // The grammar and the allowed ranges say the same; the grammar wins.
     // The ranges become a logit bias table: -Infinity outside them.
     const std::string grammar = f.grammar ? f.grammar : "";
