@@ -580,8 +580,12 @@ bool llama_rn_context::loadModel(common_params &params_)
         }
     }
 
+    // Load the draft model for embedded MTP drafts and for classic standalone draft models
+    // (draft-simple) alike. Gating this on MTP alone silently disabled speculation for
+    // draft-simple pairs: the app reported draft_tokens = 0 with no error at all.
     if (params.speculative.has_dft() &&
-        has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
+        (has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP) ||
+         has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE))) {
         const auto & draft_params = params.speculative.draft;
         common_params params_dft = params;
         params_dft.devices = draft_params.devices;
@@ -597,10 +601,10 @@ bool llama_rn_context::loadModel(common_params &params_)
         }
 
         auto mparams_dft = common_model_params_to_llama(params_dft);
-        LOG_INFO("Loading MTP draft model: %s", params_dft.model.path.c_str());
+        LOG_INFO("Loading draft model: %s", params_dft.model.path.c_str());
         draft_model.reset(llama_model_load_from_file(params_dft.model.path.c_str(), mparams_dft));
         if (draft_model == nullptr) {
-            LOG_ERROR("unable to load MTP draft model: %s", params_dft.model.path.c_str());
+            LOG_ERROR("unable to load draft model: %s", params_dft.model.path.c_str());
             return false;
         }
     }
@@ -716,11 +720,18 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
     }
 
     auto cparams = common_context_params_to_llama(params_for_context);
-    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
-    cparams.n_rs_seq = 0;
+
+    // An embedded MTP draft lives on an MTP-type context tied to the target context
+    // (ctx_other) and uses rollback sequences; a classic standalone draft model
+    // (draft-simple) needs a regular, independent context with its own KV cache.
+    const bool is_mtp = has_speculative_type(params_for_context.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP);
+    cparams.ctx_type = is_mtp ? LLAMA_CONTEXT_TYPE_MTP : LLAMA_CONTEXT_TYPE_DEFAULT;
+    if (is_mtp) {
+        cparams.n_rs_seq = 0;
+        cparams.ctx_other = ctx;
+    }
     cparams.type_k = params_for_context.speculative.draft.cache_type_k;
     cparams.type_v = params_for_context.speculative.draft.cache_type_v;
-    cparams.ctx_other = ctx;
 
     return llama_init_from_model(model_dft, cparams);
 }
@@ -801,9 +812,9 @@ std::string llama_rn_context::getFormattedChat(
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
         auto tmps = common_chat_templates_init(model, chat_template);
-        return common_chat_templates_apply(tmps.get(), inputs).prompt;
+        return common_chat_templates_apply(tmps.get(), inputs).prompt.str();
     } else {
-        return common_chat_templates_apply(templates.get(), inputs).prompt;
+        return common_chat_templates_apply(templates.get(), inputs).prompt.str();
     }
 }
 

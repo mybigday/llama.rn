@@ -180,7 +180,7 @@ struct ChatSim {
             /*parallel_tool_calls*/ false, /*tool_choice*/ "",
             enable_thinking, /*reasoning_format*/ "none",
             add_generation_prompt, /*now*/ "", /*kwargs*/ {}, /*force_pure_content*/ false);
-        return cp.prompt;
+        return cp.prompt.str();
     }
 
     // Run one assistant turn for whatever is currently in `history` (whose last
@@ -2374,7 +2374,7 @@ std::vector<Check> run_slot_media_test(const std::string &key, const std::string
         /*enable_thinking*/ false, /*reasoning_format*/ "none",
         /*add_generation_prompt*/ true, /*now*/ "", /*kwargs*/ {},
         /*force_pure_content*/ false);
-    const std::string prompt = cp.prompt;
+    const std::string prompt = cp.prompt.str();
     std::vector<llama_token> prompt_tokens = common_tokenize(ctx.ctx, prompt, true, true);
 
     std::string reply;
@@ -2567,11 +2567,11 @@ std::vector<Check> run_slot_media_concurrent_test(const std::string &key, const 
     common_chat_params cp = ctx.getFormattedChatWithJinja(
         msgs.dump(-1, ' ', false, json::error_handler_t::replace),
         "", "", "", false, "", false, "none", true, "", {}, false);
-    auto tk = ctx.tokenize(cp.prompt, {img});
+    auto tk = ctx.tokenize(cp.prompt.str(), {img});
     std::string media_reply;
     bool media_completed = false, media_incomplete = true;
     ctx.slot_manager->queue_request(
-        params, tk.tokens, {img}, cp.prompt, 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+        params, tk.tokens, {img}, cp.prompt.str(), 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
         "", "", "", -1, -1,
         [&](const completion_token_output &out) { media_reply += out.text; },
         [&](llama_rn_slot *s) { media_completed = true; media_incomplete = s->incomplete; });
@@ -2732,7 +2732,7 @@ std::vector<Check> run_slot_media_state_file_test(const std::string &key, const 
             /*enable_thinking*/ false, /*reasoning_format*/ "none",
             /*add_generation_prompt*/ true, /*now*/ "", /*kwargs*/ {},
             /*force_pure_content*/ false);
-        return cp.prompt;
+        return cp.prompt.str();
     };
 
     auto run_turn = [&](llama_rn_context &ctx, const std::string &load_path,

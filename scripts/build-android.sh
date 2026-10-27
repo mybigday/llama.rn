@@ -6,8 +6,8 @@ ANDROID_PLATFORM=android-21
 CMAKE_BUILD_TYPE=Release
 
 # Hexagon SDK configuration
-HEXAGON_SDK_VERSION="6.4.0.2"
-HEXAGON_TOOLS_VERSION="19.0.04"
+HEXAGON_SDK_VERSION="6.7.0.0"
+HEXAGON_TOOLS_VERSION="21.0.04"
 HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
 
 # Auto-detect Android SDK/NDK location if not set
@@ -104,7 +104,7 @@ fi
 
 # Set default build variables if not already set
 export DEFAULT_HLOS_ARCH="${DEFAULT_HLOS_ARCH:-64}"
-export DEFAULT_TOOLS_VARIANT="${DEFAULT_TOOLS_VARIANT:-toolv19}"
+export DEFAULT_TOOLS_VARIANT="${DEFAULT_TOOLS_VARIANT:-toolv21}"
 export DEFAULT_NO_QURT_INC="${DEFAULT_NO_QURT_INC:-0}"
 
 # Display platform-specific build info

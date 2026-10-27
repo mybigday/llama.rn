@@ -70,8 +70,9 @@ enum llama_vocab_pre_type {
     LLAMA_VOCAB_PRE_TYPE_UFAKZEKA          = 59,
     LLAMA_VOCAB_PRE_TYPE_MMBERT            = 60,
     LLAMA_VOCAB_PRE_TYPE_K2_HORIZON        = 61,
-    LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 62,
-    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 63,
+    LLAMA_VOCAB_PRE_TYPE_FLINT             = 62,
+    LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 63,
+    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 64,
 };
 
 struct LLM_KV;
@@ -85,6 +86,7 @@ struct llama_vocab {
     };
 
     struct normalizer_options {
+        bool nfc           = false;
         bool lowercase     = true;
         bool strip_accents = true;
         // TODO: clean_text, handle_chinese_chars
@@ -150,6 +152,7 @@ struct llama_vocab {
     bool get_add_bos                   () const;
     bool get_add_eos                   () const;
     bool get_add_sep                   () const;
+    bool get_dna_auto_tags             () const;
     bool get_ignore_merges             () const;
     bool get_clean_spaces              () const;
     bool get_remove_extra_whitespaces  () const;

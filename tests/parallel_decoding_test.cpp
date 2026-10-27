@@ -183,6 +183,97 @@ bool test_slot_mtp_params_and_reset() {
     }
 }
 
+// draft-simple pairs run through the same speculative gates as MTP: both types must
+// enable speculation, and n_max <= 0 or an empty type list must disable it.
+bool test_slot_draft_simple_params() {
+    try {
+        llama_rn_slot slot;
+        slot.id = 0;
+        slot.reset();
+
+        common_params params;
+        params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE };
+        params.speculative.draft.n_max = 4;
+
+        slot.params_storage = params;
+        slot.params = &slot.params_storage;
+
+        if (!slot.should_use_mtp()) return false;
+
+        // n_max <= 0 disables speculative decoding, same as MTP
+        slot.params_storage.speculative.draft.n_max = 0;
+        if (slot.should_use_mtp()) return false;
+
+        // an empty type list also disables it
+        slot.params_storage.speculative.types = {};
+        slot.params_storage.speculative.draft.n_max = 4;
+        return !slot.should_use_mtp();
+    } catch (...) {
+        return false;
+    }
+}
+
+// draft-simple through the queued (slot manager) path: the draft model must be
+// loaded and produce drafts, not silently fall back to plain decoding.
+bool test_draft_simple_queued_completion() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 2;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 8;
+        params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE };
+        params.speculative.draft.mparams.path = "../tiny-random-llama.gguf";
+        params.speculative.draft.n_max = 3;
+        params.speculative.draft.n_gpu_layers = 0;
+        params.sampling.temp = 0.0f; // greedy + identical draft: drafts should be accepted
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+        if (ctx.draft_model == nullptr) return false;
+
+        ctx.enableParallelMode(2, 128);
+
+        std::vector<llama_token> prompt_tokens = common_tokenize(ctx.ctx, "Hello", false);
+
+        bool completed = false;
+        size_t drafted = 0;
+        size_t accepted = 0;
+        std::string error;
+        int32_t request_id = ctx.slot_manager->queue_request(
+            params, prompt_tokens, std::vector<std::string>(), "Hello",
+            0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
+            [&](const completion_token_output&) {},
+            [&](llama_rn_slot* slot) {
+                completed = true;
+                drafted = slot->num_draft_tokens;
+                accepted = slot->num_draft_tokens_accepted;
+                error = slot->error_message;
+            }
+        );
+        if (request_id < 0) return false;
+
+        for (int i = 0; i < 200 && !completed; i++) {
+            ctx.slot_manager->update_slots();
+        }
+
+        std::cout << "[drafted " << drafted << ", accepted " << accepted << "] ";
+        if (!error.empty()) std::cout << "[error: " << error << "] ";
+        return completed && error.empty() && drafted > 0 && accepted > 0;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << " ";
+        return false;
+    }
+}
+
 // Test 4: Slot Manager initialization with actual context
 bool test_slot_manager_initialization() {
     try {
@@ -1523,6 +1614,8 @@ int main() {
     results.run_test("Slot State Transitions", test_slot_state_transitions());
     results.run_test("Slot Prompt Loading", test_slot_prompt_loading());
     results.run_test("Slot MTP Params and Reset", test_slot_mtp_params_and_reset());
+    results.run_test("Slot draft-simple Params", test_slot_draft_simple_params());
+    results.run_test("draft-simple Queued Completion", test_draft_simple_queued_completion());
     results.run_test("Slot Cache Prefix Matching", test_cache_prefix_matching());
     results.run_test("Slot has_next_token Logic", test_has_next_token());
     results.run_test("Slot Request Lifecycle", test_slot_request_lifecycle());

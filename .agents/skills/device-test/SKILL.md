@@ -110,13 +110,13 @@ slots, state files, and multimodal.
 ```bash
 adb devices -l                      # device connected?
 adb shell getprop ro.soc.model      # e.g. SM8750 (Snapdragon 8 Elite) - needs a Snapdragon with HTP
-ls ~/.hexagon-sdk/6.4.0.2           # Hexagon SDK (or HEXAGON_SDK_ROOT/HEXAGON_TOOLS_ROOT env)
+ls ~/.hexagon-sdk/6.7.0.0           # Hexagon SDK (or HEXAGON_SDK_ROOT/HEXAGON_TOOLS_ROOT env)
 docker info >/dev/null 2>&1 && echo docker-ok   # required on macOS for the HTP toolchain
 ```
 
 Gradle auto-detects the SDK: the build log prints
 `✅ Hexagon SDK detected — enabling DSP build` (or `🚫 ... building CPU-only`).
-Prebuilt HTP DSP libs in `bin/arm64-v8a/libggml-htp-v{69,73,75,79,81}.so` are
+Prebuilt HTP DSP libs in `bin/arm64-v8a/libggml-htp-v{73,75,79,81,85}.so` are
 synced into APK assets by the `prepareHTP` gradle task; when the SDK+Docker are
 present they are rebuilt as part of the build.
 
@@ -132,7 +132,7 @@ cd example/android && ./gradlew assembleDebug
 ```bash
 unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -iE "hexagon|htp"
 # expect: lib/arm64-v8a/librnllama_v8_2_dotprod_i8mm_hexagon_opencl.so (+ _jni_)
-#         assets/ggml-hexagon/libggml-htp-v{69,73,75,79,81}.so
+#         assets/ggml-hexagon/libggml-htp-v{73,75,79,81,85}.so
 ```
 
 If these are missing the build silently fell back to CPU-only - fix the SDK /

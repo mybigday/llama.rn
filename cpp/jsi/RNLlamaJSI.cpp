@@ -350,7 +350,7 @@ namespace rnllama_jsi {
 
     static json chatParamsJson(const common_chat_params& chatParams) {
         json result = json::object({
-            {"prompt", chatParams.prompt},
+            {"prompt", chatParams.prompt.str()},
             {"chat_format", (int) chatParams.format},
             {"grammar", chatParams.grammar},
             {"grammar_lazy", chatParams.grammar_lazy},
@@ -381,7 +381,7 @@ namespace rnllama_jsi {
 
         // Return the PEG parser string for COMMON_CHAT_FORMAT_PEG_* formats
         if (!chatParams.parser.empty()) {
-            result["chat_parser"] = chatParams.parser;
+            result["chat_parser"] = chatParams.parser.save();
         }
         return result;
     }
@@ -1166,7 +1166,7 @@ namespace rnllama_jsi {
                     }
 
                     if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
-                        throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
+                        throw std::runtime_error("speculative decoding currently supports text-only completion");
                     }
 
                     // NOTE: no rewind() here — it already ran on the JS thread

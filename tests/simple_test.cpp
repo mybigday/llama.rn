@@ -565,6 +565,73 @@ bool test_completion_generation_timing() {
     }
 }
 
+// draft-simple: a standalone draft model must actually be loaded and used by the
+// direct completion path (draft_tokens stayed 0 before it was wired up).
+static bool setup_draft_simple_context(llama_rn_context& ctx, const std::string& model_path) {
+    common_params params;
+    params.model.path = model_path;
+    params.n_ctx = 512;
+    params.n_batch = 128;
+    params.cpuparams.n_threads = 1;
+    params.n_gpu_layers = 0;
+    params.no_kv_offload = true;
+    params.n_predict = -1;
+    params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE };
+    params.speculative.draft.mparams.path = model_path; // identical draft
+    params.speculative.draft.n_max = 3;
+    params.speculative.draft.n_gpu_layers = 0;
+    if (!ctx.loadModel(params)) {
+        std::cout << "Failed to load model" << std::endl;
+        return false;
+    }
+    if (ctx.completion == nullptr) {
+        ctx.completion = new llama_rn_context_completion(&ctx);
+    }
+    return true;
+}
+
+bool test_draft_simple_completion() {
+    try {
+        llama_rn_context ctx;
+        if (!setup_draft_simple_context(ctx, "../tiny-random-llama.gguf")) return false;
+        if (ctx.draft_model == nullptr) {
+            std::cout << "Draft model was not loaded" << std::endl;
+            return false;
+        }
+
+        // Greedy target + identical draft: every draft should be accepted.
+        ctx.params.sampling.temp = 0.0f;
+
+        const int generated = run_classic_completion(ctx, "Hello", 8);
+        std::cout << "[generated " << generated << ", drafted " << ctx.completion->num_draft_tokens
+                  << ", accepted " << ctx.completion->num_draft_tokens_accepted << "] ";
+        return generated > 0 && ctx.completion->num_draft_tokens > 0 &&
+               ctx.completion->num_draft_tokens_accepted > 0;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+// draft-simple cannot roll back recurrent/hybrid memory (no rs sequences), so it must
+// fail with an error instead of aborting in seq_rm on the first rejected draft.
+bool test_draft_simple_rejects_hybrid() {
+    const std::string hybrid_path = "../models/lfm2.gguf";
+    if (!std::filesystem::exists(hybrid_path)) {
+        std::cout << "[SKIP: run tests/models/download.sh for lfm2] ";
+        return true;
+    }
+    try {
+        llama_rn_context ctx;
+        if (!setup_draft_simple_context(ctx, hybrid_path)) return false;
+        run_classic_completion(ctx, "Hello", 4);
+        std::cout << "Expected an exception" << std::endl;
+        return false;
+    } catch (const std::exception& e) {
+        return std::string(e.what()).find("recurrent or hybrid") != std::string::npos;
+    }
+}
+
 int main() {
     std::cout << "Starting rnllama API tests..." << std::endl;
     std::cout << "Using test model: ../tiny-random-llama.gguf" << std::endl;
@@ -583,6 +650,8 @@ int main() {
     results.run_test("n_probs Post-Sampling vs Raw", test_n_probs_post_sampling_vs_raw());
     results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());
+    results.run_test("draft-simple Completion", test_draft_simple_completion());
+    results.run_test("draft-simple Rejects Hybrid", test_draft_simple_rejects_hybrid());
 
     // Print summary
     results.print_summary();

@@ -143,7 +143,7 @@ struct llama_rn_context_completion {
     std::vector<common_params_sampling> aux_params;
     std::vector<std::vector<llama_token>> aux_history;
 
-    // Speculative decoding context for MTP.
+    // Speculative decoding context (MTP or classic draft-simple).
     common_speculative *spec = nullptr;
     llama_context_ptr spec_ctx;
     common_batch spec_batch;
