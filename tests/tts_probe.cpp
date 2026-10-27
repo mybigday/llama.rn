@@ -5,7 +5,7 @@
 //
 // Usage:
 //   tts_probe --backbone LM.gguf --codec CODEC.gguf --text "..." \
-//             [--n-predict N] [--threads N] [--out-wav PATH]
+//             [--n-predict N] [--n-min-predict N] [--threads N] [--out-wav PATH]
 //
 // Voices:
 //   --voice NAME           builtin codec voice (or the speaker in --speaker-file)
@@ -143,6 +143,7 @@ int main(int argc, char ** argv) {
     std::string codec_path;
     std::string text = "Hello world";
     int  n_predict = 0;      // 0: none (until the model stops or the context is full)
+    int  n_min_predict = -1; // -1: the model's own minimum
     int  threads   = 8;
     uint32_t seed  = 0;      // 0: the model's default
     std::string sampling_json;   // completion() sampling keys over the GGUF's general.sampling.*
@@ -168,6 +169,7 @@ int main(int argc, char ** argv) {
         else if (is("--codec")        && i + 1 < argc) codec_path        = argv[++i];
         else if (is("--text")         && i + 1 < argc) text              = argv[++i];
         else if (is("--n-predict")    && i + 1 < argc) n_predict         = std::atoi(argv[++i]);
+        else if (is("--n-min-predict") && i + 1 < argc) n_min_predict    = std::atoi(argv[++i]);
         else if (is("--threads")      && i + 1 < argc) threads           = std::atoi(argv[++i]);
         else if (is("--seed")         && i + 1 < argc) seed              = (uint32_t) std::atoll(argv[++i]);
         else if (is("--sampling")     && i + 1 < argc) sampling_json     = argv[++i];
@@ -193,7 +195,7 @@ int main(int argc, char ** argv) {
         std::fprintf(stderr,
             "usage: tts_probe --backbone LM.gguf --codec CODEC.gguf --text \"...\"\n"
             "                 [--voice NAME] [--clone-audio WAV [--ref-text T]] [--speaker-file PATH]\n"
-            "                 [--n-predict N] [--threads N] [--out-wav PATH]\n");
+            "                 [--n-predict N] [--n-min-predict N] [--threads N] [--out-wav PATH]\n");
         return 2;
     }
     for (const auto & p : { backbone_path, codec_path }) {
@@ -282,20 +284,20 @@ int main(int argc, char ** argv) {
     };
     auto synthesize = [&](const std::string & t, generation * g) {
         try {
-            json options = json::object();
             if (!sampling_json.empty()) apply_sampling(ctx, json::parse(sampling_json));
             ctx.params.sampling.seed = seed > 0 ? seed : LLAMA_DEFAULT_SEED;
             // As JSIParams: -1 is the context size (llama.cpp's sampler would take it as off).
             if (ctx.params.sampling.penalty_last_n == -1) ctx.params.sampling.penalty_last_n = (int32_t) llama_n_ctx(ctx.ctx);
-            const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct, options);
+            const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(&ctx, speaker, t, speaker_id, instruct);
             std::printf("[probe] flow=%s completionParams=%s\n", formatted.flow.c_str(),
                         formatted.completion_params.dump().substr(0, 400).c_str());
             ctx.completion->rewind();
             apply_completion_params(ctx, formatted.completion_params, formatted.logit_bias);
             // The completion's voice, as JSIParams sets it.
-            ctx.tts_wrapper->pending_speaker_id = speaker_id;
-            ctx.tts_wrapper->pending_voice = voice;
+            ctx.tts_speaker_id = speaker_id;
+            ctx.tts_voice = voice;
             ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
+            ctx.n_min_predict = n_min_predict;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");
                 return false;

@@ -76,20 +76,10 @@ export interface TTSCapabilities {
 
 
 /**
- * codec.cpp's request overrides for `getFormattedAudioCompletion`. Sampling
- * is the `completion()`'s (llama.rn hands it to codec.cpp's own samplers too);
- * model graph settings (guidance, flow steps) are `initVocoder`
- * `kv_overrides`.
- */
-export interface TTSRequestOptions {
-  /** Shortest generation, in audio frames, before the end token may end it (in the grammar). Default: the model's. */
-  minFrames?: number
-}
-
-/**
  * The `completion()` parameters a text-to-speech request's format needs, as
  * `getFormattedAudioCompletion` reports them. Sampling (the backbone GGUF's
- * `general.sampling.*` unless set) and `n_predict` are the caller's.
+ * `general.sampling.*` unless set), `n_predict` and `n_min_predict` are the
+ * caller's.
  */
 export interface TTSCompletionParams {
   /** The armed text; `completion()` must be given this prompt. */

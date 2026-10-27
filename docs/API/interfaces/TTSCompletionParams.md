@@ -4,7 +4,8 @@
 
 The `completion()` parameters a text-to-speech request's format needs, as
 `getFormattedAudioCompletion` reports them. Sampling (the backbone GGUF's
-`general.sampling.*` unless set) and `n_predict` are the caller's.
+`general.sampling.*` unless set), `n_predict` and `n_min_predict` are the
+caller's.
 
 ## Table of contents
 
@@ -25,7 +26,7 @@ The model reads the backbone's hidden states (the context returns them).
 
 #### Defined in
 
-[tts.ts:98](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L98)
+[tts.ts:88](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L88)
 
 ___
 
@@ -37,7 +38,7 @@ The tokens the model may emit and its minimum length.
 
 #### Defined in
 
-[tts.ts:100](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L100)
+[tts.ts:90](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L90)
 
 ___
 
@@ -49,7 +50,7 @@ One bias per vocabulary token (`-Infinity` for tokens the model never samples), 
 
 #### Defined in
 
-[tts.ts:102](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L102)
+[tts.ts:92](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L92)
 
 ___
 
@@ -61,4 +62,4 @@ The armed text; `completion()` must be given this prompt.
 
 #### Defined in
 
-[tts.ts:96](https://github.com/mybigday/llama.rn/blob/1035d0aa/src/tts.ts#L96)
+[tts.ts:86](https://github.com/mybigday/llama.rn/blob/a5944414/src/tts.ts#L86)

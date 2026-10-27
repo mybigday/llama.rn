@@ -108,6 +108,7 @@ void llama_rn_context_completion::rewind() {
     parent_ctx->params.sampling.generation_prompt.clear();
     num_prompt_tokens = 0;
     num_tokens_predicted = 0;
+    n_sampled = 0;
     num_draft_tokens = 0;
     num_draft_tokens_accepted = 0;
     resetGenerationTimings();
@@ -955,6 +956,10 @@ bool llama_rn_context_completion::refillMTPTokens() {
         throw std::runtime_error("failed to process MTP target batch");
     }
 
+    // n_min_predict: the batch's logits i are the step n_sampled + i.
+    for (size_t i = 0; i <= n_draft && (int64_t) (n_sampled + i) < parent_ctx->n_min_predict; ++i) {
+        parent_ctx->holdBackEndOfGeneration((int) i);
+    }
     auto accepted = common_sampler_sample_and_accept_n(ctx_sampling, parent_ctx->ctx, spec_draft);
     if (accepted.empty()) {
         return false;
@@ -1030,6 +1035,7 @@ completion_token_output llama_rn_context_completion::nextTokenMTP() {
     result = std::move(spec_pending_tokens.front());
     spec_pending_tokens.pop_front();
     num_tokens_predicted++;
+    n_sampled++;
     updateGenerationTiming();
     has_next_token = !spec_pending_tokens.empty() || (!stopped_eos && !stopped_limit && !context_full);
     return result;
@@ -1345,12 +1351,18 @@ completion_token_output llama_rn_context_completion::nextToken()
         // TTS steps where codec.cpp reads only the hidden state sample nothing.
         llama_token new_token_id = -1;
         if (tts == nullptr || tts->sample_backbone) {
+            // TTS ends where codec.cpp says, so its minimum is codec.cpp's
+            // too (buildPrompt).
+            if (tts == nullptr && (int64_t) n_sampled < parent_ctx->n_min_predict) {
+                parent_ctx->holdBackEndOfGeneration(-1);
+            }
             new_token_id = common_sampler_sample(ctx_sampling, parent_ctx->ctx, -1);
 
             result.probs = get_token_probabilities(
                 parent_ctx->ctx, ctx_sampling, -1,
                 parent_ctx->params.sampling.n_probs, parent_ctx->post_sampling_probs);
         }
+        ++n_sampled;
 
         // TTS step: codec.cpp sees every token, the end-of-speech one
         // included, has its codebook heads drawn here, and says what the

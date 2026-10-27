@@ -431,6 +431,7 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         auto& sparams = ctx->params.sampling;
         sparams.seed = getPropertyAsInt(params, "seed", -1);
         ctx->params.n_predict = getPropertyAsInt(params, "n_predict", ctx->params.n_predict);
+        ctx->n_min_predict = getPropertyAsInt(params, "n_min_predict", -1);
         ctx->params.sampling.ignore_eos = getPropertyAsBool(params, "ignore_eos", ctx->params.sampling.ignore_eos);
         ctx->params.embedding = getPropertyAsBool(params, "embedding", false);
         llama_set_embeddings(ctx->ctx, ctx->params.embedding);
@@ -658,11 +659,9 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 #endif
         }
 
-        // TTS voice from the completion options: a registry speaker id (-1 =
-        // none) or a builtin voice name; it fills the prompt's voice markers.
-        if (ctx->tts_wrapper != nullptr) {
-            ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(params, "speakerId", -1);
-            ctx->tts_wrapper->pending_voice = getPropertyAsString(params, "voice");
-        }
+        // TTS voice: a registry speaker id (-1 = none) or a builtin voice
+        // name; it fills the prompt's voice markers.
+        ctx->tts_speaker_id = getPropertyAsInt(params, "speakerId", -1);
+        ctx->tts_voice = getPropertyAsString(params, "voice");
     }
 }

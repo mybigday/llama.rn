@@ -2046,7 +2046,7 @@ namespace rnllama_jsi {
 
         auto getFormattedAudioCompletion = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetFormattedAudioCompletion"),
-            6,
+            5,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 // Speaker payload arrives as a JS object, or null when the
@@ -2061,15 +2061,13 @@ namespace rnllama_jsi {
                 std::string instruct = (count >= 5 && arguments[4].isString())
                     ? arguments[4].asString(runtime).utf8(runtime)
                     : "";
-                // Optional 6th arg: codec.cpp request options (snake_case).
-                json options = (count >= 6 && arguments[5].isObject()) ? toJson(runtime, arguments[5]) : json::object();
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId, instruct, options]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speaker, textToSpeak, speakerId, instruct]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId, instruct, options);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speaker, textToSpeak, speakerId, instruct);
                         json res = json::object({{"prompt", audio_result.prompt}});
                         if (!audio_result.grammar.empty()) {
                             res["grammar"] = audio_result.grammar;

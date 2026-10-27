@@ -113,7 +113,6 @@ export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
 export type {
   TTSCapabilities,
   TTSSpeakerInfo,
-  TTSRequestOptions,
   TTSCompletionParams,
 } from './tts'
 
@@ -1219,7 +1218,8 @@ export class LlamaContext {
    * this returns what the request's format needs, as `completionParams`: the
    * prompt, the grammar or `logit_bias` token mask (with the minimum length)
    * and `embedding`. Sampling (the backbone GGUF's `general.sampling.*`
-   * unless set) and `n_predict` are the `completion()`'s, which runs with
+   * unless set), `n_predict` and `n_min_predict` are the `completion()`'s,
+   * which runs with
    * exactly the params it gets; its `prompt` must be
    * `completionParams.prompt`. The completion samples with its own sampler
    * (codec.cpp's own samplers use the same settings) and hands every step to
@@ -1240,8 +1240,6 @@ export class LlamaContext {
    * - `language` — phonemizer hint; defaults to capabilities.defaultLanguage.
    * - `instruct` — how to speak (e.g. "Speak cheerfully"), for models with
    *   `canTakeInstruct`; others reject it.
-   * - `request` — codec.cpp's overrides (`minFrames`); see
-   *   `TTSRequestOptions`.
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
@@ -1252,7 +1250,6 @@ export class LlamaContext {
     ) => string | Promise<string>
     language?: string
     instruct?: string
-    request?: import('./tts').TTSRequestOptions
   }): Promise<{
     prompt: string
     grammar?: string
@@ -1270,11 +1267,6 @@ export class LlamaContext {
       )
     }
 
-    const request: Record<string, number> = {}
-    if (options.request?.minFrames !== undefined) {
-      request.min_frames = options.request.minFrames
-    }
-
     const { llamaGetFormattedAudioCompletion } = getJsi()
     if (options.speaker instanceof LlamaSpeaker) {
       return llamaGetFormattedAudioCompletion(
@@ -1283,7 +1275,6 @@ export class LlamaContext {
         inputText,
         options.speaker.id,
         options.instruct,
-        request,
       )
     }
     if (options.speaker !== undefined && typeof options.speaker !== 'string') {
@@ -1311,7 +1302,6 @@ export class LlamaContext {
       inputText,
       -1,
       options.instruct,
-      request,
     )
   }
 

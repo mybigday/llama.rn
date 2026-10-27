@@ -61,7 +61,6 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
     'hello',
     spk.id,
     undefined,
-    {},
   )
 
   // Return value must not carry any speakerEmb* fields
@@ -85,13 +84,10 @@ it('getFormattedAudioCompletion rejects structured speaker payloads and unknown 
   ).rejects.toThrow("Unknown voice 'nobody'")
 })
 
-it('getFormattedAudioCompletion forwards minFrames as min_frames and returns completionParams', async () => {
+it('getFormattedAudioCompletion returns completionParams', async () => {
   mockGetFormattedAudioCompletion.mockClear()
 
-  const f = await ctx.getFormattedAudioCompletion({
-    prompt: 'hello',
-    request: { minFrames: 30 },
-  })
+  const f = await ctx.getFormattedAudioCompletion({ prompt: 'hello' })
 
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
@@ -99,7 +95,6 @@ it('getFormattedAudioCompletion forwards minFrames as min_frames and returns com
     'hello',
     -1,
     undefined,
-    { min_frames: 30 },
   )
   expect(f.completionParams.prompt).toBe('hello')
 })
@@ -131,7 +126,6 @@ it('getFormattedAudioCompletion forwards a builtin voice name, and none for the 
     'hello',
     -1,
     undefined,
-    {},
   )
 
   mockGetTTSCapabilities.mockResolvedValueOnce(caps)
@@ -143,7 +137,6 @@ it('getFormattedAudioCompletion forwards a builtin voice name, and none for the 
     'hello',
     -1,
     undefined,
-    {},
   )
 })
 
@@ -161,7 +154,6 @@ it('getFormattedAudioCompletion forwards instruct', async () => {
     'hello',
     -1,
     'Speak cheerfully',
-    {},
   )
 })
 

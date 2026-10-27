@@ -50,6 +50,7 @@ struct llama_rn_queued_request {
     llama_rn_slot_task_type task_type;
     common_params params;
     bool post_sampling_probs = true;
+    int32_t n_min_predict = -1;
     std::vector<llama_token> prompt_tokens;
     std::function<void(const completion_token_output&)> on_token;
     std::function<void(llama_rn_slot*)> on_complete;

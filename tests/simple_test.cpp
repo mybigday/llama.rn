@@ -445,6 +445,33 @@ bool test_logit_bias_forces_token() {
     }
 }
 
+// n_min_predict holds the end of generation back for its first n tokens.
+bool test_n_min_predict_holds_back_eos() {
+    try {
+        llama_rn_context ctx;
+        if (!setup_completion_context(ctx)) return false;
+
+        const llama_token eos = llama_vocab_eos(llama_model_get_vocab(ctx.model));
+        ctx.params.sampling.logit_bias.clear();
+        ctx.params.sampling.logit_bias.push_back({ eos, 1000.0f });
+
+        ctx.n_min_predict = -1;
+        const int without = run_classic_completion(ctx, "Hello", 20);
+        ctx.n_min_predict = 5;
+        const int with = run_classic_completion(ctx, "Hello", 20);
+        ctx.n_min_predict = -1;
+        ctx.params.sampling.logit_bias.clear();
+        if (without != 0 || with != 5) {
+            std::cout << "Expected 0 and 5 tokens, got " << without << " and " << with << std::endl;
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    }
+}
+
 // Test that partial init failures return false instead of dereferencing a null context.
 bool test_context_init_failure_is_graceful() {
     try {
@@ -552,6 +579,7 @@ int main() {
     results.run_test("Completion Generation Timing", test_completion_generation_timing());
     results.run_test("Completion Probabilities Reset Between Completions", test_completion_probabilities_reset_between_completions());
     results.run_test("Logit Bias Forces Token", test_logit_bias_forces_token());
+    results.run_test("n_min_predict Holds Back EOS", test_n_min_predict_holds_back_eos());
     results.run_test("n_probs Post-Sampling vs Raw", test_n_probs_post_sampling_vs_raw());
     results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());

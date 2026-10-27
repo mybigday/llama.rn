@@ -283,6 +283,15 @@ export type NativeCompletionParams = {
    */
   n_predict?: number
   /**
+   * Steps to generate before the generation may end: until then end-of-generation tokens are never sampled.
+   * Counts like `n_predict` (one step per token, or per audio frame for text-to-speech), and stop words still end it.
+   * Text-to-speech hands it to codec.cpp as the shortest generation. CosyVoice / BreezyVoice, BlueMagpie and
+   * Pocket-TTS take it; NeuTTS and Soprano keep the minimum in `getFormattedAudioCompletion`'s grammar;
+   * the other models have none.
+   * Default: `-1`, no minimum (text-to-speech: the model's own).
+   */
+  n_min_predict?: number
+  /**
    * If greater than 0, the response also contains the probabilities of top N tokens for each generated token.
    * By default these are the sampler chain's candidate probabilities, i.e. after `top_k` / `top_p` / `min_p` / `temperature` / `grammar` / ... have been applied and renormalised.
    * Set `post_sampling_probs: false` to get a plain softmax of the raw logits instead.

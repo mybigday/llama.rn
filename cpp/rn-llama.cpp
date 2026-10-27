@@ -12,6 +12,7 @@
 #include "tools/mtmd/clip.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <fstream>
@@ -571,6 +572,13 @@ bool llama_rn_context::loadModel(common_params &params_)
         return false;
     }
     default_samplers = params.sampling.samplers;
+    {
+        const llama_vocab * vocab = llama_model_get_vocab(model);
+        eog_tokens.clear();
+        for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); ++t) {
+            if (llama_vocab_is_eog(vocab, t)) eog_tokens.push_back(t);
+        }
+    }
 
     if (params.speculative.has_dft() &&
         has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
@@ -876,6 +884,12 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_g
         LOG_ERROR("[DEBUG] Failed to initialize multimodal: %s", e.what());
         return false;
     }
+}
+
+void llama_rn_context::holdBackEndOfGeneration(int idx) const {
+    float * logits = llama_get_logits_ith(ctx, idx);
+    if (logits == nullptr) return;
+    for (llama_token t : eog_tokens) logits[t] = -INFINITY;
 }
 
 bool llama_rn_context::isMultimodalEnabled() const {

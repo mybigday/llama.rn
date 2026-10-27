@@ -144,11 +144,6 @@ struct llama_rn_context_tts {
     int n_frames = 0;               // audio frames of the last generation
     std::string stop_reason;
 
-    // The completion's voice (JSIParams): a registry speaker id (-1 = none) or
-    // a builtin voice name ("" = the model's default).
-    int pending_speaker_id = -1;
-    std::string pending_voice;
-
     std::unordered_map<int, rn_speaker> speakers;
     int next_speaker_id = 1;
 
@@ -160,8 +155,8 @@ struct llama_rn_context_tts {
                          int n_threads = 0);
     ~llama_rn_context_tts();
 
-    // Per-completion state (rewind): the speaker id and the last generation's
-    // data, which its completion result holds.
+    // Per-completion state (rewind): the last generation's data, which its
+    // completion result holds.
     void reset();
 
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
@@ -172,19 +167,19 @@ struct llama_rn_context_tts {
     // Arms a request for the next completion: `text`, plus the voice from
     // `speakerId` (registry), else `speaker.codec_voice` (builtin voice name),
     // else the model's default.  `instruct` describes how to speak, for models
-    // that take one (can_take_instruct).  `options` holds codec.cpp's request
-    // overrides (min_frames).  The generation samples with the completion's
-    // sampling, codec.cpp's own samplers included.  Throws on failure.
+    // that take one (can_take_instruct).  The generation samples with the
+    // completion's sampling, codec.cpp's own samplers included, and its
+    // n_min_predict is codec.cpp's min_frames.  Throws on failure.
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker,
                                                                  const std::string &text_to_speak, int speakerId = -1,
-                                                                 const std::string &instruct = "",
-                                                                 const json &options = json::object());
+                                                                 const std::string &instruct = "");
     // ── TTS flow of the completion (rn-completion.cpp) ───────────────────
     // loadPrompt arms prompt_pending; nextToken's TTS prefill decodes
     // buildPrompt (codec.cpp builds the completion's prompt MTMD-style: its
     // voice markers become embedding rows, filled by the completion's voice,
-    // pending_speaker_id / pending_voice, else the model's default) and
-    // passes prefill the prompt's hidden states where the model reads them.
+    // tts_speaker_id / tts_voice, else the model's default; its n_min_predict
+    // becomes min_frames) and passes prefill the prompt's hidden states where
+    // the model reads them.
     // Every step after the backbone's calls step, which has codec.cpp's
     // codebook heads drawn through `sample_head` and leaves the embedding
     // rows the backbone reads next in pending_next_embd.  Throw on failure.

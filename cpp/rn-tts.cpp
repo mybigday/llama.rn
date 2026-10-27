@@ -163,8 +163,6 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 
 void llama_rn_context_tts::reset() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    pending_speaker_id = -1;
-    pending_voice.clear();
     // The completion result has taken the last generation's data.
     audio_tokens.clear();
     audio_latents.clear();
@@ -292,7 +290,7 @@ void check_exempt(int32_t n_exempt) {
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(
         llama_rn_context* main_ctx, const json &speaker, const std::string &text_to_speak, int speakerId,
-        const std::string &instruct, const json &options) {
+        const std::string &instruct) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const std::string why = checkBackbone(main_ctx);
     if (!why.empty()) throw std::runtime_error("TTS: " + why);
@@ -316,8 +314,6 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     req.text       = text_to_speak.c_str();
     req.voice      = voice.get();
     req.instruct   = instruct.empty() ? nullptr : instruct.c_str();
-    req.min_frames = options.contains("min_frames") && options["min_frames"].is_number()
-        ? options["min_frames"].get<int32_t>() : -1;
     const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
     const codec_audio_lm_vocab cv = host_vocab(vocab);
     codec_audio_lm_format f{};
@@ -373,9 +369,10 @@ llama_rn_tts_prompt llama_rn_context_tts::buildPrompt(llama_rn_context* main_ctx
     std::lock_guard<std::recursive_mutex> lock(mutex);
     // The completion's voice fills the prompt's <__voice__> markers (the
     // model's default without one).
-    gen_voice = resolveVoice(pending_speaker_id, pending_voice);
+    gen_voice = resolveVoice(main_ctx->tts_speaker_id, main_ctx->tts_voice);
     codec_audio_lm_tts_request req = codec_audio_lm_default_tts_request();
-    req.voice = gen_voice.get();
+    req.voice      = gen_voice.get();
+    req.min_frames = main_ctx->n_min_predict;   // < 0: the model's own minimum
     const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
     const codec_audio_lm_vocab cv = host_vocab(vocab);
     codec_audio_lm_completion c{};

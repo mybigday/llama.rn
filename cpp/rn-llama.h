@@ -123,6 +123,16 @@ struct llama_rn_context {
     // n_probs readout mode for the next completion (see get_token_probabilities);
     // false = softmax of the raw logits, true = the sampler chain's candidates
     bool post_sampling_probs = true;
+    // Completion params common_params has no field for (parseCompletionParams).
+    // n_min_predict: steps before the generation may end (-1 = none; for TTS,
+    // the model's own minimum).  tts_speaker_id / tts_voice: the TTS voice, a
+    // registry speaker id (-1 = none) or a builtin voice name ("" = the
+    // model's default).
+    int32_t n_min_predict = -1;
+    int tts_speaker_id = -1;
+    std::string tts_voice;
+    // End-of-generation tokens of the vocabulary, which n_min_predict holds back.
+    std::vector<llama_token> eog_tokens;
     common_init_result_ptr llama_init;
     llama_context *ctx = nullptr;
     common_chat_templates_ptr templates;
@@ -223,6 +233,10 @@ struct llama_rn_context {
                      const std::vector<std::string> &kv_overrides = {});
     bool isVocoderEnabled() const;
     void releaseVocoder();
+
+    // n_min_predict: sets the logits at batch index `idx` of every
+    // end-of-generation token to -inf.
+    void holdBackEndOfGeneration(int idx) const;
 
     // Cache management
     void clearCache(bool clear_data = false);

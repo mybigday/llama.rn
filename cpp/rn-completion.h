@@ -91,6 +91,7 @@ struct llama_rn_context_completion {
     size_t num_draft_tokens_accepted = 0;
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
+    size_t n_sampled = 0;               // steps sampled (n_min_predict)
     int64_t t_start_generation = 0;
     double t_token_generation = 0.0;
     llama_pos n_past = 0;
