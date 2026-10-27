@@ -94,6 +94,7 @@ public:
         d.needs_embeddings = true;
         d.sample_first     = false;
         d.max_frames       = (int32_t) (text_len * ci_->max_token_text_ratio) + 1;   // the text-length bound stops first
+        d.min_frames       = req.min_frames >= 0 ? req.min_frames : (int32_t) (text_len * ci_->min_token_text_ratio);
         return true;
     }
 
@@ -156,6 +157,7 @@ public:
         chunks.push_back(alm_chunk::of_embd(std::move(tail), n_tail));
         out->seqs = {std::move(chunks)};
         out->max_frames = max_len_ + 1;   // the text-length bound stops first
+        out->min_frames = min_len_;
         return true;
     }
 

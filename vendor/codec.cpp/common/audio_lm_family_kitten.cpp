@@ -126,6 +126,11 @@ public:
         // backbone from drifting into the Qwen3 text vocabulary.
         d.allowed = {{c.audio_base, c.audio_base + c.n_audio}, {c.speech_end, c.speech_end + 1}, {c.stop, c.stop + 1}};
         d.max_frames = budget(spoken);
+        // A minimum length only on request: [STOP] waits in the grammar;
+        // <|speech_end|> is the backbone's EOS, which llama.cpp's grammar
+        // holds back until the grammar can end.
+        d.min_frames = std::max(0, req.min_frames);
+        d.grammar = alm_min_length_grammar(c.stop, d.min_frames);
         return true;
     }
 

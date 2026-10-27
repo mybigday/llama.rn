@@ -64,6 +64,7 @@ struct alm_completion {
     bool    needs_prompt_hidden = false;
     bool    sample_first        = true;
     bool    streamable          = false;
+    int32_t min_frames          = 0;   // frames before the end may come (codec_audio_lm_completion)
     int32_t max_frames          = 0;
     std::vector<alm_head_group> head_groups;   // codec-side heads (SAMPLE_HEAD)
 };

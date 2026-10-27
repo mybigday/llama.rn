@@ -53,16 +53,14 @@ std::vector<float> downmix_mono(const float * in, size_t n_frames, int32_t n_cha
 bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int32_t * out_n, int32_t * out_sr,
                     std::string * err) {
     if (path.empty()) return true;
-    codec_example_wav_data w;
+    codec_util_wav_data w;
     std::string werr;
-    if (!codec_example_load_wav_pcm16(path.c_str(), &w, &werr)) {
+    if (!codec_util_load_wav(path.c_str(), &w, &werr)) {
         *err = "failed to load " + path + ": " + werr;
         return false;
     }
     const int32_t nch = w.n_channels > 0 ? w.n_channels : 1;
-    std::vector<float> pcm(w.pcm_i16.size());
-    for (size_t i = 0; i < pcm.size(); ++i) pcm[i] = w.pcm_i16[i] / 32768.0f;
-    ref_pcm = downmix_mono(pcm.data(), pcm.size() / (size_t) nch, nch);
+    ref_pcm = downmix_mono(w.pcm.data(), w.pcm.size() / (size_t) nch, nch);
     if (out_n)  *out_n  = (int32_t) ref_pcm.size();
     if (out_sr) *out_sr = w.sample_rate;
     return true;

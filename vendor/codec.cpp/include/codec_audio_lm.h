@@ -285,6 +285,11 @@ struct codec_audio_lm_completion {
     bool    sample_first;                  // the first step samples a backbone token
     bool    streamable;                    // stream_poll works during this generation (else
                                            // only the whole generation decodes)
+    // Audio frames before the generation may end: the request's min_frames
+    // when >= 0, else the model's own minimum (0 = none).  The generation
+    // keeps to it (grammar, masked end codes); a host's generic minimum
+    // length (e.g. hold end-of-generation back for n steps) may use it.
+    int32_t min_frames;
     int32_t max_frames;                    // audio frames to stop after (verdicts with frame_done)
     // Codec-side head groups (n_head_groups = 0: no SAMPLE_HEAD verdicts).
     const struct codec_audio_lm_head_group * head_groups;
@@ -326,6 +331,7 @@ struct codec_audio_lm_format {
     bool    needs_prompt_hidden;
     bool    sample_first;
     bool    streamable;
+    int32_t min_frames;                    // as the completion's; a build of the same request keeps to it
     int32_t max_frames;
 };
 

@@ -321,6 +321,7 @@ bool codec_audio_lm_tts_format(struct codec_audio_lm * ctx, const struct codec_a
     out->needs_prompt_hidden = d.needs_prompt_hidden;
     out->sample_first        = d.sample_first;
     out->streamable          = d.streamable;
+    out->min_frames          = d.min_frames;
     out->max_frames          = d.max_frames;
     return true;
 }
@@ -420,6 +421,7 @@ bool codec_audio_lm_get_completion(struct codec_audio_lm * ctx, struct codec_aud
     out->needs_prompt_hidden = c.needs_prompt_hidden;
     out->sample_first        = c.sample_first;
     out->streamable          = c.streamable;
+    out->min_frames          = c.min_frames;
     out->max_frames          = c.max_frames;
     ctx->head_groups.clear();
     for (const alm_head_group & g : c.head_groups) {

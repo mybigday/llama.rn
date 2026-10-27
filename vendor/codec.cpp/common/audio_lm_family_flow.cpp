@@ -67,6 +67,7 @@ public:
         d.needs_embeddings = true;
         d.sample_first     = false;
         d.max_frames = max_frames_for(ids);
+        d.min_frames = std::max(0, req.min_frames);   // the EOS head counts from this frame on
         return true;
     }
 
@@ -118,7 +119,7 @@ public:
         // draws; the FlowLM is very sensitive to the first frames' noise).
         set_seed(CODEC_AUDIO_LM_DEFAULT_SEED);   // random unless the host sets one (codec_audio_lm_set_seed)
         flow_steps_  = req.flow_steps > 0 ? req.flow_steps : 0;   // 0: the GGUF's lsd_decode_steps
-        min_len_ = req.min_frames >= 0 ? req.min_frames : 0;   // ignore the EOS head before this frame
+        min_len_ = out->min_frames;   // ignore the EOS head before this frame
         eos_step_ = -1;
         step_ = 0;
         latents_.clear();

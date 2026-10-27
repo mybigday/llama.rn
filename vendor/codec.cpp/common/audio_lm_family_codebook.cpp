@@ -7,6 +7,7 @@
 #include "audio_lm_family.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace codec_common {
@@ -73,6 +74,11 @@ public:
         alm_completion & d = out->desc;
         d.flow   = CODEC_AUDIO_LM_FLOW_CODEC_HEAD;
         d.n_embd = hidden;
+        // The end code (eos_code_c0) waits for the request's min_frames frames:
+        // masked in the codebook-0 head, or by the grammar when codebook 0 is a
+        // backbone token.  The model's eos_min_step is a floor: before it the
+        // codec takes the end code as an ordinary code (CSM's 0 is one).
+        d.min_frames = std::max(pi.eos_code_c0 >= 0 ? pi.eos_min_step : 0, std::max(0, req.min_frames));
         // The host samples every codebook.  Codebook 0, when a codec head, is
         // its own group with the penalties (Qwen3-TTS: the talker's
         // repetition_penalty over the frames' first codes); the depth codebooks
@@ -81,7 +87,7 @@ public:
         else                      d.head_groups = {alm_head_group{true, {}, {}}, alm_head_group{false, {}, {}}};
         if (pi.cb0_from_backbone) {
             // Codebook 0 is a backbone token: keep it to the speech range + end.
-            if (req.text_known) d.grammar = tts_auto_grammar(pi, req.text);
+            if (req.text_known) d.grammar = tts_auto_grammar(pi, req.text, std::max(0, req.min_frames));
             if (d.grammar.empty() && pi.audio_tok_offset >= 0) {
                 d.allowed = {{pi.audio_tok_offset, pi.audio_tok_offset + pi.audio_tok_count}};
                 if (pi.audio_tok_eos >= 0) d.allowed.push_back({pi.audio_tok_eos, pi.audio_tok_eos + 1});
@@ -99,6 +105,7 @@ public:
         hidden_ = audio_lm_hidden_dim(alm_);
         n_cb_   = audio_lm_n_codebook(alm_);
         frames_ = 0;
+        mask_end_until_ = std::max(0, req.min_frames);
         stop_reason_ = "max_frames";
         talker_text_.clear();
         talker_step_ = 0;
@@ -219,6 +226,9 @@ private:
                 continue;
             }
             logits_.assign(lg, lg + n);
+            if (cb_ == 0 && frames_ < mask_end_until_ && pi_.eos_code_c0 >= 0 && pi_.eos_code_c0 < n) {
+                logits_[(size_t) pi_.eos_code_c0] = -INFINITY;   // not the end yet (min_frames)
+            }
             const int32_t group = (!pi_.cb0_from_backbone && cb_ > 0) ? 1 : 0;   // head_groups above
             *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, group, n};
             return true;
@@ -334,7 +344,7 @@ private:
     }
 
     audio_lm_prompt_info pi_;
-    int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0;
+    int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0, mask_end_until_ = 0;
     std::vector<int32_t> talker_text_;
     int32_t talker_step_ = 0;
     std::vector<int32_t> icl_codes_;   // reference frames [n, n_cb] of an ICL voice

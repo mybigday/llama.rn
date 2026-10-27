@@ -117,7 +117,8 @@ public:
         d.allowed = {{off, off + count}, {eos, eos + 1}};
         // Some seeds sample the end token first at temp 1 / top-k 50; by
         // default it stays out for the first 25 frames (~0.3 s).
-        d.grammar = alm_min_length_grammar(eos, req.min_frames >= 0 ? req.min_frames : 25);
+        d.min_frames = req.min_frames >= 0 ? req.min_frames : 25;
+        d.grammar = alm_min_length_grammar(eos, d.min_frames);
         d.max_frames = 512;
         d.streamable = true;
         return true;
@@ -303,7 +304,8 @@ public:
         d.flow = CODEC_AUDIO_LM_FLOW_TOKENS;
         // Free generation (word blocks interleave with the codes) kept well
         // formed by the prompt-derived grammar: only the input's words,
-        // complete headers, in-range codes.
+        // complete headers, in-range codes.  The grammar sets the length (every
+        // word gets its codes), so min_frames stays 0 and the request's is not used.
         if (req.text_known) d.grammar = outetts_build_grammar(v, in_words);
         d.max_frames = INT32_MAX;   // the context bounds it
         d.streamable = true;

@@ -10,6 +10,7 @@
 #include "lm/lm_models.h"
 #include "tts_segment.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace codec_common {
@@ -65,6 +66,7 @@ public:
         d.needs_embeddings = true;
         d.sample_first     = false;
         d.max_frames       = 512;
+        d.min_frames       = std::max(0, req.min_frames);   // the stop token is masked before it
         return true;
     }
 
@@ -73,6 +75,7 @@ public:
         hidden_ = audio_lm_hidden_dim(alm_);
         codes_.clear();
         frames_ = 0;
+        min_frames_ = out->min_frames;
         stop_reason_ = "max_frames";
         cfg_ = guidance(req);
         if (!prompt.voice()) return fail("Chatterbox's prompt starts with <__voice__>");
@@ -159,6 +162,9 @@ public:
         for (int32_t i = 0; i < n; ++i) {
             logits_[(size_t) i] = n_seq_ == 2 ? cond[(size_t) i] + cfg_ * (cond[(size_t) i] - uncond[(size_t) i]) : cond[(size_t) i];
         }
+        if (frames_ < min_frames_ && ci_->stop_speech_token >= 0 && ci_->stop_speech_token < n) {
+            logits_[(size_t) ci_->stop_speech_token] = -INFINITY;
+        }
         *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, 0, n};
         return true;
     }
@@ -208,7 +214,7 @@ private:
 
     codec_lm * lm_;
     const codec_lm_chatterbox_info * ci_;
-    int32_t hidden_ = 0, n_seq_ = 1, frames_ = 0;
+    int32_t hidden_ = 0, n_seq_ = 1, frames_ = 0, min_frames_ = 0;
     float cfg_ = 0.0f;
     std::vector<int32_t> codes_;
     std::vector<float> next_, logits_;

@@ -124,8 +124,9 @@ file(GLOB RNLLAMA_CODEC_SOURCES CONFIGURE_DEPENDS
     ${_codec}/common/tts_segment.cpp
     ${_codec}/common/kitten_text.cpp
 )
-# WAV/NPY helpers for the host test probes (include dir: ${RNLLAMA_CODEC_CPP_DIR}/examples)
-file(GLOB RNLLAMA_CODEC_UTILS_SOURCES CONFIGURE_DEPENDS ${_codec}/examples/utils/*.cpp)
+# WAV/NPY helpers for the host test probes (common/utils, examples/utils; both
+# included as "utils/...")
+file(GLOB RNLLAMA_CODEC_UTILS_SOURCES CONFIGURE_DEPENDS ${_codec}/common/utils/*.cpp ${_codec}/examples/utils/*.cpp)
 
 # --- llama.rn -----------------------------------------------------------------
 set(RNLLAMA_RN_SOURCES

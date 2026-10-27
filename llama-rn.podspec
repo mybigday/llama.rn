@@ -62,7 +62,7 @@ Pod::Spec.new do |s|
       "#{llama_cpp}/ggml/src/ggml-cpu/hbm.cpp",
       "#{llama_cpp}/ggml/src/ggml-cpu/{kleidiai,llamafile,arch/wasm}/*",
       "#{llama_cpp}/vendor/{cpp-httplib,hash/sha1,hash/xxhash}/*",
-      "#{llama_cpp}/tools/mtmd/debug/*.cpp", "#{codec_cpp}/common/{tts_runner*,tts_c}.cpp",
+      "#{llama_cpp}/tools/mtmd/debug/*.cpp", "#{codec_cpp}/common/{tts_runner*,tts_c}.cpp", "#{codec_cpp}/common/utils/*.cpp",
       "#{llama_cpp}/common/jinja/string.h"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     # Same order as cmake/rnllama-sources.cmake (basename collisions are

@@ -166,9 +166,10 @@ CODEC_CPP_PATHS=(
   LICENSE
   include
   src
-  # audio_lm.cpp + codec_common.h; tts_runner*.cpp are excluded by the builds
+  # audio_lm.cpp + codec_common.h (+ utils/wav_io); tts_runner*.cpp are
+  # excluded by the builds
   common
-  # wav/npy helpers used by the host test probes
+  # npy helpers used by the host test probes
   examples/utils
 )
 # codec.cpp's own llama.cpp submodule (exported as an empty directory)

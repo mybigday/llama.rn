@@ -14,6 +14,8 @@
 #include "audio_lm_family.h"
 #include "audio_lm_text_embd.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <mutex>
 
@@ -32,12 +34,22 @@ public:
     }
 
 protected:
-    bool begin(alm_tts_request const &, const alm_vocab & vocab) {
+    // The end code (eos_code_c0) waits for the request's min_frames audio
+    // frames, masked in the codebook-0 head; the model's eos_min_step is a
+    // floor (before it the codec takes the end code as an ordinary code).
+    int32_t min_frames_of(const alm_tts_request & req) const {
+        audio_lm_prompt_info pi;
+        if (!audio_lm_get_prompt_info(alm_, &pi)) return std::max(0, req.min_frames);
+        return std::max(pi.eos_code_c0 >= 0 ? pi.eos_min_step : 0, std::max(0, req.min_frames));
+    }
+
+    bool begin(alm_tts_request const & req, const alm_vocab & vocab) {
         if (!vocab.valid()) return fail("this model needs the backbone vocabulary");
         if (!audio_lm_get_prompt_info(alm_, &pi_)) return fail_alm("prompt info");
         hidden_ = audio_lm_hidden_dim(alm_);
         n_cb_   = audio_lm_n_codebook(alm_);
         frames_ = 0;
+        mask_end_until_ = std::max(0, req.min_frames);
         stop_reason_ = "max_frames";
         {
             std::lock_guard<std::mutex> lock(table_->m);
@@ -89,6 +101,9 @@ protected:
             const float * lg = audio_lm_step_logits(alm_, &idx, &n);
             if (lg == nullptr) return fail_alm("step logits");
             logits_.assign(lg, lg + n);
+            if (cb_ == 0 && frames_ < mask_end_until_ && pi_.eos_code_c0 >= 0 && pi_.eos_code_c0 < n) {
+                logits_[(size_t) pi_.eos_code_c0] = -INFINITY;   // not the end yet (min_frames)
+            }
             *v = {CODEC_AUDIO_LM_SAMPLE_HEAD, false, true, false, -1, group_of(cb_), n};
             return true;
         }
@@ -110,7 +125,7 @@ protected:
     int32_t cb_ = 0;
     bool in_text_ = false;
     audio_lm_prompt_info pi_;
-    int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0;
+    int32_t hidden_ = 0, n_cb_ = 0, frames_ = 0, mask_end_until_ = 0;
     // The backbone's table, loaded on first use and shared by the contexts of
     // one model (codec_audio_lm_init_shared).
     struct shared_table {
@@ -142,6 +157,7 @@ public:
         d.sample_first     = false;
         d.streamable       = true;
         d.max_frames       = 512;
+        d.min_frames       = min_frames_of(req);
         return true;
     }
 
@@ -222,6 +238,7 @@ public:
         d.sample_first     = false;
         d.streamable       = true;
         d.max_frames       = 512;
+        d.min_frames       = min_frames_of(req);
         return true;
     }
 

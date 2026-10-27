@@ -634,7 +634,7 @@ static enum codec_status codec_snac_run_decode(
     const int32_t n_super = n_frames / sn.vq_strides[0];
 
     // Recover compact codes from the (n_q=3, n_frames) packing.  The loader
-    // (codec_example_load_npy_i32_2d_tq) transposes 2D NPYs to a (T, Q)
+    // (codec_util_load_npy_i32_2d_tq) transposes 2D NPYs to a (T, Q)
     // interleaved layout, so `tokens->data[t*n_q + q]` is the q-th level's
     // value at frame t.  Row 0 (q=0) holds level-0 codes each repeated
     // vq_strides[0]× = 4×; row 1 holds level-1 codes ×2; row 2 holds level-2

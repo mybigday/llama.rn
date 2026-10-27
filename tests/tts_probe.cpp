@@ -54,6 +54,7 @@ static void apply_completion_params(llama_rn_context & ctx, const json & p, cons
     auto & sp = ctx.params.sampling;
     ctx.params.prompt    = p.value("prompt", std::string());
     ctx.params.embedding = p.value("embedding", false);
+    ctx.n_min_predict    = p.value("n_min_predict", -1);
     llama_set_embeddings(ctx.ctx, ctx.params.embedding);
     sp.grammar = p.contains("grammar") ? common_grammar(COMMON_GRAMMAR_TYPE_USER, p["grammar"].get<std::string>())
                                        : common_grammar();
@@ -117,20 +118,20 @@ static bool write_wav_mono16(const std::string & path, const std::vector<float> 
     return true;
 }
 
-// Mono float PCM from a 16-bit WAV.
+// Mono float PCM from a WAV.
 static bool load_wav_mono(const std::string & path, std::vector<float> * pcm, int * sample_rate) {
-    codec_example_wav_data wav;
+    codec_util_wav_data wav;
     std::string werr;
-    if (!codec_example_load_wav_pcm16(path.c_str(), &wav, &werr)) {
+    if (!codec_util_load_wav(path.c_str(), &wav, &werr)) {
         std::fprintf(stderr, "[probe] failed to load %s: %s\n", path.c_str(), werr.c_str());
         return false;
     }
     const int32_t nch = wav.n_channels > 0 ? wav.n_channels : 1;
-    const int32_t nframes = (int32_t) (wav.pcm_i16.size() / (size_t) nch);
+    const int32_t nframes = (int32_t) (wav.pcm.size() / (size_t) nch);
     pcm->assign((size_t) nframes, 0.0f);
     for (int32_t i = 0; i < nframes; ++i) {
         float acc = 0.0f;
-        for (int32_t c = 0; c < nch; ++c) acc += wav.pcm_i16[(size_t) i * (size_t) nch + (size_t) c] / 32768.0f;
+        for (int32_t c = 0; c < nch; ++c) acc += wav.pcm[(size_t) i * (size_t) nch + (size_t) c];
         (*pcm)[(size_t) i] = acc / (float) nch;
     }
     *sample_rate = wav.sample_rate;
@@ -143,7 +144,7 @@ int main(int argc, char ** argv) {
     std::string codec_path;
     std::string text = "Hello world";
     int  n_predict = 0;      // 0: none (until the model stops or the context is full)
-    int  n_min_predict = -1; // -1: the model's own minimum
+    int  n_min_predict = -1; // -1: completionParams' (the model's minimum)
     int  threads   = 8;
     uint32_t seed  = 0;      // 0: the model's default
     std::string sampling_json;   // completion() sampling keys over the GGUF's general.sampling.*
@@ -297,7 +298,7 @@ int main(int argc, char ** argv) {
             ctx.tts_speaker_id = speaker_id;
             ctx.tts_voice = voice;
             ctx.params.n_predict = n_predict > 0 ? n_predict : -1;
-            ctx.n_min_predict = n_min_predict;
+            if (n_min_predict >= 0) ctx.n_min_predict = n_min_predict;
             if (!ctx.completion->initSampling()) {
                 std::fprintf(stderr, "initSampling failed\n");
                 return false;

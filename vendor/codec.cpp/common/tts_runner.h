@@ -7,8 +7,8 @@
 // llama.cpp as the backbone, the same loop a host such as llama.rn writes
 // against the API: load the codec and the backbone, split the text, set the
 // voice, then per segment build the prompt, sample / decode / observe each
-// step and decode (or stream) the audio.  `tools/tts-cli` (one-shot
-// tts_runner_synthesize) and `tools/tts-server` (a tts_runner_session) are
+// step and decode (or stream) the audio.  `tools/cli/tts-cli` (one-shot
+// tts_runner_synthesize) and `tools/server/tts-server` (a tts_runner_session) are
 // thin drivers over it.
 //
 // The session API is built only when CODEC_TTS_BACKBONE=ON (codec_tts_runner

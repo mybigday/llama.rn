@@ -43,7 +43,8 @@ public:
         d.needs_embeddings = true;
         d.sample_first = true;
         d.max_frames = 512;
-        if (req.min_frames > 0) d.grammar = alm_min_length_grammar(eos, req.min_frames);
+        d.min_frames = std::max(0, req.min_frames);   // the model has no minimum of its own
+        d.grammar = alm_min_length_grammar(eos, d.min_frames);
         return true;
     }
 

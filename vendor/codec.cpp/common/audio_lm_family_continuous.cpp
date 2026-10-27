@@ -5,6 +5,8 @@
 
 #include "audio_lm_family.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <random>
 
 namespace codec_common {
@@ -35,6 +37,10 @@ public:
         d.sample_first        = false;
         d.streamable          = true;
         d.max_frames          = 512;
+        // The stop head counts from frame min_len + 1 on (VoxCPM: `i > min_len`,
+        // the GGUF's codec.lm.min_len, else 2); a request asks for at least one frame.
+        const char * m_min = audio_lm_meta_str(alm_, "codec.lm.min_len");
+        d.min_frames = req.min_frames >= 0 ? std::max(1, req.min_frames) : (m_min ? std::atoi(m_min) : 2) + 1;
         return true;
     }
 
@@ -50,7 +56,8 @@ public:
         const char * m_steps = audio_lm_meta_str(alm_, "codec.lm.cfm_n_timesteps");
         const char * m_cfg   = audio_lm_meta_str(alm_, "codec.lm.cfm_cfg_value");
         audio_lm_set_continuous_params(alm_, req.flow_guidance >= 0.0f ? req.flow_guidance : (m_cfg ? (float) std::atof(m_cfg) : 2.0f),
-                                       req.flow_steps > 0 ? req.flow_steps : (m_steps ? std::atoi(m_steps) : 10), req.min_frames);
+                                       req.flow_steps > 0 ? req.flow_steps : (m_steps ? std::atoi(m_steps) : 10),
+                                       out->min_frames - 1);
         const std::vector<int32_t> toks = vocab.tokenize(text, pi_.add_bos, pi_.parse_special);
         if (toks.empty()) return fail("empty prompt after tokenize");
         codec_log(CODEC_LOG_LEVEL_INFO, "prompt: \"%s\" -> %zu tokens\n", text.c_str(), toks.size());

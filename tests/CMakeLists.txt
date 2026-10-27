@@ -47,7 +47,7 @@ else()
 endif()
 
 # Every test links the whole library plus codec.cpp's WAV/NPY helpers
-# (included as "utils/wav_io.h", hence the examples/ include dir).
+# (included as "utils/wav_io.h" from common/; npy_io from the examples/ include dir).
 set(TEST_SOURCES ${RNLLAMA_CORE_SOURCES} ${RNLLAMA_CODEC_UTILS_SOURCES})
 set(TEST_INCLUDE_DIRS ${RNLLAMA_INCLUDE_DIRS} ${RNLLAMA_CODEC_CPP_DIR}/examples)
 

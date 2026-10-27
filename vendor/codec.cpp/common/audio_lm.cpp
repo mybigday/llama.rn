@@ -1403,7 +1403,7 @@ std::string outetts_build_grammar(outetts_version v, const std::string & text) {
 }
 
 std::string tts_auto_grammar(const audio_lm_prompt_info & pi,
-                             const std::string & text) {
+                             const std::string & text, int32_t min_frames) {
     (void) text;  // reserved for future prompt-dependent grammars
 
     // MOSS-TTSD (and any merged-cb0 parallel-heads-delay model): constrain
@@ -1421,9 +1421,11 @@ std::string tts_auto_grammar(const audio_lm_prompt_info & pi,
         // end-of-speech sentinel.  The delay-pattern tail frames (cb0 forced
         // to eos while cb1..N flush) are handled by the runtime, not the
         // grammar, so `end` may appear once and then trailing eos repeats are
-        // allowed too (end+ ) to cover the flush window.
+        // allowed too (end+ ) to cover the flush window.  The end waits for
+        // min_frames speech frames.
         std::string g;
-        g += "root ::= speech* end+\n";
+        g += min_frames > 0 ? "root ::= speech{" + std::to_string(min_frames) + "} speech* end+\n"
+                            : std::string("root ::= speech* end+\n");
         g += "speech ::= \"<\" SPEECHID \">\"\n";
         g += "end ::= \"<|end_of_speech|>\"\n";
         g += "SPEECHID ::= " + num_rule + "\n";
