@@ -244,7 +244,17 @@ public:
     void caps(codec_audio_lm_caps * out) const override {
         token_family::caps(out);
         out->takes_ref_audio = false;
+        out->needs_voice     = !outetts_voice(audio_lm_resolve_speaker(alm_, nullptr));   // no baked default
         out->sample_rate     = codec_model_sample_rate_of();
+    }
+
+    // A speaker OuteTTS can run with: ref_text + an I32 audio_prompt.
+    static bool outetts_voice(const codec_speaker * spk) {
+        codec_speaker_slot_type ty;
+        int64_t ne[4];
+        const void * data = nullptr;
+        return spk != nullptr && codec_speaker_ref_text(spk) != nullptr &&
+               codec_speaker_get_slot(spk, "audio_prompt", &ty, ne, &data) && ty == CODEC_SPEAKER_SLOT_I32;
     }
 
     bool backbone_requirements(const alm_vocab & vocab, int32_t max_frames, codec_audio_lm_backbone_req * out) override {

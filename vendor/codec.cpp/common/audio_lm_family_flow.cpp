@@ -49,13 +49,24 @@ public:
     void caps(codec_audio_lm_caps * out) const override {
         alm_family::caps(out);
         out->takes_ref_audio = audio_lm_codec_can_speaker_from_audio(alm_);
+        out->needs_voice     = !has_latents(audio_lm_resolve_speaker(alm_, nullptr));   // no baked default
         const char * sr = audio_lm_meta_str(alm_, "codec.sample_rate");
         out->sample_rate = sr ? std::atoi(sr) : 24000;
+    }
+
+    // A voice Pocket-TTS conditions on: reference latents.  Unconditioned, the
+    // EOS head may never fire and generation runs to max_frames.
+    static bool has_latents(const codec_speaker * spk) {
+        codec_speaker_slot_type ty;
+        int64_t ne[4];
+        const void * data = nullptr;
+        return spk != nullptr && codec_speaker_get_slot(spk, "latents", &ty, ne, &data);
     }
 
     // Prompt: {prepared text}<__voice__><__codec:bos__> (the voice's prefix
     // rows, then the first frame input: input_linear(BOS)).
     bool tts_format(const alm_tts_request & req, const alm_vocab & vocab, alm_format * out) override {
+        if (!has_latents(req.voice)) return fail("Pocket-TTS needs a voice (reference audio or a speaker file)");
         std::string text = req.text;
         flow_prepare_text(text);
         std::vector<int32_t> ids;
@@ -93,17 +104,18 @@ public:
         int64_t ne[4];
         const void * mu = nullptr;
         const codec_speaker * spk = req.voice;
-        if (spk != nullptr && codec_speaker_get_slot(spk, "latents", &ty, ne, &mu)) {
-            if (ty != CODEC_SPEAKER_SLOT_F32 || ne[1] != ldim) return fail("Pocket-TTS speaker latents have the wrong shape");
-            const int32_t n_voice = (int32_t) ne[0];
-            rows.resize((size_t) (n_voice + 1) * hidden);
-            if (codec_lm_flow_speaker_rows(lm_, static_cast<const float *>(mu), n_voice, rows.data(), n_voice + 1,
-                                           &n_rows) != CODEC_STATUS_SUCCESS) {
-                return fail(std::string("speaker rows: ") + codec_lm_get_last_error(lm_));
-            }
-            rows.resize((size_t) n_rows * hidden);
-            codec_log(CODEC_LOG_LEVEL_INFO, "pocket: voice conditioning -> %d rows\n", n_rows);
+        if (spk == nullptr || !codec_speaker_get_slot(spk, "latents", &ty, ne, &mu)) {
+            return fail("Pocket-TTS needs a voice (reference audio or a speaker file)");
         }
+        if (ty != CODEC_SPEAKER_SLOT_F32 || ne[1] != ldim) return fail("Pocket-TTS speaker latents have the wrong shape");
+        const int32_t n_voice = (int32_t) ne[0];
+        rows.resize((size_t) (n_voice + 1) * hidden);
+        if (codec_lm_flow_speaker_rows(lm_, static_cast<const float *>(mu), n_voice, rows.data(), n_voice + 1,
+                                       &n_rows) != CODEC_STATUS_SUCCESS) {
+            return fail(std::string("speaker rows: ") + codec_lm_get_last_error(lm_));
+        }
+        rows.resize((size_t) n_rows * hidden);
+        codec_log(CODEC_LOG_LEVEL_INFO, "pocket: voice conditioning -> %d rows\n", n_rows);
         if (!prompt.codec("bos")) return fail("Pocket-TTS's prompt ends with <__codec:bos__>");
 
         if (st_) codec_lm_state_free(st_);
