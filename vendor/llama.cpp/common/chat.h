@@ -45,9 +45,7 @@ struct common_chat_tool_call {
 struct common_chat_msg_content_part {
     std::string type;
     std::string text;
-    // Preserves non-standard fields from the original JSON (e.g. source_lang_code,
-    // target_lang_code for TranslateGemma) so they survive the parse/serialize round-trip.
-    common_json extra_fields;
+    std::string name; // tool_reference: name of a tool from the request tools
 
     // TODO @ngxson : no known chat templates support reasoning_content in content parts yet
     //                this can be useful for models with interleaved thinking (like Kimi-K2)
@@ -55,7 +53,7 @@ struct common_chat_msg_content_part {
     // std::string reasoning_content;
 
     bool operator==(const common_chat_msg_content_part & other) const {
-        return type == other.type && text == other.text && extra_fields == other.extra_fields;
+        return type == other.type && text == other.text && name == other.name;
     }
 };
 
@@ -229,6 +227,9 @@ struct common_chat_tool {
     std::string name;
     std::string description;
     std::string parameters;
+
+    // withheld from the system prompt, a tool_reference reveals it later in the conversation
+    bool defer_loading = false;
 };
 
 enum common_chat_tool_choice {
@@ -455,20 +456,6 @@ common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::strin
 
 bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
 
-// Template capabilities structure (for exposing capabilities to external code)
-struct common_chat_template_caps {
-    bool supports_tools = true;
-    bool supports_tool_calls = true;
-    bool supports_system_role = true;
-    bool supports_parallel_tool_calls = true;
-};
-
-// Get template capabilities for a specific variant ("" for default, "tool_use" for tool_use template)
-common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant);
-
-// Check if a template variant exists
-bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant);
-
 // Parses a JSON array of messages in OpenAI's chat completion API format.
 std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const common_json & messages);
 
@@ -485,7 +472,7 @@ common_json common_chat_tools_to_json_oaicompat(const std::vector<common_chat_to
 common_json common_chat_tool_parameters(const common_json & function);
 
 // get template caps, useful for reporting to server /props endpoint
-std::map<std::string, bool> common_chat_templates_get_caps(const common_chat_templates * chat_templates);
+common_json common_chat_templates_get_caps(const common_chat_templates * chat_templates);
 
 common_chat_prompt common_chat_template_direct_apply(
     const common_chat_template & tmpl,
@@ -504,6 +491,12 @@ std::optional<common_chat_params> common_chat_try_specialized_template(
 struct common_chat_prompt_preset {
     std::string system;
     std::string user;
+    bool has_language = false; // the preset already names the requested language
 };
 
-common_chat_prompt_preset common_chat_get_asr_prompt(const common_chat_templates * chat_templates);
+common_chat_prompt_preset common_chat_get_asr_prompt(const common_chat_templates * chat_templates, const std::string & language = "");
+
+// prompt of the model's "tts" chat template for the text to speak, empty if the model has none
+// language and voice are optional, the template defines their defaults
+std::string common_chat_get_tts_prompt(const common_chat_templates * chat_templates, const std::string & text,
+                                       const std::string & language = "", const std::string & voice = "");

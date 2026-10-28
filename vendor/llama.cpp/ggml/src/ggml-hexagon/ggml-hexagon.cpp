@@ -895,12 +895,8 @@ static ggml_backend_buffer_t ggml_backend_hexagon_buffer_type_alloc_buffer(
         return nullptr;
     }
     try {
-        auto sbuf = std::make_unique<ggml_hexagon_shared_buffer>(sess, size, false);
-        if (!opt_dma64) {
-            // no extended mappings: map now, large contiguous ranges get scarce later
-            sbuf->mmap();
-        }
-        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_buffer_interface, sbuf.release(), size);
+        ggml_hexagon_shared_buffer * sbuf = new ggml_hexagon_shared_buffer(sess, size, false);
+        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_buffer_interface, sbuf, size);
     } catch (const std::exception & exc) {
         GGML_LOG_ERROR("ggml-hex: %s failed to allocate device buffer context: %s\n", dev_ctx->c_name(), exc.what());
         return nullptr;
@@ -917,12 +913,8 @@ static ggml_backend_buffer_t ggml_backend_hexagon_host_buffer_type_alloc_buffer(
         return nullptr;
     }
     try {
-        auto sbuf = std::make_unique<ggml_hexagon_shared_buffer>(sess, size, false);
-        if (!opt_dma64) {
-            // no extended mappings: map now, large contiguous ranges get scarce later
-            sbuf->mmap();
-        }
-        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_host_buffer_interface, sbuf.release(), size);
+        ggml_hexagon_shared_buffer * sbuf = new ggml_hexagon_shared_buffer(sess, size, false);
+        return ggml_backend_buffer_init(buffer_type, ggml_backend_hexagon_host_buffer_interface, sbuf, size);
     } catch (const std::exception & exc) {
         GGML_LOG_ERROR("ggml-hex: %s failed to allocate host buffer context: %s\n", dev_ctx->c_name(), exc.what());
         return nullptr;
@@ -3075,24 +3067,6 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
         devices[i].context = new ggml_backend_hexagon_device_context(i, opt_device_configs[i], &devices[i]);
     }
 
-    // llama.rn: sessions are created on demand upstream, so a configured device count
-    // that exceeds what the SoC allows only fails at first use. Probe the sessions here
-    // and truncate the device list at the first failure so callers see the real count.
-    for (size_t i = 0; i < opt_ndev; i++) {
-        auto dev_ctx = static_cast<ggml_backend_hexagon_device_context *>(devices[i].context);
-        try {
-            dev_ctx->session();
-        } catch (const std::exception & exc) {
-            GGML_LOG_WARN("ggml-hex: failed to create session for %s: %s; using %zu device(s)\n",
-                          dev_ctx->c_name(), exc.what(), i);
-            for (size_t j = i; j < opt_ndev; j++) {
-                delete static_cast<ggml_backend_hexagon_device_context *>(devices[j].context);
-                devices[j].context = nullptr;
-            }
-            opt_ndev = i;
-            break;
-        }
-    }
 }
 
 ggml_hexagon_registry::~ggml_hexagon_registry() {

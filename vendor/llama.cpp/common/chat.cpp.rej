@@ -1,0 +1,69 @@
+--- common/chat.cpp
++++ common/chat.cpp
+@@ -190,10 +190,16 @@
+         } else {
+             auto & parts = jmsg["content"] = json::array();
+             for (const auto & part : content_parts) {
+-                parts.push_back({
++                json jpart = {
+                     {"type", part.type},
+                     {"text", part.text},
+-                });
++                };
++                if (part.extra_fields.is_object()) {
++                    for (const auto & [k, v] : part.extra_fields.items()) {
++                        jpart[k] = v;
++                    }
++                }
++                parts.push_back(jpart);
+             }
+         }
+     } else {
+@@ -376,6 +382,11 @@
+                         common_chat_msg_content_part msg_part;
+                         msg_part.type = type;
+                         msg_part.text = part.at("text");
++                        for (const auto & [k, v] : part.items()) {
++                            if (k != "type" && k != "text") {
++                                msg_part.extra_fields[k] = v;
++                            }
++                        }
+                         msg.content_parts.push_back(msg_part);
+                     }
+                 } else if (!content.is_null()) {
+@@ -1785,4 +1802,35 @@
+         return chat_templates->template_tool_use->caps.to_map();
+     }
+     return chat_templates->template_default->caps.to_map();
++}
++
++common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
++    common_chat_template_caps result;
++    const common_chat_template * tmpl = nullptr;
++
++    if (!variant.empty() && variant == "tool_use") {
++        tmpl = tmpls->template_tool_use.get();
++    } else {
++        tmpl = tmpls->template_default.get();
++    }
++
++    if (tmpl) {
++        auto caps = tmpl->original_caps();
++        result.supports_tools = caps.supports_tools;
++        result.supports_tool_calls = caps.supports_tool_calls;
++        result.supports_system_role = caps.supports_system_role;
++        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
++    }
++
++    return result;
+ }
++
++bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
++    if (variant.empty() || variant == "default") {
++        return tmpls->template_default != nullptr;
++    }
++    if (variant == "tool_use") {
++        return tmpls->template_tool_use != nullptr;
++    }
++    return false;
++}
