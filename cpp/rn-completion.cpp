@@ -1872,7 +1872,8 @@ std::vector<float> llama_rn_context_completion::embedding(common_params &embd_pa
     doCompletion();
     endCompletion();
 
-    static const int n_embd = llama_model_n_embd(llama_get_model(parent_ctx->ctx));
+    // Output width can differ from the hidden size (e.g. EmbeddingGemma 2)
+    const int n_embd = llama_model_n_embd_out(parent_ctx->model);
     if (!embd_params.embedding)
     {
         LOG_WARNING("embedding disabled, embedding: %s", embd_params.embedding);

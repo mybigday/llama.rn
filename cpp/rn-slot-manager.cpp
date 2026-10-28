@@ -267,7 +267,7 @@ int32_t llama_rn_slot_manager::queue_embedding_request(
     if (!parent_ctx->params.embedding) {
         LOG_WARNING("Embedding disabled in model parameters; returning zero vector");
         if (on_result) {
-            const int n_embd = llama_model_n_embd(parent_ctx->model);
+            const int n_embd = llama_model_n_embd_out(parent_ctx->model);
             std::vector<float> empty_embedding(n_embd, 0.0f);
             on_result(request_id, empty_embedding);
         }
@@ -1225,7 +1225,8 @@ void llama_rn_slot_manager::sample_and_callback() {
     }
 
     const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
-    const int n_embd = llama_model_n_embd(parent_ctx->model);
+    // Output width can differ from the hidden size (e.g. EmbeddingGemma 2)
+    const int n_embd = llama_model_n_embd_out(parent_ctx->model);
 
     auto get_embedding_ptr = [&](llama_rn_slot& slot) -> const float* {
         const float* data = llama_get_embeddings_seq(parent_ctx->ctx, slot.id);
