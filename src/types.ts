@@ -289,6 +289,13 @@ export type NativeCompletionParams = {
    */
   n_predict?: number
   /**
+   * Number of tokens from the start of the prompt to keep when the context is full:
+   * an over-long prompt is truncated after them, and with `ctx_shift` on, a context shift
+   * during generation discards tokens after them. Use it to keep a system prompt.
+   * Capped at `n_ctx - 4`. Default: `0`
+   */
+  n_keep?: number
+  /**
    * If greater than 0, the response also contains the probabilities of top N tokens for each generated token.
    * By default these are the sampler chain's candidate probabilities, i.e. after `top_k` / `top_p` / `min_p` / `temperature` / `grammar` / ... have been applied and renormalised.
    * Set `post_sampling_probs: false` to get a plain softmax of the raw logits instead.
