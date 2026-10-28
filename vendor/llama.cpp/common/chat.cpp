@@ -190,17 +190,24 @@ json common_chat_msg::to_json_oaicompat(bool concat_typed_text) const {
         } else {
             auto & parts = jmsg["content"] = json::array();
             for (const auto & part : content_parts) {
+                json jpart;
                 if (part.type == "tool_reference") {
-                    parts.push_back({
+                    jpart = {
                         {"type", part.type},
                         {"name", part.name},
-                    });
+                    };
                 } else {
-                    parts.push_back({
+                    jpart = {
                         {"type", part.type},
                         {"text", part.text},
-                    });
+                    };
                 }
+                if (part.extra_fields.is_object()) {
+                    for (const auto & [k, v] : part.extra_fields.items()) {
+                        jpart[k] = v;
+                    }
+                }
+                parts.push_back(jpart);
             }
         }
     } else {
@@ -387,6 +394,11 @@ std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const json & messa
                             msg_part.name = part.at("name");
                         } else {
                             throw std::invalid_argument("Unsupported content part type: " + type.dump());
+                        }
+                        for (const auto & [k, v] : part.items()) {
+                            if (k != "type" && k != "text" && k != "name") {
+                                msg_part.extra_fields[k] = v;
+                            }
                         }
                         msg.content_parts.push_back(msg_part);
                     }
@@ -1955,4 +1967,35 @@ common_json common_chat_templates_get_caps(const common_chat_templates * chat_te
     common_json result = caps.to_map();
     result["reasoning_effort_levels"] = caps.reasoning_effort_levels;
     return result;
+}
+
+common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
+    common_chat_template_caps result;
+    const common_chat_template * tmpl = nullptr;
+
+    if (!variant.empty() && variant == "tool_use") {
+        tmpl = tmpls->template_tool_use.get();
+    } else {
+        tmpl = tmpls->template_default.get();
+    }
+
+    if (tmpl) {
+        auto caps = tmpl->original_caps();
+        result.supports_tools = caps.supports_tools;
+        result.supports_tool_calls = caps.supports_tool_calls;
+        result.supports_system_role = caps.supports_system_role;
+        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
+    }
+
+    return result;
+}
+
+bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
+    if (variant.empty() || variant == "default") {
+        return tmpls->template_default != nullptr;
+    }
+    if (variant == "tool_use") {
+        return tmpls->template_tool_use != nullptr;
+    }
+    return false;
 }
