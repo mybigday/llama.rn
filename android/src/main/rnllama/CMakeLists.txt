@@ -98,6 +98,9 @@ function(build_rnllama_library target_name arch cpu_flags)
                 ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-fusion.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-kparams.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-opnode.cpp
             )
 
             # The Android host build consumes generated QAIC artifacts copied by
