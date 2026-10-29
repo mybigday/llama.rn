@@ -214,7 +214,7 @@ ___
 
 #### Defined in
 
-[types.ts:698](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L698)
+[types.ts:726](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L726)
 
 ___
 
@@ -232,7 +232,7 @@ The answer type of a question type, choice keys included.
 
 #### Defined in
 
-[types.ts:704](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L704)
+[types.ts:732](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L732)
 
 ___
 
@@ -257,7 +257,7 @@ ___
 
 #### Defined in
 
-[types.ts:668](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L668)
+[types.ts:693](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L693)
 
 ___
 
@@ -281,7 +281,7 @@ ___
 
 #### Defined in
 
-[types.ts:608](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L608)
+[types.ts:621](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L621)
 
 ___
 
@@ -293,13 +293,13 @@ A string, an object or an array. A value that is not a string is given to the mo
 
 #### Defined in
 
-[types.ts:603](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L603)
+[types.ts:616](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L616)
 
 ___
 
 ### DecisionModelType
 
-Ƭ **DecisionModelType**: ``"openjev"`` \| ``"lev"`` \| ``"kev"`` \| ``"nimble"`` \| ``"laya"`` \| ``"clef"`` \| ``"pplx-decider"`` \| ``"lfm2-d1"`` \| ``"lfm2-d1-omni"`` \| ``"system_one"`` \| ``"unknown"``
+Ƭ **DecisionModelType**: ``"openjev"`` \| ``"lev"`` \| ``"kev"`` \| ``"nimble"`` \| ``"laya"`` \| ``"clef"`` \| ``"pplx-decider"`` \| ``"vllm-decision2"`` \| ``"vllm-d3"`` \| ``"lfm2-d1"`` \| ``"lfm2-d1-omni"`` \| ``"granite-switch"`` \| ``"h2o-lightning"`` \| ``"openbmb-minicpm-ocr-jev"`` \| ``"lfm3-d1"`` \| ``"lfm3-d1-omni"`` \| ``"system_one"`` \| ``"unknown"``
 
 The readout a decision model declares in `<arch>.decision.type`.
 `system_one`: an older model that declares no type but carries a `system_one`
@@ -308,7 +308,7 @@ template; its readout is derived from the model, see `readout`.
 
 #### Defined in
 
-[types.ts:572](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L572)
+[types.ts:578](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L578)
 
 ___
 
@@ -325,7 +325,7 @@ ___
 
 #### Defined in
 
-[types.ts:692](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L692)
+[types.ts:720](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L720)
 
 ___
 
@@ -337,7 +337,7 @@ ___
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `criteria?` | { `false?`: `string` \| ``null`` ; `no?`: `string` \| ``null`` ; `true?`: `string` \| ``null`` ; `yes?`: `string` \| ``null``  } | `lfm2-d1-omni` also takes the descriptions under `yes` and `no` |
+| `criteria?` | { `false?`: `string` \| ``null`` ; `no?`: `string` \| ``null`` ; `true?`: `string` \| ``null`` ; `yes?`: `string` \| ``null``  } | `lfm2-d1-omni` and `h2o-lightning` also take the descriptions under `yes` and `no` |
 | `criteria.false?` | `string` \| ``null`` | - |
 | `criteria.no?` | `string` \| ``null`` | - |
 | `criteria.true?` | `string` \| ``null`` | - |
@@ -347,7 +347,7 @@ ___
 
 #### Defined in
 
-[types.ts:627](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L627)
+[types.ts:643](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L643)
 
 ___
 
@@ -357,7 +357,7 @@ ___
 
 #### Defined in
 
-[types.ts:639](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L639)
+[types.ts:655](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L655)
 
 ___
 
@@ -365,9 +365,13 @@ ___
 
 Ƭ **DecisionQuestions**: `Record`<`string`, [`DecisionQuestion`](README.md#decisionquestion)\>
 
+`h2o-lightning` accepts a question with no `instructions` and no `type`
+(its template has defaults). `openbmb-minicpm-ocr-jev` answers exactly one
+question and takes no `instructions`: the task is part of its prompt.
+
 #### Defined in
 
-[types.ts:644](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L644)
+[types.ts:665](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L665)
 
 ___
 
@@ -382,7 +386,7 @@ must be initialized with `pooling_type: 'rank'` and `embedding: true`.
 
 #### Defined in
 
-[types.ts:591](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L591)
+[types.ts:604](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L604)
 
 ___
 
@@ -403,11 +407,11 @@ ___
 | `files?` | `string`[] | Images, or audio clips for a model with `audioInput`, as file paths or data URLs. Needs `initMultimodal()`. All media go before the state, these first. `lfm2-d1-omni` takes images or one audio clip, not both. |
 | `images?` | `string`[] | Alias of `files` |
 | `questions` | `Q` | - |
-| `state` | [`DecisionContent`](README.md#decisioncontent) \| ``null`` | The content to evaluate. A state made of chat messages (an array of messages, or an object with a `messages` array) may carry `image_url` and `input_audio` parts, they are taken as media and removed from the state. For a `system_one` model the state may also be a list of content parts (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`): the text is joined and each image stays where it is. `lfm2-d1` and `lfm2-d1-omni` take `null`, to ask about the media only. |
+| `state` | [`DecisionContent`](README.md#decisioncontent) \| ``null`` | The content to evaluate. A state made of chat messages (an array of messages, or an object with a `messages` array) may carry `image_url` and `input_audio` parts, they are taken as media and removed from the state; `lfm3-d1` and `lfm3-d1-omni` also take `video_url` parts, seen frame by frame without the soundtrack. For a `system_one` model the state may also be a list of content parts (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`): the text is joined and each image stays where it is. `lfm2-d1`, `lfm2-d1-omni`, `lfm3-d1`, `lfm3-d1-omni` and `vllm-d3` take `null`, to ask about the media only. For `openbmb-minicpm-ocr-jev` the state is the OCR text and `files` must be exactly 2 images. |
 
 #### Defined in
 
-[types.ts:646](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L646)
+[types.ts:667](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L667)
 
 ___
 
@@ -433,7 +437,7 @@ ___
 
 #### Defined in
 
-[types.ts:711](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L711)
+[types.ts:739](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L739)
 
 ___
 
@@ -448,12 +452,12 @@ ___
 | `confidence` | `number` | - |
 | `legend` | `Record`<`string`, `string`\> | Level index to its description. |
 | `probabilities` | `Record`<`string`, `number`\> | Level index to its probability, they sum to 1. |
-| `score` | `number` | The expected level index, weighted by probability. Can be between two levels. |
+| `score` | `number` | The expected level index, weighted by probability. Can be between two levels. `lfm3-d1` and `lfm3-d1-omni` answer the median level, a whole number. |
 | `type` | ``"score"`` | - |
 
 #### Defined in
 
-[types.ts:681](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L681)
+[types.ts:706](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L706)
 
 ___
 
@@ -465,13 +469,13 @@ ___
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `criteria` | readonly `string`[] | 2 to 10 level descriptions, lowest level first. |
+| `criteria` | readonly `string`[] | 2 to 10 level descriptions, lowest level first. `h2o-lightning` takes 1 level up to its number of labels. |
 | `instructions` | [`DecisionContent`](README.md#decisioncontent) | - |
 | `type` | ``"score"`` | - |
 
 #### Defined in
 
-[types.ts:620](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L620)
+[types.ts:633](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L633)
 
 ___
 
@@ -483,7 +487,7 @@ Any JSON value
 
 #### Defined in
 
-[types.ts:594](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L594)
+[types.ts:607](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L607)
 
 ___
 
@@ -512,7 +516,7 @@ ___
 
 #### Defined in
 
-[types.ts:810](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L810)
+[types.ts:838](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L838)
 
 ___
 
@@ -522,7 +526,7 @@ ___
 
 #### Defined in
 
-[types.ts:817](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L817)
+[types.ts:845](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L845)
 
 ___
 
@@ -542,7 +546,7 @@ ___
 
 #### Defined in
 
-[types.ts:877](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L877)
+[types.ts:905](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L905)
 
 ___
 
@@ -609,7 +613,7 @@ ___
 
 #### Defined in
 
-[types.ts:209](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L209)
+[types.ts:215](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L215)
 
 ___
 
@@ -646,7 +650,7 @@ ___
 
 #### Defined in
 
-[types.ts:487](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L487)
+[types.ts:493](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L493)
 
 ___
 
@@ -670,7 +674,7 @@ ___
 
 #### Defined in
 
-[types.ts:475](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L475)
+[types.ts:481](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L481)
 
 ___
 
@@ -687,7 +691,7 @@ ___
 
 #### Defined in
 
-[types.ts:470](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L470)
+[types.ts:476](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L476)
 
 ___
 
@@ -705,7 +709,7 @@ ___
 
 #### Defined in
 
-[types.ts:464](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L464)
+[types.ts:470](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L470)
 
 ___
 
@@ -768,7 +772,7 @@ ___
 
 #### Defined in
 
-[types.ts:45](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L45)
+[types.ts:51](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L51)
 
 ___
 
@@ -778,7 +782,7 @@ ___
 
 #### Defined in
 
-[types.ts:723](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L723)
+[types.ts:751](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L751)
 
 ___
 
@@ -810,7 +814,7 @@ ___
 
 #### Defined in
 
-[types.ts:554](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L554)
+[types.ts:560](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L560)
 
 ___
 
@@ -828,7 +832,7 @@ ___
 
 #### Defined in
 
-[types.ts:839](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L839)
+[types.ts:867](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L867)
 
 ___
 
@@ -881,7 +885,7 @@ ___
 
 #### Defined in
 
-[types.ts:728](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L728)
+[types.ts:756](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L756)
 
 ___
 
@@ -894,7 +898,7 @@ Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[types.ts:421](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L421)
+[types.ts:427](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L427)
 
 ___
 
@@ -910,7 +914,7 @@ ___
 
 #### Defined in
 
-[types.ts:845](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L845)
+[types.ts:873](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L873)
 
 ___
 
@@ -927,7 +931,7 @@ ___
 
 #### Defined in
 
-[types.ts:849](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L849)
+[types.ts:877](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L877)
 
 ___
 
@@ -944,7 +948,7 @@ ___
 
 #### Defined in
 
-[types.ts:795](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L795)
+[types.ts:823](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L823)
 
 ___
 
@@ -954,7 +958,7 @@ ___
 
 #### Defined in
 
-[types.ts:40](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L40)
+[types.ts:46](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L46)
 
 ___
 
@@ -988,7 +992,7 @@ ___
 
 #### Defined in
 
-[types.ts:13](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L13)
+[types.ts:18](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L18)
 
 ___
 
@@ -1018,7 +1022,7 @@ ___
 
 #### Defined in
 
-[types.ts:534](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L534)
+[types.ts:540](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L540)
 
 ___
 
@@ -1054,7 +1058,7 @@ ___
 
 #### Defined in
 
-[types.ts:885](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L885)
+[types.ts:913](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L913)
 
 ___
 
@@ -1073,7 +1077,7 @@ ___
 
 #### Defined in
 
-[types.ts:896](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L896)
+[types.ts:924](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/types.ts#L924)
 
 ___
 
