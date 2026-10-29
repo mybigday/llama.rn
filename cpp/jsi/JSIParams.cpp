@@ -439,6 +439,9 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         auto& sparams = ctx->params.sampling;
         sparams.seed = getPropertyAsInt(params, "seed", -1);
         ctx->params.n_predict = getPropertyAsInt(params, "n_predict", ctx->params.n_predict);
+        // Read per request, defaulting to 0, so one request's n_keep never
+        // carries into the next.
+        ctx->params.n_keep = getPropertyAsInt(params, "n_keep", 0);
         ctx->params.sampling.ignore_eos = getPropertyAsBool(params, "ignore_eos", ctx->params.sampling.ignore_eos);
         ctx->params.embedding = getPropertyAsBool(params, "embedding", false);
         llama_set_embeddings(ctx->ctx, ctx->params.embedding);
