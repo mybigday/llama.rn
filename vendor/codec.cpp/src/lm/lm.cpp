@@ -1,4 +1,5 @@
 #include "lm_internal.h"
+#include <algorithm>
 #include "speaker_chatterbox.h"
 #include "speaker_qwen3_tts.h"
 
