@@ -668,9 +668,9 @@ export type DecisionRequest<Q extends DecisionQuestions = DecisionQuestions> = {
   /**
    * The content to evaluate. A state made of chat messages (an array of
    * messages, or an object with a `messages` array) may carry `image_url`
-   * and `input_audio` parts, they are taken as media and removed from the state;
-   * `lfm3-d1` and `lfm3-d1-omni` also take `video_url` parts, seen frame by
-   * frame without the soundtrack.
+   * and `input_audio` parts, they are taken as media and removed from the state.
+   * `video_url` parts are not supported yet (`lfm3-d1` and `lfm3-d1-omni`
+   * reject them).
    * For a `system_one` model the state may also be a list of content parts
    * (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`):
    * the text is joined and each image stays where it is.

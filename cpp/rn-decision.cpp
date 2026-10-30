@@ -979,11 +979,10 @@ static bool decision_take_media(const json & part, std::vector<std::string> & im
         decision_add_audio(part.at("input_audio"), images);
         return true;
     }
-    // lfm3-d1: a video part, the model sees its frames
+    // lfm3-d1 sees the frames of a video part, but mtmd decodes video only with MTMD_VIDEO (an ffmpeg
+    // subprocess), which no llama.rn build enables
     if (allow_video && part.at("type") == "video_url" && part.contains("video_url")) {
-        const json & video_url = part.at("video_url");
-        decision_add_image(video_url.is_object() && video_url.contains("url") ? video_url.at("url") : video_url, images);
-        return true;
+        throw std::invalid_argument("\"video_url\" is not supported: llama.rn cannot decode video yet");
     }
     return false;
 }
