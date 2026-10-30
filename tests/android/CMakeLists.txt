@@ -99,6 +99,9 @@ if(ENABLE_HEXAGON)
         ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-fusion.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-kparams.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-opnode.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_reuse_test PRIVATE
         ${HEXAGON_SDK_ROOT}/incs
@@ -145,6 +148,9 @@ if(ENABLE_HEXAGON)
         ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
         ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-fusion.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-kparams.cpp
+        ${RNLLAMA_GGML_HEXAGON_DIR}/htp-opnode.cpp
         ${HTP_STUB_DIR}/htp_iface_stub.c)
     target_include_directories(kv_cache_bench PRIVATE
         ${HEXAGON_SDK_ROOT}/incs

@@ -96,6 +96,9 @@ function(build_rnllama_library target_name arch cpu_flags)
             # Add host-side hexagon sources
             target_sources(${target_name} PRIVATE
                 ${RNLLAMA_GGML_HEXAGON_DIR}/ggml-hexagon.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-kparams.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-opnode.cpp
+                ${RNLLAMA_GGML_HEXAGON_DIR}/htp-fusion.cpp
                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-drv.cpp
                 ${RNLLAMA_GGML_HEXAGON_DIR}/htp-repack.cpp
             )

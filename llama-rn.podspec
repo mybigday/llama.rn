@@ -58,7 +58,7 @@ Pod::Spec.new do |s|
     # every <string.h> in the target resolves to it; jinja itself finds it
     # next to value.h and via the common/ search path.
     s.exclude_files = "#{llama_cpp}/src/llama-quant.cpp", "#{llama_cpp}/ggml/src/ggml.cpp",
-      "#{llama_cpp}/common/{arg,console,debug,download,hf-cache,imatrix-loader,llguidance,preset,subproc}.cpp",
+      "#{llama_cpp}/common/{arg,console,debug,download,file-lock,hf-cache,imatrix-loader,llguidance,preset,subproc}.cpp",
       "#{llama_cpp}/ggml/src/ggml-cpu/hbm.cpp",
       "#{llama_cpp}/ggml/src/ggml-cpu/{kleidiai,llamafile,arch/wasm}/*",
       "#{llama_cpp}/vendor/{cpp-httplib,hash/sha1,hash/xxhash}/*",

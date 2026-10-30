@@ -11,8 +11,8 @@
 //
 // The blobs ported from, checked by scripts/sync-vendor.sh: when upstream changes
 // them, carry the change over and update these lines.
-// upstream-blob: tools/server/server-decision.cpp 11ad66a19e60ffb578bf229275d6b4d7b72af679
-// upstream-blob: tools/server/server-decision.h 5c7e44f37b8a2747fdb7559d7b746ae6ec23a3ab
+// upstream-blob: tools/server/server-decision.cpp 8b9911f64752492f75a73cf9c84a9bd4ac111ed7
+// upstream-blob: tools/server/server-decision.h 82af98ca14ef3df8a8e90a40a1c25875195283c8
 //
 // The functions keep upstream's names and split so that an upstream change can
 // be carried over function by function. What differs:
@@ -65,6 +65,7 @@ enum llama_rn_decision_readout {
     LLAMA_RN_DECISION_READOUT_MARKER_EMBD,  // embeddings[column] at one marker token per option, column = question type
     LLAMA_RN_DECISION_READOUT_POINTER,      // scaled dot of the last token's query and the key at each option's marker
     LLAMA_RN_DECISION_READOUT_JOINT,        // all questions in one prompt, the head writes option i's score in row i
+    LLAMA_RN_DECISION_READOUT_POOLED,       // one prompt, the pooled embeddings output holds one score per class
     // system_one (legacy) readouts
     LLAMA_RN_DECISION_READOUT_LETTER_SLOTS, // all questions in one prompt, label logits at the end of each question's segment
     LLAMA_RN_DECISION_READOUT_RANK_HEAD,    // one prompt per option, scored by the classification head (RANK pooling)
@@ -75,6 +76,7 @@ enum llama_rn_decision_labels {
     LLAMA_RN_DECISION_LABELS_NONE,
     LLAMA_RN_DECISION_LABELS_LETTERS, // A..Z then a..z, every one must be a single token
     LLAMA_RN_DECISION_LABELS_CODES,   // A..Z then AA..ZZ, the ones that are a single token, at most 255
+    LLAMA_RN_DECISION_LABELS_MODEL,   // the model's own labels, <arch>.decision.label.N (h2o-lightning)
     LLAMA_RN_DECISION_LABELS_PER_QUESTION, // depend on the question, a group of tokens per option, see d1_labels()
 };
 
@@ -103,16 +105,42 @@ struct llama_rn_decision_profile {
     bool sort_keys        = false; // the template input has its object keys sorted
     bool text_input       = false; // state, instructions and options are flattened to text (kev)
     bool noul_true_first  = false; // noul options are [true, false] instead of [false, true]
+    bool noul_criteria_order = false; // noul options are in the order of the criteria keys, if given (vllm-decision2)
     bool choice_sorted    = false; // choice options are in the order of their keys
     bool reverse_variant  = false; // a choice is also shown in reverse order, the two are averaged
     bool truncate_head    = false; // question and options are cut to <arch>.decision.max_head_tokens
     bool image_input      = false; // the prompt has a place for images
     bool audio_input      = false; // the prompt has a place for one audio clip, instead of images
+    bool video_input      = false; // a state part may be a video, its frames are seen without the soundtrack (lfm3-d1)
+    bool spoken_questions = false; // a question's instructions may be an input_audio part (lfm3-d1-omni)
     bool null_state       = false; // the state may be null, e.g. to ask about the media only
     bool noul_yes_no      = false; // a noul also takes its descriptions under "no" and "yes"
     bool escape_special   = false; // special tokens written in the input, keys included, are not parsed as such
+    bool break_special    = false; // special token texts written in the input are broken with a zero-width space (lfm3-d1)
     bool media_raw_probs  = false; // the temperatures are not applied to an answer about media
+    bool strict_payload   = false; // state, instructions and descriptions must be text, an object or an array
+    bool canonical_legend = false; // non-string score descriptions are returned as canonical JSON text
+    bool h2o_render       = false; // the template is given texts rendered the way the h2o reference shim does
+    bool joint_per_question = false; // JOINT: one prompt per question, not one for the whole request
+    bool no_prefix_cache  = false; // a prompt is never evaluated as a continuation of the previous one
+    bool optional_instructions = false; // the instructions may be left out, the template has a default
+    bool forbids_instructions = false; // the task is part of the prompt, an instructions is not used (minicpm-ocr-jev)
+    bool forbids_spoken     = false; // a spoken question needs a model with audio input (lfm3-d1)
+    bool state_must_be_text = false; // the state must be a string (minicpm-ocr-jev: the OCR text)
+    bool single_question  = false;   // the model answers exactly one question (minicpm-ocr-jev)
+    bool labels_alpha2    = false; // per-question codes are A..Z then AA, AB.. instead of A..Z then 00..99 (lfm3-d1)
+    bool score_median     = false; // a score answer is the median level, not the expected value (lfm3-d1)
+    bool confidence_entropy  = false; // the confidence is the normalized entropy (vllm-decision2, vllm-d3)
+    bool confidence_max_prob = false; // the confidence is the probability of the answer (lfm3-d1)
+    size_t n_images_required = 0;  // if set, a request must carry exactly this many images (minicpm-ocr-jev)
+    size_t score_levels_min = 2;   // the bounds of a score question's criteria array
+    size_t score_levels_max = 10;
     size_t n_noul_ratings = 0;     // if set, noul is the expected value of a rating scale of that many labels
+
+    // if set, the texts of the tokens with these attributes are collected at init (quoted_spellings):
+    // h2o-lightning quotes them in the input, lfm3-d1 breaks them with a zero-width space
+    uint32_t quoted_attrs    = 0;
+    size_t   quoted_min_size = 0;
 
     // if set, the pieces of the prompt are cut to their budgets, the media and the text share max_tokens,
     // see fill_prompt_budget(); max_tokens_image and max_tokens_audio cap the text after the media
@@ -175,7 +203,9 @@ struct llama_rn_decision_prompt {
     int32_t                  pointer = -1; // POINTER: prompt position of the query
 
     std::vector<int32_t> order;    // JOINT: one llama_decision_order per token
-    int32_t              n_scores = 0;
+    int32_t              n_scores = 0; // JOINT: rows the head writes; POOLED: values the pooled output holds
+
+    bool no_prefix_cache = false; // the sequence is cleared before this prompt, whatever it holds
 
     bool need_embd() const {
         return !markers.empty() || !order.empty() || pooled;
@@ -262,9 +292,14 @@ private:
     std::shared_ptr<const common_chat_template> tmpl; // the "systemone" template
 
     std::map<std::string, float> temperatures; // "<type>" or "<type>.<n_options bucket>"
+    std::map<size_t, std::vector<float>> score_bias; // added to the scores of a score question, by number of levels
 
     std::vector<llama_token> labels;
     std::vector<std::string> label_texts;
+
+    // the texts of the tokens with profile.quoted_attrs, longest first, and their first bytes
+    std::vector<std::string> quoted_spellings;
+    std::string              quoted_first;
 
     llama_token token_marker      = LLAMA_TOKEN_NULL;
     llama_token token_sep         = LLAMA_TOKEN_NULL;
@@ -284,6 +319,17 @@ private:
 
     std::vector<llama_rn_decision_question> parse_questions(const common_json & body) const;
     common_json parse_state(const common_json & body, std::vector<std::string> & images) const;
+    // the state as the model reads it, done once per request; returns the state for most models
+    common_json prepare_state(const common_json & state) const;
+
+    // the texts of the tokens with these attributes, quoted_spellings and quoted_first
+    void init_quoted_spellings(uint32_t attrs, size_t min_size);
+    // LFM3_D1: a zero-width space after the first character of each special token text (d1 prompt.py: plain)
+    std::string d1_break(const std::string & text) const;
+    // H2O_LIGHTNING: the input of the template, its texts are rendered as the reference shim does
+    common_json render_h2o(const common_json & state, const llama_rn_decision_question & question) const;
+    std::string h2o_cut_state(const std::string & text) const;
+    std::string h2o_quote(const std::string & text) const;
 
     std::string render(
             const common_json & state,
@@ -301,10 +347,12 @@ private:
             size_t variant,
             mtmd_context * mctx,
             const std::vector<const mtmd_bitmap *> & bitmaps) const;
+    // only_question >= 0: a joint prompt for that question alone (joint_per_question)
     llama_rn_decision_prompt fill_prompt_joint(
             const llama_rn_decision_request & request,
             mtmd_context * mctx,
-            const std::vector<const mtmd_bitmap *> & bitmaps) const;
+            const std::vector<const mtmd_bitmap *> & bitmaps,
+            int32_t only_question = -1) const;
     void fill_prompt_laya(std::vector<llama_token> & tokens, const llama_rn_decision_question & question, llama_rn_decision_prompt & prompt) const;
     void fill_prompt_budget(
             const llama_rn_decision_request & request,
@@ -318,6 +366,7 @@ private:
     void d1_labels(const llama_rn_decision_question & question, std::vector<std::string> & texts, std::vector<std::vector<llama_token>> & groups) const;
 
     float get_temperature(const llama_rn_decision_question & question) const;
+    double get_decision_confidence(llama_rn_decision_question_type type, const std::vector<double> & probs) const;
     common_json format_answer(const llama_rn_decision_question & question, const std::vector<std::vector<float>> & scores, bool has_media) const;
 };
 

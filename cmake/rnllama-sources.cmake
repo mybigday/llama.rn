@@ -93,10 +93,10 @@ file(GLOB RNLLAMA_COMMON_SOURCES CONFIGURE_DEPENDS
     ${_common}/jinja/*.cpp
     ${_common}/parsers/*.cpp
 )
-# CLI argument parsing, model download (cpp-httplib), console and subprocess
-# helpers are only used by upstream's tools.
+# CLI argument parsing, model download (cpp-httplib, file lock), console and
+# subprocess helpers are only used by upstream's tools.
 list(FILTER RNLLAMA_COMMON_SOURCES EXCLUDE REGEX
-    "/(arg|console|debug|download|hf-cache|imatrix-loader|llguidance|preset|subproc)\.cpp$")
+    "/(arg|console|debug|download|file-lock|hf-cache|imatrix-loader|llguidance|preset|subproc)\.cpp$")
 # tools/mtmd/debug is the mtmd debug CLI.
 file(GLOB RNLLAMA_MTMD_SOURCES   CONFIGURE_DEPENDS ${_mtmd}/*.cpp ${_mtmd}/models/*.cpp)
 # mtmd hashes media inputs with the vendored SHA-256 helper.
