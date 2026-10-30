@@ -1,38 +1,38 @@
 llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<end_function_call>), content-part extra fields, and template caps/variant queries used by the JSI bridge.
 --- a/common/chat.cpp
 +++ b/common/chat.cpp
-@@ -190,10 +190,16 @@
-         } else {
-             auto & parts = jmsg["content"] = json::array();
-             for (const auto & part : content_parts) {
--                parts.push_back({
-+                json jpart = {
-                     {"type", part.type},
-                     {"text", part.text},
--                });
-+                };
-+                if (part.extra_fields.is_object()) {
-+                    for (const auto & [k, v] : part.extra_fields.items()) {
-+                        jpart[k] = v;
+@@ -196,10 +196,16 @@
+                         {"name", part.name},
+                     });
+                 } else {
+-                    parts.push_back({
++                    json jpart = {
+                         {"type", part.type},
+                         {"text", part.text},
+-                    });
++                    };
++                    if (part.extra_fields.is_object()) {
++                        for (const auto & [k, v] : part.extra_fields.items()) {
++                            jpart[k] = v;
++                        }
 +                    }
-+                }
-+                parts.push_back(jpart);
++                    parts.push_back(jpart);
+                 }
              }
          }
-     } else {
-@@ -376,6 +382,11 @@
-                         common_chat_msg_content_part msg_part;
+@@ -382,6 +388,11 @@
                          msg_part.type = type;
-                         msg_part.text = part.at("text");
-+                        for (const auto & [k, v] : part.items()) {
-+                            if (k != "type" && k != "text") {
-+                                msg_part.extra_fields[k] = v;
+                         if (type == "text" || type == "media_marker") {
+                             msg_part.text = part.at("text");
++                            for (const auto & [k, v] : part.items()) {
++                                if (k != "type" && k != "text") {
++                                    msg_part.extra_fields[k] = v;
++                                }
 +                            }
-+                        }
-                         msg.content_parts.push_back(msg_part);
-                     }
-                 } else if (!content.is_null()) {
-@@ -1134,6 +1145,12 @@
+                         } else if (type == "tool_reference") {
+                             // names a request tool, the template renders its definition
+                             msg_part.name = part.at("name");
+@@ -1299,6 +1310,12 @@
      if (src.find(">>>all") != std::string::npos && src.find(">>>${recipient}") != std::string::npos) {
          LOG_DBG("Using specialized template: Functionary v3.2\n");
          return common_chat_params_init_functionary_v3_2;
@@ -45,10 +45,11 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
      }
  
      // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
-@@ -1779,4 +1796,35 @@
-         return chat_templates->template_tool_use->caps.to_map();
-     }
-     return chat_templates->template_default->caps.to_map();
+@@ -1951,5 +1968,36 @@
+                                                                       : chat_templates->template_default->caps;
+     common_json result = caps.to_map();
+     result["reasoning_effort_levels"] = caps.reasoning_effort_levels;
++    return result;
 +}
 +
 +common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
@@ -69,7 +70,7 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
 +        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
 +    }
 +
-+    return result;
+     return result;
  }
 +
 +bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {

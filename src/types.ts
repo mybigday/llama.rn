@@ -294,6 +294,13 @@ export type NativeCompletionParams = {
    */
   n_min_predict?: number
   /**
+   * Number of tokens from the start of the prompt to keep when the context is full:
+   * an over-long prompt is truncated after them, and with `ctx_shift` on, a context shift
+   * during generation discards tokens after them. Use it to keep a system prompt.
+   * Capped at `n_ctx - 4`. Default: `0`
+   */
+  n_keep?: number
+  /**
    * If greater than 0, the response also contains the probabilities of top N tokens for each generated token.
    * By default these are the sampler chain's candidate probabilities, i.e. after `top_k` / `top_p` / `min_p` / `temperature` / `grammar` / ... have been applied and renormalised.
    * Set `post_sampling_probs: false` to get a plain softmax of the raw logits instead.
@@ -597,8 +604,15 @@ export type DecisionModelType =
   | 'laya'
   | 'clef'
   | 'pplx-decider'
+  | 'vllm-decision2'
+  | 'vllm-d3'
   | 'lfm2-d1'
   | 'lfm2-d1-omni'
+  | 'granite-switch'
+  | 'h2o-lightning'
+  | 'openbmb-minicpm-ocr-jev'
+  | 'lfm3-d1'
+  | 'lfm3-d1-omni'
   | 'system_one'
   | 'unknown'
 
@@ -640,14 +654,17 @@ export type DecisionChoiceQuestion<K extends string = string> = {
 export type DecisionScoreQuestion = {
   type: 'score'
   instructions: DecisionContent
-  /** 2 to 10 level descriptions, lowest level first. */
+  /**
+   * 2 to 10 level descriptions, lowest level first.
+   * `h2o-lightning` takes 1 level up to its number of labels.
+   */
   criteria: readonly string[]
 }
 
 export type DecisionNoulQuestion = {
   type: 'noul'
   instructions: DecisionContent
-  /** `lfm2-d1-omni` also takes the descriptions under `yes` and `no` */
+  /** `lfm2-d1-omni` and `h2o-lightning` also take the descriptions under `yes` and `no` */
   criteria?: {
     true?: string | null
     false?: string | null
@@ -661,6 +678,11 @@ export type DecisionQuestion =
   | DecisionScoreQuestion
   | DecisionNoulQuestion
 
+/**
+ * `h2o-lightning` accepts a question with no `instructions` and no `type`
+ * (its template has defaults). `openbmb-minicpm-ocr-jev` answers exactly one
+ * question and takes no `instructions`: the task is part of its prompt.
+ */
 export type DecisionQuestions = Record<string, DecisionQuestion>
 
 export type DecisionRequest<Q extends DecisionQuestions = DecisionQuestions> = {
@@ -668,10 +690,14 @@ export type DecisionRequest<Q extends DecisionQuestions = DecisionQuestions> = {
    * The content to evaluate. A state made of chat messages (an array of
    * messages, or an object with a `messages` array) may carry `image_url`
    * and `input_audio` parts, they are taken as media and removed from the state.
+   * `video_url` parts are not supported yet (`lfm3-d1` and `lfm3-d1-omni`
+   * reject them).
    * For a `system_one` model the state may also be a list of content parts
    * (`{ type: 'text', text }`, `{ type: 'image_url', image_url: { url } }`):
    * the text is joined and each image stays where it is.
-   * `lfm2-d1` and `lfm2-d1-omni` take `null`, to ask about the media only.
+   * `lfm2-d1`, `lfm2-d1-omni`, `lfm3-d1`, `lfm3-d1-omni` and `vllm-d3` take
+   * `null`, to ask about the media only. For `openbmb-minicpm-ocr-jev` the
+   * state is the OCR text and `files` must be exactly 2 images.
    */
   state: DecisionContent | null
   questions: Q
@@ -700,7 +726,10 @@ export type DecisionChoiceAnswer<K extends string = string> = {
 
 export type DecisionScoreAnswer = {
   type: 'score'
-  /** The expected level index, weighted by probability. Can be between two levels. */
+  /**
+   * The expected level index, weighted by probability. Can be between two levels.
+   * `lfm3-d1` and `lfm3-d1-omni` answer the median level, a whole number.
+   */
   score: number
   /** Level index to its description. */
   legend: Record<string, string>
