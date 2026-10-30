@@ -6,17 +6,17 @@ jest.mock('..', () => require('../../jest/mock'))
 // Large numeric payloads cross JSI as typed arrays (one ArrayBuffer copy
 // instead of one call per element) while the public API keeps number[].
 let mockDecodeAudioTokens: jest.Mock
-let mockDecodeAudioEmbeddings: jest.Mock
+let mockDecodeAudioLatents: jest.Mock
 let ctx: LlamaContext
 
 beforeAll(async () => {
   await NativeModules.RNLlama.install()
   const g = global as typeof globalThis & {
     llamaDecodeAudioTokens: jest.Mock
-    llamaDecodeAudioEmbeddings: jest.Mock
+    llamaDecodeAudioLatents: jest.Mock
   }
   mockDecodeAudioTokens = g.llamaDecodeAudioTokens
-  mockDecodeAudioEmbeddings = g.llamaDecodeAudioEmbeddings
+  mockDecodeAudioLatents = g.llamaDecodeAudioLatents
   ctx = await initLlama({ model: 'x.gguf' })
 })
 
@@ -35,12 +35,11 @@ it('decodeAudioTokens passes an Int32Array through untouched', async () => {
   expect(mockDecodeAudioTokens.mock.calls[1]![1]).toBe(tokens)
 })
 
-it('decodeAudioEmbeddings sends a Float32Array and returns a plain array', async () => {
-  const pcm = await ctx.decodeAudioEmbeddings([0.5, 1.5], 2)
-  const sent = mockDecodeAudioEmbeddings.mock.calls[0]![1]
+it('decodeAudioLatents sends a Float32Array and returns a plain array', async () => {
+  const pcm = await ctx.decodeAudioLatents([0.5, 1.5])
+  const sent = mockDecodeAudioLatents.mock.calls[0]![1]
   expect(sent).toBeInstanceOf(Float32Array)
   expect(Array.from(sent)).toEqual([0.5, 1.5])
-  expect(mockDecodeAudioEmbeddings.mock.calls[0]![2]).toBe(2)
   expect(pcm).toEqual([0.125])
 })
 

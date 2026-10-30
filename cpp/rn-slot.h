@@ -114,6 +114,7 @@ struct llama_rn_slot {
     common_params params_storage;
     common_params* params;
     bool post_sampling_probs = true;
+    int32_t n_min_predict = -1;    // tokens before the end of generation may be sampled
     common_sampler* ctx_sampling;
 
     // Speculative decoding context (MTP or classic draft-simple).

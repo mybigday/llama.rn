@@ -45,6 +45,7 @@ struct phd_impl {
 
     // Tensor pointers into codec->weights, resolved at init.
     std::vector<ggml_tensor *> heads;       // [n_codebook]
+    std::vector<ggml_tensor *> head_biases; // [n_codebook]; optional `lm.heads_{i}.bias`
     std::vector<ggml_tensor *> audio_embds; // [n_codebook]
 
     // Optional learned per-step positional embedding.  Chatterbox T3
@@ -114,7 +115,10 @@ bool phd_build_logits(ggml_context * ctx_eval, void * user_data, ggml_tensor ** 
         // that runs every step (Chatterbox / WavTokenizer etc. hit this
         // path per AR step × n_codebook heads).
         ggml_tensor * head_in_ctx = codec_graph_mat_lhs(ctx_eval, head);
-        ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_in_ctx, t_h);
+        ggml_tensor * logits = codec_mul_mat(ctx_eval, head_in_ctx, t_h);
+        if (ggml_tensor * bias = impl->head_biases[(size_t) i]) {
+            logits = ggml_add(ctx_eval, logits, codec_graph_cast_f32(ctx_eval, bias));
+        }
         std::snprintf(buf, sizeof(buf), "lm.step.logits_%d", i);
         ggml_set_name(logits, buf);
         ggml_set_output(logits);
@@ -197,6 +201,7 @@ bool init(codec_lm * lm) {
     impl->hidden_dim      = lm->info.hidden_dim;
     impl->audio_embed_dim = lm->info.audio_embed_dim;
     impl->heads.resize((size_t) impl->n_codebook, nullptr);
+    impl->head_biases.resize((size_t) impl->n_codebook, nullptr);
     impl->audio_embds.resize((size_t) impl->n_codebook, nullptr);
 
     char buf[64];
@@ -211,6 +216,8 @@ bool init(codec_lm * lm) {
         } else {
             std::snprintf(buf, sizeof(buf), "lm.heads_%d.weight", i);
             impl->heads[(size_t) i] = ggml_get_tensor(lm->codec->weights, buf);
+            std::snprintf(buf, sizeof(buf), "lm.heads_%d.bias", i);
+            impl->head_biases[(size_t) i] = ggml_get_tensor(lm->codec->weights, buf);
         }
         if (impl->heads[(size_t) i] == nullptr || impl->audio_embds[(size_t) i] == nullptr) {
             // Already validated via codec_lm_check_unfused_audio_tables, but
@@ -405,37 +412,6 @@ enum codec_status step_finish(codec_lm_state * st, int32_t * out_codes) {
     return CODEC_STATUS_SUCCESS;
 }
 
-// ---------------------------------------------------------------------
-// audio embed lookup
-// ---------------------------------------------------------------------
-
-const float * audio_embd(codec_lm * lm, int32_t cb_idx, int32_t code) {
-    if (lm == nullptr || lm->impl == nullptr) {
-        return nullptr;
-    }
-    phd_impl * impl = static_cast<phd_impl *>(lm->impl);
-    if (cb_idx < 0 || cb_idx >= impl->n_codebook) {
-        return nullptr;
-    }
-    ggml_tensor * embd = impl->audio_embds[(size_t) cb_idx];
-    if (embd == nullptr) {
-        return nullptr;
-    }
-    // Decode the entire table once (lazy, thread_local cached by
-    // codec_tensor_data_f32 for F32 / by codec_tensor_as_vec_f32 for
-    // others).  Embedding tables are typically modest size (1025 × 2048
-    // floats ≈ 8 MB for MOSS-TTSD c1..c7), but channel 0 of MOSS-TTSD
-    // is 152697 × 2048 ≈ 1.2 GB FP32 — for big tables, callers should
-    // prefer codec_lm_compose_audio_embd which goes through a graph
-    // and gets a single row.
-    const float * data = codec_tensor_data_f32(embd);
-    if (data == nullptr) {
-        return nullptr;
-    }
-    const size_t hidden = (size_t) impl->audio_embed_dim;
-    return data + (size_t) code * hidden;
-}
-
 enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float * out_embd) {
     if (lm == nullptr || lm->impl == nullptr || codes == nullptr || out_embd == nullptr) {
         return CODEC_STATUS_INVALID_ARG;
@@ -463,9 +439,7 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
     // To avoid threading state through the public lm, we keep the
     // compose_ctx inside `phd_impl` (mutable).  Single-thread per lm —
     // multiple states should each call compose on their own lm
-    // pointer.  (Caller-side concurrency: if you need per-state
-    // compose, build it explicitly in the caller using
-    // codec_lm_audio_embd row pointers + manual sum.)
+    // pointer.
     if (impl->compose_ctx == nullptr) {
         codec_context * cctx = new (std::nothrow) codec_context();
         if (cctx == nullptr) return CODEC_STATUS_INTERNAL_ERROR;
@@ -593,7 +567,6 @@ const codec_lm_kind_vtable codec_lm_vtable_parallel_heads_delay = {
     /*.step_logits        =*/ step_logits,
     /*.step_push_code     =*/ step_push_code,
     /*.step_finish        =*/ step_finish,
-    /*.audio_embd         =*/ audio_embd,
     /*.compose_audio_embd =*/ compose_audio_embd,
     /*.compose_next_embd  =*/ compose_next_embd,
     /*.speaker_encode     =*/ nullptr,

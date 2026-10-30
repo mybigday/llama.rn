@@ -12,6 +12,7 @@
 #include "tools/mtmd/clip.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <fstream>
@@ -570,6 +571,14 @@ bool llama_rn_context::loadModel(common_params &params_)
         }
         return false;
     }
+    default_samplers = params.sampling.samplers;
+    {
+        const llama_vocab * vocab = llama_model_get_vocab(model);
+        eog_tokens.clear();
+        for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); ++t) {
+            if (llama_vocab_is_eog(vocab, t)) eog_tokens.push_back(t);
+        }
+    }
 
     // Load the draft model for embedded MTP drafts and for classic standalone draft models
     // (draft-simple) alike. Gating this on MTP alone silently disabled speculation for
@@ -888,6 +897,12 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_g
     }
 }
 
+void llama_rn_context::holdBackEndOfGeneration(int idx) const {
+    float * logits = llama_get_logits_ith(ctx, idx);
+    if (logits == nullptr) return;
+    for (llama_token t : eog_tokens) logits[t] = -INFINITY;
+}
+
 bool llama_rn_context::isMultimodalEnabled() const {
     return mtmd_wrapper != nullptr && mtmd_wrapper->isEnabled(has_multimodal);
 }
@@ -921,12 +936,22 @@ void llama_rn_context::setMediaHashes(const std::vector<std::string> &hashes) {
     }
 }
 
-bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size, bool use_gpu) {
+bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size, bool use_gpu,
+                                   const std::vector<std::string> &kv_overrides) {
+    (void) batch_size;   // codec.cpp sizes its own decode
     try {
-        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, batch_size, use_gpu);
+        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, params.model.path, use_gpu, kv_overrides,
+                                               params.cpuparams.n_threads);
+        const std::string why = tts_wrapper->checkBackbone(this);
+        if (!why.empty()) {
+            delete tts_wrapper;
+            tts_wrapper = nullptr;
+            throw std::runtime_error(why);
+        }
         has_vocoder = true;
         return true;
     } catch (const std::exception& e) {
+        LOG_ERROR("initVocoder: %s", e.what());
         has_vocoder = false;
         return false;
     }

@@ -3,6 +3,11 @@
 
 #include "../codec_internal.h"
 
+// Conv kernels are (K, C_in, C_out) or flattened (K*C_in, 1, C_out) (same bytes;
+// the layout block-quantized kernels need), at any stored type.  Kernel
+// size of either form, given the input channel count (0 if they don't fit).
+int64_t codec_conv1d_kernel_size(const ggml_tensor * w, int64_t c_in);
+
 ggml_tensor * codec_conv1d(
     ggml_context * ctx,
     ggml_tensor * x,

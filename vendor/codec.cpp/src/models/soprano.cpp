@@ -292,8 +292,7 @@ enum codec_status codec_soprano_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    const int32_t n_threads = params.n_threads > 0 ? params.n_threads : std::max(1, ctx->model->n_threads);
-    if (!codec_graph_compute(ctx, entry, n_threads, &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }

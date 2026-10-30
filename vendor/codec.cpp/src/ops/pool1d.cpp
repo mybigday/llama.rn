@@ -1,8 +1,32 @@
 #include "pool1d.h"
 
 #include "ggml_ops.h"
+#include "../runtime/graph.h"
 
 #include <algorithm>
+
+ggml_tensor * codec_op_pool_1d(
+    ggml_context * ctx,
+    ggml_tensor * x,
+    enum ggml_op_pool op,
+    int32_t k,
+    int32_t s,
+    int32_t p) {
+
+    if (ctx == nullptr || x == nullptr || x->ne[3] > 1) return nullptr;
+    if (!ggml_is_contiguous(x)) x = ggml_cont(ctx, x);
+    ggml_tensor * x4 = ggml_reshape_4d(ctx, x, x->ne[0], 1, x->ne[1], x->ne[2]);
+    ggml_tensor * y = ggml_pool_2d(ctx, x4, op, k, 1, s, 1, (float) p, 0.0f);   // [t_out, 1, c, n]
+    if (!codec_graph_backend_supports(y) && op == GGML_OP_POOL_AVG && k == s && p == 0) {
+        // Non-overlapping average (ggml-opencl has no POOL_*): row sums of
+        // [k, t/k, c] blocks, / k.
+        const int64_t t_out = x->ne[0] / k;
+        ggml_tensor * xs = x->ne[0] == t_out * k ? x : ggml_cont(ctx, ggml_view_3d(ctx, x, t_out * k, x->ne[1], x->ne[2], x->nb[1], x->nb[2], 0));
+        ggml_tensor * sums = ggml_sum_rows(ctx, ggml_reshape_4d(ctx, xs, k, t_out, x->ne[1], x->ne[2]));   // [1, t/k, c, n]
+        return ggml_reshape_3d(ctx, ggml_scale(ctx, sums, 1.0f / (float) k), t_out, x->ne[1], x->ne[2]);
+    }
+    return ggml_reshape_3d(ctx, y, y->ne[0], y->ne[2], y->ne[3]);
+}
 
 // Length-preserving (stride=1) max / avg pool with constant-zero padding,
 // matching PyTorch `nn.MaxPool1d(k, padding=p)` and
@@ -35,7 +59,7 @@ static ggml_tensor * codec_pool1d(
     ggml_tensor * x_pad = (p > 0) ? codec_op_pad_1d(ctx, x_f32, p, p) : x_f32;
     if (x_pad == nullptr) return nullptr;
 
-    ggml_tensor * y = ggml_pool_1d(ctx, x_pad, op, /*k0=*/k, /*s0=*/1, /*p0=*/0);
+    ggml_tensor * y = codec_op_pool_1d(ctx, x_pad, op, /*k=*/k, /*s=*/1, /*p=*/0);
     return y ? ggml_cont(ctx, y) : nullptr;
 }
 

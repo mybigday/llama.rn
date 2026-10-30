@@ -14,9 +14,10 @@ ggml_tensor * codec_model_get_tensor(const codec_model * model, const char * nam
 ggml_tensor * codec_model_get_tensor(const codec_model * model, const std::string & name);
 
 // Returns the loaded GGUF weight tensor for `name` from model->weights, with a
-// graph-level cast to F32 if the stored type is not F32. The tensor is intended
-// to be referenced directly in the graph (no per-call CPU dequantize). Returns
-// nullptr if the tensor is missing or the model is not loaded.
+// graph-level cast to F32 if the stored type is not F32, for elementwise use
+// (biases, norm scales: a lossless widening).  Matmul / conv ops given this
+// tensor recover the stored weight (codec_graph_stored_weight) and run at its
+// type.  Returns nullptr if the tensor is missing or the model is not loaded.
 ggml_tensor * codec_graph_weight(ggml_context * ctx_eval, const codec_model * model, const char * name);
 ggml_tensor * codec_graph_weight(ggml_context * ctx_eval, const codec_model * model, const std::string & name);
 
@@ -28,25 +29,24 @@ ggml_tensor * codec_graph_weight_or_null(ggml_context * ctx_eval, const codec_mo
 // Cast a tensor to F32 in the graph if it isn't already.
 ggml_tensor * codec_graph_cast_f32(ggml_context * ctx_eval, ggml_tensor * t);
 
-// Pass-through wrapper intended for tensors that will land as the LHS
-// (src[0], the weight side) of ggml_mul_mat.  ggml_mul_mat handles F32 /
-// F16 / BF16 src[0] with an F32 src[1] natively via fused vec_dot
-// kernels — wrapping the weight in ggml_cast(.., F32) just bakes an
-// extra dequant op into the graph that runs every execution, wasting
-// memory bandwidth proportional to the weight size.
+// Weights are computed at their stored GGUF type (F32 / F16 / BF16 / block-
+// quantized): matmul / conv / codebook operands never get cast.  The helpers below
+// hand those ops the stored tensor.
 //
-// Truly quantized types (Q4_K, Q5_K, Q8_0, …) still get cast to F32
-// because the on-the-fly per-block re-quant of the F32 activation
-// inside their mul_mat kernel adds enough compute that an explicit
-// cast (which can be tiled / fused) is the lesser evil.  Most codec_lm
-// GGUFs ship F16 weights, so this is the hot path.
+// The stored weight behind `t` when `t` is (a reshape of) the F32 cast that
+// codec_graph_weight / codec_graph_cast_f32 put on it; `t` itself otherwise.
+ggml_tensor * codec_graph_stored_weight(ggml_context * ctx_eval, ggml_tensor * t);
+
+// mul_mat src[0] side: the stored weight (see codec_graph_stored_weight).
 ggml_tensor * codec_graph_mat_lhs(ggml_context * ctx_eval, ggml_tensor * t);
 
-// Fetch a matmul weight (src[0] side) for the graph WITHOUT the F16→F32 dequant
-// CPY that codec_graph_weight bakes in: F16/BF16 weights pass through untouched
-// (ggml_mul_mat consumes them natively), quantized types are cast.  Use this for
-// every tensor that lands as the LHS of ggml_mul_mat in a hot per-step graph.
+// Fetch a matmul weight (src[0] side) at its stored type.
 ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model * model, const char * name);
 ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model * model, const std::string & name);
+
+// ggml_mul_mat with `a` at its stored type (codec_graph_stored_weight), F32
+// accumulation.  ggml converts `b` to the weight's dot type (F16 for an F16
+// weight, Q8 for most quantized ones): that is the weight's precision.
+ggml_tensor * codec_mul_mat(ggml_context * ctx_eval, ggml_tensor * a, ggml_tensor * b);
 
 #endif

@@ -98,6 +98,9 @@ struct rda_impl {
     bool    has_pre_head_norm = false; // LFM2: RMSNorm applied to depth_h_last
                                        // before each head.  Per-cb weight.
     int32_t depth_text_vocab = 0;      // text vocab for the c0_is_text input
+    int32_t cb0_suppress_from = -1;    // cb0 ids >= this (bar eos_code_c0) are
+                                       // never sampled; -1 = none.  Qwen3-TTS:
+                                       // vocab - 1024 (its control tags).
 
     // Tensor handles (live in codec->weights).  One uniform layout —
     // the per-pos linear inside `codec_op_lm_per_pos_linear` handles
@@ -179,6 +182,12 @@ struct rda_state {
     int32_t                      max_kv_T = 0;
     int32_t                      kv_pos   = 0;
     bool                         kv_ok    = false;
+
+    // One codec_context per step graph (slot 0: c0 head, 1 + k: depth step k).
+    // A context keeps one built + allocated graph, so with a shared one every
+    // step rebuilt and re-planned the graph the previous step had replaced;
+    // per-slot contexts keep each graph resident across frames.
+    std::vector<codec_context *> graph_ctx;
 };
 
 // ---------------------------------------------------------------------
@@ -342,7 +351,7 @@ bool rda_build_c0(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     ggml_set_name(t_h, "lm.c0.h_in");
 
     ggml_tensor * head = codec_graph_mat_lhs(ctx_eval, b->impl->c0_head);
-    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head, t_h);
+    ggml_tensor * logits = codec_mul_mat(ctx_eval, head, t_h);
     ggml_set_name(logits, "lm.c0.logits");
     *out = logits;
     return true;
@@ -432,21 +441,10 @@ bool rda_build_depth_step(ggml_context * ctx_eval, void * ud, ggml_tensor ** out
         // per-pos `in_proj[p] @ h_in (+ bias[p])`.
         x = t_x;
         if (impl->in_proj != nullptr) {
-            ggml_tensor * w_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj);
-            // Slice first T positions of the 3D weight.  Inlined
-            // (rather than via codec_op_lm_per_pos_linear) because the
-            // input here is a single h_in vector broadcast across
-            // batch, not a per-pos prefix; we want mul_mat with the
-            // input as the LHS broadcaster.
-            ggml_tensor * w_sl = ggml_view_3d(
-                ctx_eval, w_f32,
-                w_f32->ne[0], w_f32->ne[1], (int64_t) T,
-                w_f32->nb[1], w_f32->nb[2], 0);
-            ggml_tensor * h_3d   = ggml_reshape_3d(
-                ctx_eval, t_h_in, impl->hidden_dim, 1, 1);
-            ggml_tensor * proj_3d = ggml_mul_mat(ctx_eval, h_3d, w_sl);
-            ggml_tensor * proj    = ggml_reshape_2d(
-                ctx_eval, proj_3d, impl->depth_hidden, T);
+            // The single h_in vector is projected by each of the first T
+            // per-pos weight slices.
+            ggml_tensor * proj = codec_op_lm_per_pos_linear(
+                ctx_eval, impl->in_proj, t_h_in, impl->depth_hidden, T);
 
             if (impl->in_proj_bias != nullptr) {
                 ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
@@ -524,7 +522,7 @@ bool rda_build_depth_step(ggml_context * ctx_eval, void * ud, ggml_tensor ** out
         head_w = codec_graph_mat_lhs(ctx_eval, impl->depth_heads[(size_t) head_idx]);
     }
 
-    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_w, x_last);
+    ggml_tensor * logits = codec_mul_mat(ctx_eval, head_w, x_last);
     ggml_set_name(logits, "lm.depth.ck_logits");
     *out = logits;
     return true;
@@ -622,7 +620,7 @@ ggml_tensor * rda_depth_layer_kv(
     ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q,     0, 2, 1, 3));
     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k_all, 0, 2, 1, 3));
 
-    ggml_tensor * scores = ggml_mul_mat(ctx, k_p, q_p);
+    ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);
     scores = ggml_scale(ctx, scores, 1.0f / std::sqrt((float) head_dim));
     // Causal mask offset by the already-cached prefix: q at relative
     // position i (overall = kv_pos_start + i) can attend to k at
@@ -634,7 +632,7 @@ ggml_tensor * rda_depth_layer_kv(
     scores = ggml_soft_max(ctx, scores);
 
     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v_all, 1, 2, 0, 3));
-    ggml_tensor * attn = ggml_mul_mat(ctx, v_p, scores);
+    ggml_tensor * attn = codec_mul_mat(ctx, v_p, scores);
     attn = ggml_cont(ctx, ggml_permute(ctx, attn, 0, 2, 1, 3));
     attn = ggml_reshape_2d(ctx, attn, (int64_t) q_dim, T_new);
 
@@ -755,8 +753,8 @@ bool rda_build_depth_step_kv(ggml_context * ctx_eval, void * ud, ggml_tensor ** 
         impl->depth_heads[(size_t) b->head_idx] == nullptr) return false;
     ggml_tensor * head_w = codec_graph_mat_lhs(
         ctx_eval, impl->depth_heads[(size_t) b->head_idx]);
-    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_w, x_last);
-    ggml_mul_mat_set_prec(logits, GGML_PREC_F32);
+    ggml_tensor * logits = codec_mul_mat(ctx_eval, head_w, x_last);
+    ggml_prec_set_acc(logits, GGML_PREC_F32);
     ggml_set_name(logits, "lm.depth.kv.ck_logits");
     *out = logits;
     return true;
@@ -827,6 +825,13 @@ bool init(codec_lm * lm) {
     impl->has_output_norm  = codec_read_bool_kv(gf, "codec.lm.residual.depth_has_output_norm", true);
     impl->use_rope         = codec_read_bool_kv(gf, "codec.lm.residual.depth_use_rope", true);
     impl->depth_text_vocab = codec_read_i32_kv (gf, "codec.lm.residual.depth_text_vocab", 0);
+    // The reference's suppress_tokens.  Qwen3-TTS GGUFs converted before the
+    // key carry the qwen3tts tags; their talker suppresses [vocab - 1024, vocab).
+    impl->cb0_suppress_from = codec_read_i32_kv(gf, "codec.lm.cb0_suppress_from", -1);
+    if (impl->cb0_suppress_from < 0 && codec_read_i32_kv(gf, "codec.lm.qwen3tts.think_eos_id", -1) >= 0 &&
+        !lm->codebook_sizes_buf.empty()) {
+        impl->cb0_suppress_from = std::max(0, lm->codebook_sizes_buf[0] - 1024);
+    }
     impl->in_proj_per_pos  = codec_read_bool_kv(gf, "codec.lm.residual.depth_in_proj_per_pos", false);
     impl->in_proj_has_bias = codec_read_bool_kv(gf, "codec.lm.residual.depth_in_proj_has_bias", false);
     impl->has_pre_head_norm = codec_read_bool_kv(gf, "codec.lm.residual.depth_has_pre_head_norm", false);
@@ -1132,6 +1137,13 @@ bool state_init(codec_lm_state * st) {
 void state_free(codec_lm_state * st) {
     if (!st || !st->impl) return;
     rda_state * sst = static_cast<rda_state *>(st->impl);
+    for (codec_context * c : sst->graph_ctx) {
+        if (c != nullptr) {
+            codec_runtime_free(c);
+            delete c;
+        }
+    }
+    sst->graph_ctx.clear();
     if (sst->buf_kv != nullptr) {
         ggml_backend_buffer_free(sst->buf_kv);
         sst->buf_kv = nullptr;
@@ -1155,42 +1167,66 @@ void state_reset(codec_lm_state * st) {
 // step machine
 // ---------------------------------------------------------------------
 
+// The resident context for step graph `slot` (created on first use).
+static codec_context * rda_graph_ctx(codec_lm_state * st, size_t slot, std::string * err) {
+    rda_state * sst = static_cast<rda_state *>(st->impl);
+    if (slot >= sst->graph_ctx.size()) sst->graph_ctx.resize(slot + 1, nullptr);
+    if (sst->graph_ctx[slot] == nullptr) {
+        codec_context * c = new (std::nothrow) codec_context();
+        if (c == nullptr) { *err = "out of memory"; return nullptr; }
+        c->model   = st->lm->codec;
+        c->backend = st->lm->codec->backend;
+        c->params  = codec_context_default_params();
+        if (!codec_runtime_init(c, err)) { delete c; return nullptr; }
+        sst->graph_ctx[slot] = c;
+    }
+    return sst->graph_ctx[slot];
+}
+
 // Run the c0 head over `h_in` and copy logits into the state's scratch.
 enum codec_status run_c0_head(codec_lm_state * st, const float * h_in) {
     rda_impl * impl = static_cast<rda_impl *>(st->lm->impl);
     rda_state * sst = static_cast<rda_state *>(st->impl);
 
     rda_c0_build build = { impl };
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 0, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind = (int32_t) CODEC_GRAPH_LM_RDA_C0_HEAD;
     key.n_in = impl->hidden_dim;
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_c0, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_c0, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.c0.h_in");
-    ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, "lm.c0.logits");
+    ggml_tensor * t_h = codec_graph_get_tensor(gctx, entry, "lm.c0.h_in");
+    ggml_tensor * t_lg = codec_graph_get_tensor(gctx, entry, "lm.c0.logits");
     if (!t_h || !t_lg) {
         st->last_error = "c0 graph missing tensors"; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_h, h_in, (size_t) impl->hidden_dim * sizeof(float), &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t n_threads = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, n_threads, &err)) {
+    if (!codec_graph_compute(gctx, entry, n_threads, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t v0 = st->lm->info.codebook_sizes[0];
     if (!codec_runtime_read_tensor(t_lg, sst->logits_buf[0].data(),
                                    (size_t) v0 * sizeof(float), &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (impl->cb0_suppress_from >= 0) {
+        const int32_t eos = st->lm->info.eos_code_c0;
+        for (int32_t i = impl->cb0_suppress_from; i < v0; ++i) {
+            if (i != eos) sst->logits_buf[0][(size_t) i] = -INFINITY;
+        }
     }
     return CODEC_STATUS_SUCCESS;
 }
@@ -1290,8 +1326,10 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     const int32_t head_idx = impl->depth_emits_c0 ? current_k : (current_k - 1);
 
     rda_depth_build build = { impl, T, head_idx };
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 1 + (size_t) current_k, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind     = (int32_t) CODEC_GRAPH_LM_RDA_DEPTH_STEP;
@@ -1299,22 +1337,22 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     key.n_q      = head_idx;
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_depth_step, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_depth_step, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_x    = codec_graph_get_tensor(st->ctx, entry, "lm.depth.x");
+    ggml_tensor * t_x    = codec_graph_get_tensor(gctx, entry, "lm.depth.x");
     ggml_tensor * t_h_in = impl->in_proj_per_pos
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.h_in") : nullptr;
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.h_in") : nullptr;
     ggml_tensor * t_pos  = impl->use_rope
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.pos") : nullptr;
-    ggml_tensor * t_lg   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.ck_logits");
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.pos") : nullptr;
+    ggml_tensor * t_lg   = codec_graph_get_tensor(gctx, entry, "lm.depth.ck_logits");
     if (!t_x || !t_lg ||
         (impl->in_proj_per_pos && !t_h_in) ||
         (impl->use_rope && !t_pos)) {
         st->last_error = "depth graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_x, prefix.data(),
@@ -1337,7 +1375,7 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
     }
 
     const int32_t nt = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nt, &err)) {
+    if (!codec_graph_compute(gctx, entry, nt, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t vk = st->lm->info.codebook_sizes[current_k];
@@ -1418,8 +1456,10 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
         sst->k_cache.data(), sst->v_cache.data(),
     };
 
-    codec_graph_eval_guard guard(st->ctx);
     std::string err;
+    codec_context * gctx = rda_graph_ctx(st, 1 + (size_t) current_k, &err);
+    if (gctx == nullptr) { st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR; }
+    codec_graph_eval_guard guard(gctx, /*persist=*/true);
     codec_graph_cache_entry * entry = nullptr;
     codec_graph_cache_key key = {};
     key.kind     = (int32_t) CODEC_GRAPH_LM_RDA_DEPTH_STEP_KV;
@@ -1428,18 +1468,18 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
     key.n_in     = kv_pos_start;   // overload n_in for the cache offset
 
     if (!codec_graph_cache_get_or_build(
-            st->ctx, key, rda_build_depth_step_kv, &build, sizeof(build), &entry, &err)) {
+            gctx, key, rda_build_depth_step_kv, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    ggml_tensor * t_x   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.x");
+    ggml_tensor * t_x   = codec_graph_get_tensor(gctx, entry, "lm.depth.kv.x");
     ggml_tensor * t_pos = impl->use_rope
-        ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.pos") : nullptr;
-    ggml_tensor * t_lg  = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.ck_logits");
+        ? codec_graph_get_tensor(gctx, entry, "lm.depth.kv.pos") : nullptr;
+    ggml_tensor * t_lg  = codec_graph_get_tensor(gctx, entry, "lm.depth.kv.ck_logits");
     if (!t_x || !t_lg || (impl->use_rope && !t_pos)) {
         st->last_error = "depth kv graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_prepare_io(st->ctx, entry, &err)) {
+    if (!codec_graph_prepare_io(gctx, entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     if (!codec_runtime_write_tensor(t_x, prefix.data(),
@@ -1455,7 +1495,7 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
         }
     }
     const int32_t nt = st->lm->codec->n_threads > 0 ? st->lm->codec->n_threads : 1;
-    if (!codec_graph_compute(st->ctx, entry, nt, &err)) {
+    if (!codec_graph_compute(gctx, entry, nt, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
     const int32_t vk = st->lm->info.codebook_sizes[current_k];
@@ -1531,23 +1571,6 @@ enum codec_status step_finish(codec_lm_state * st, int32_t * out_codes) {
     return CODEC_STATUS_SUCCESS;
 }
 
-// ---------------------------------------------------------------------
-// audio embd
-// ---------------------------------------------------------------------
-
-const float * audio_embd(codec_lm * lm, int32_t cb_idx, int32_t code) {
-    rda_impl * impl = static_cast<rda_impl *>(lm->impl);
-    if (!impl) return nullptr;
-    // Vector size depends on mode: shared = N, flexible = N-1 (the
-    // last codebook is never an input under Moshi's flexible layout).
-    if (cb_idx < 0 || (size_t) cb_idx >= impl->audio_embds.size()) return nullptr;
-    ggml_tensor * t = impl->audio_embds[(size_t) cb_idx];
-    if (t == nullptr) return nullptr;
-    const float * data = codec_tensor_data_f32(t);
-    if (!data) return nullptr;
-    return data + (size_t) code * impl->audio_embed_dim;
-}
-
 enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float * out_embd) {
     if (!lm || !lm->impl || !codes || !out_embd) return CODEC_STATUS_INVALID_ARG;
     rda_impl * impl = static_cast<rda_impl *>(lm->impl);
@@ -1565,31 +1588,23 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
         const int32_t out_dim = impl->compose_audio_embed_dim;
         const int32_t stride  = impl->compose_codebook_stride;
         ggml_tensor * tbl     = impl->compose_audio_embd_fused;
-        // Dequant the whole table to a thread-local F32 buffer once
-        // per call.  For F32 / host buffers this is a fast pass-through
-        // via codec_tensor_data_f32; for F16 / quantised it dequants
-        // fully (one-shot per call — the table is 16392 × 2048 = 128 MB
-        // F32 max, but for our F16-quantised LFM2 GGUF it's the same
-        // amount we'd materialise per-row anyway).
-        const float * data = codec_tensor_data_f32(tbl);
-        std::vector<float> dequant;
-        if (data == nullptr) {
-            if (!codec_tensor_as_vec_f32(tbl, &dequant)) {
-                lm->last_error = "compose_audio_embd: fused-table dequant failed";
-                return CODEC_STATUS_INTERNAL_ERROR;
-            }
-            data = dequant.data();
-        }
         std::fill(out_embd, out_embd + out_dim, 0.0f);
+        std::vector<float> rowbuf((size_t) out_dim);
         for (int32_t i = 0; i < impl->n_codebook; ++i) {
             const int64_t row = (int64_t) codes[i] + (int64_t) i * stride;
             if (row < 0 || row >= tbl->ne[1]) {
                 lm->last_error = "compose_audio_embd: cb code + offset out of range";
                 return CODEC_STATUS_INVALID_ARG;
             }
-            const float * src = data + row * out_dim;
+            // One row per codebook: the table is 16392 x 2048, dequantizing all of it per
+            // frame cost ~65 ms.
+            std::string err;
+            if (!rda_copy_embd_row(tbl, (int32_t) row, out_dim, rowbuf.data(), "compose.audio_embd", &err)) {
+                lm->last_error = "compose_audio_embd: " + err;
+                return CODEC_STATUS_INTERNAL_ERROR;
+            }
             for (int32_t j = 0; j < out_dim; ++j) {
-                out_embd[j] += src[j];
+                out_embd[j] += rowbuf[(size_t) j];
             }
         }
         return CODEC_STATUS_SUCCESS;
@@ -1650,65 +1665,72 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
     return CODEC_STATUS_SUCCESS;
 }
 
-// Host-side text-projection for the Qwen3-TTS talker prompt:
+// Qwen3-TTS talker text projection as a cached graph:
 //   out[H_out] = fc2(silu(fc1(text_embd[text_token])))
-// fc weights are stored (in, out) as ggml ne[0]=in, ne[1]=out, so
-//   y[o] = sum_i x[i] * W[i + o*in] + b[o].
-// A few tokens per prompt → cheap enough to run on the CPU directly
-// without a graph (deterministic, no per-step cost).
-static bool rda_project_text_token(rda_impl * impl, int32_t text_token,
-                                   float * out, int32_t out_cap,
-                                   std::string * err) {
-    if (!impl || !impl->tp_text_embd || !impl->tp_fc1_w || !impl->tp_fc2_w) {
-        if (err) *err = "text projection tensors not loaded";
+struct rda_text_proj_build {
+    rda_impl * impl;
+};
+
+static bool rda_build_text_proj(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
+    const auto * b = static_cast<const rda_text_proj_build *>(ud);
+    if (ctx_eval == nullptr || b == nullptr || out == nullptr) return false;
+    rda_impl * impl = b->impl;
+    ggml_tensor * tok = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, 1);
+    ggml_set_name(tok, "lm.text_proj.token");
+    ggml_tensor * x = codec_graph_cast_f32(ctx_eval, ggml_get_rows(ctx_eval, impl->tp_text_embd, tok));   // [H_text, 1]
+    x = codec_mul_mat(ctx_eval, impl->tp_fc1_w, x);
+    if (impl->tp_fc1_b) x = ggml_add(ctx_eval, x, codec_graph_cast_f32(ctx_eval, impl->tp_fc1_b));
+    x = codec_mul_mat(ctx_eval, impl->tp_fc2_w, ggml_silu(ctx_eval, x));
+    if (impl->tp_fc2_b) x = ggml_add(ctx_eval, x, codec_graph_cast_f32(ctx_eval, impl->tp_fc2_b));
+    ggml_set_name(x, "lm.text_proj.out");
+    *out = x;
+    return true;
+}
+
+static bool rda_project_text_token(codec_lm * lm, rda_impl * impl, int32_t text_token,
+                                   float * out, int32_t out_cap, std::string * err) {
+    if (!impl->tp_text_embd || !impl->tp_fc1_w || !impl->tp_fc2_w) {
+        *err = "text projection tensors not loaded";
         return false;
     }
     if (out_cap < impl->tp_out_dim) {
-        if (err) *err = "text projection output buffer too small";
+        *err = "text projection output buffer too small";
         return false;
     }
-    const int32_t H_in  = impl->tp_text_dim;
-    const int32_t H_mid = impl->tp_mid_dim;
-    const int32_t H_out = impl->tp_out_dim;
-
-    std::vector<float> x((size_t) H_in);
-    if (!rda_copy_embd_row(impl->tp_text_embd, text_token, H_in,
-                           x.data(), "lm.text_embd", err)) {
+    if (text_token < 0 || text_token >= impl->tp_text_embd->ne[1]) {
+        *err = "text token out of range";
         return false;
     }
-
-    // fc1: (H_in) -> (H_mid), then SiLU.
-    std::vector<float> w1((size_t) H_in * H_mid);
-    if (!codec_tensor_as_vec_f32(impl->tp_fc1_w, &w1)) {
-        if (err) *err = "failed to read text_projection.fc1.weight";
+    if (impl->compose_ctx == nullptr) {
+        codec_context * cctx = new (std::nothrow) codec_context();
+        if (!cctx) return false;
+        cctx->model   = lm->codec;
+        cctx->backend = lm->codec->backend;
+        cctx->params  = codec_context_default_params();
+        if (!codec_runtime_init(cctx, err)) {
+            delete cctx;
+            return false;
+        }
+        impl->compose_ctx = cctx;
+    }
+    rda_text_proj_build build = { impl };
+    codec_graph_eval_guard guard(impl->compose_ctx);
+    codec_graph_cache_entry * entry = nullptr;
+    codec_graph_cache_key key = {};
+    key.kind = (int32_t) CODEC_GRAPH_LM_RDA_TEXT_PROJ;
+    key.n_in = impl->tp_out_dim;
+    if (!codec_graph_cache_get_or_build(impl->compose_ctx, key, rda_build_text_proj, &build, sizeof(build),
+                                        &entry, err)) {
         return false;
     }
-    std::vector<float> b1;
-    if (impl->tp_fc1_b) { codec_tensor_as_vec_f32(impl->tp_fc1_b, &b1); }
-    std::vector<float> mid((size_t) H_mid);
-    for (int32_t o = 0; o < H_mid; ++o) {
-        double acc = b1.empty() ? 0.0 : b1[o];
-        const float * wcol = w1.data() + (size_t) o * H_in;
-        for (int32_t i = 0; i < H_in; ++i) acc += (double) x[i] * wcol[i];
-        const double v = acc;
-        mid[o] = (float) (v / (1.0 + std::exp(-v)));   // SiLU
-    }
-
-    // fc2: (H_mid) -> (H_out).
-    std::vector<float> w2((size_t) H_mid * H_out);
-    if (!codec_tensor_as_vec_f32(impl->tp_fc2_w, &w2)) {
-        if (err) *err = "failed to read text_projection.fc2.weight";
-        return false;
-    }
-    std::vector<float> b2;
-    if (impl->tp_fc2_b) { codec_tensor_as_vec_f32(impl->tp_fc2_b, &b2); }
-    for (int32_t o = 0; o < H_out; ++o) {
-        double acc = b2.empty() ? 0.0 : b2[o];
-        const float * wcol = w2.data() + (size_t) o * H_mid;
-        for (int32_t i = 0; i < H_mid; ++i) acc += (double) mid[i] * wcol[i];
-        out[o] = (float) acc;
-    }
-    return true;
+    ggml_tensor * t_tok = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.text_proj.token");
+    ggml_tensor * t_out = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.text_proj.out");
+    const int32_t nt = lm->codec->n_threads > 0 ? lm->codec->n_threads : 1;
+    return t_tok != nullptr && t_out != nullptr &&
+           codec_graph_prepare_io(impl->compose_ctx, entry, err) &&
+           codec_runtime_write_tensor(t_tok, &text_token, sizeof(int32_t), err) &&
+           codec_graph_compute(impl->compose_ctx, entry, nt, err) &&
+           codec_runtime_read_tensor(t_out, out, (size_t) impl->tp_out_dim * sizeof(float), err);
 }
 
 }  // namespace
@@ -1722,15 +1744,14 @@ bool codec_lm_project_text(struct codec_lm * lm, int32_t text_token,
     if (lm->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR) return false;
     rda_impl * impl = static_cast<rda_impl *>(lm->impl);
     std::string err;
-    bool ok = rda_project_text_token(impl, text_token, out, out_cap, &err);
+    bool ok = rda_project_text_token(lm, impl, text_token, out, out_cap, &err);
     if (!ok) lm->last_error = err;
     return ok;
 }
 
 // Read one row of the codec_embedding table (audio_embd cb 0) into `out`,
 // dequanting from F16/BF16/F32 as needed.  Used for the Qwen3-TTS talker
-// codec control-tag lane, which needs codes (2148..2157) that
-// `codec_lm_audio_embd`'s F32-data fast path can't serve for an F16 table.
+// codec control-tag lane (codes 2148..2157), from a table of any float type.
 bool codec_lm_codec_embd_row(struct codec_lm * lm, int32_t code,
                              float * out, int32_t out_cap) {
     if (!lm || !lm->impl || !out) return false;
@@ -1768,7 +1789,6 @@ const codec_lm_kind_vtable codec_lm_vtable_residual_depth_ar = {
     /*.step_logits        =*/ step_logits,
     /*.step_push_code     =*/ step_push_code,
     /*.step_finish        =*/ step_finish,
-    /*.audio_embd         =*/ audio_embd,
     /*.compose_audio_embd =*/ compose_audio_embd,
     /*.compose_next_embd  =*/ nullptr,   // CSM has no learned per-step pos emb;
                                          // public function falls back to

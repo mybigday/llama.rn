@@ -112,12 +112,16 @@ namespace rnllama_jsi {
     struct CompletionResult {
         json body;
         std::vector<llama_token> audio_tokens;
+        std::vector<float> audio_latents;
         std::vector<float> embeddings;
 
         jsi::Value toJsi(jsi::Runtime& rt) const {
             jsi::Object res = fromJson(rt, body).getObject(rt);
             if (!audio_tokens.empty()) {
                 res.setProperty(rt, "audio_tokens", toJsNumberArray(rt, audio_tokens));
+            }
+            if (!audio_latents.empty()) {
+                res.setProperty(rt, "audio_latents", toJsNumberArray(rt, audio_latents));
             }
             if (!embeddings.empty()) {
                 res.setProperty(rt, "embeddings", toJsNumberArray(rt, embeddings));
@@ -168,8 +172,13 @@ namespace rnllama_jsi {
         res["stopping_word"] = c.stopping_word;
         res["tokens_cached"] = c.n_past;
 
+        // A completion with a vocoder: what it generated, codec codes or
+        // latents (the decoder input).
         if (ctx->isVocoderEnabled() && ctx->tts_wrapper != nullptr) {
-            result.audio_tokens = ctx->tts_wrapper->audio_tokens;
+            auto * tts = ctx->tts_wrapper;
+            tts->collectGeneration();
+            result.audio_tokens = tts->audio_tokens;
+            result.audio_latents = tts->audio_latents;
         }
         if (!c.embeddings.empty()) {
             result.embeddings = c.embeddings;

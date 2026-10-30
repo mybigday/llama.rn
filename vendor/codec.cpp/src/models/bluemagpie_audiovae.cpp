@@ -44,10 +44,9 @@ ggml_tensor * codec_bm_snake_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_ten
     if (ctx == nullptr || x_tc == nullptr || alpha == nullptr) return nullptr;
     alpha = codec_graph_cast_f32(ctx, alpha);
     ggml_tensor * a_2d = ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
-    ggml_tensor * a_rep = ggml_repeat(ctx, a_2d, x_tc);              // [t, c]
-    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);  // alpha + 1e-9
-    ggml_tensor * ax = ggml_mul(ctx, a_rep, x_tc);
-    ggml_tensor * s = ggml_sin(ctx, ax);
+    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_2d, 1.0f, 1e-9f);  // alpha + 1e-9
+    ggml_tensor * ax = ggml_mul(ctx, x_tc, a_2d);
+    ggml_tensor * s = codec_op_sin(ctx, ax);
     ggml_tensor * s2 = ggml_mul(ctx, s, s);
     ggml_tensor * frac = ggml_div(ctx, s2, a_eps);
     return ggml_add(ctx, x_tc, frac);
@@ -303,7 +302,7 @@ static enum codec_status codec_bluemagpie_audiovae_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    const int32_t n_threads = ctx->model->n_threads > 0 ? ctx->model->n_threads : 1;
+    const int32_t n_threads = ctx->n_threads;
     if (!codec_graph_compute(ctx, entry, n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -396,7 +395,7 @@ static enum codec_status codec_bluemagpie_audiovae_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    const int32_t nth = ctx->model->n_threads > 0 ? ctx->model->n_threads : 1;
+    const int32_t nth = ctx->n_threads;
     if (!codec_graph_compute(ctx, entry, nth, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;

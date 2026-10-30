@@ -1,8 +1,10 @@
 #include "JSIParams.h"
 #if defined(RNLLAMA_USE_FRAMEWORK_HEADERS)
 #include <rnllama/speculative.h>
+#include <rnllama/sampling.h>
 #else
 #include "speculative.h"
+#include "sampling.h"
 #endif
 #include <cmath>
 #include <algorithm>
@@ -12,6 +14,7 @@
 #include <vector>
 #include <utility>
 #include <stdexcept>
+#include <sstream>
 
 namespace rnllama_jsi {
 
@@ -431,7 +434,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 
     // ---- completion params ------------------------------------------------
 
-    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx) {
+    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx,
+                               const std::vector<float>* logit_bias_table) {
         if (!ctx) return;
 
         ctx->params.prompt = getPropertyAsString(params, "prompt");
@@ -439,6 +443,7 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         auto& sparams = ctx->params.sampling;
         sparams.seed = getPropertyAsInt(params, "seed", -1);
         ctx->params.n_predict = getPropertyAsInt(params, "n_predict", ctx->params.n_predict);
+        ctx->n_min_predict = getPropertyAsInt(params, "n_min_predict", -1);
         // Read per request, defaulting to 0, so one request's n_keep never
         // carries into the next.
         ctx->params.n_keep = getPropertyAsInt(params, "n_keep", 0);
@@ -452,6 +457,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
         ctx->post_sampling_probs = getPropertyAsBool(params, "post_sampling_probs", true);
 
         sparams.penalty_last_n = getPropertyAsInt(params, "penalty_last_n", sparams.penalty_last_n);
+        // -1 is the context size (llama-server's mapping); llama.cpp's sampler would take it as off.
+        if (sparams.penalty_last_n == -1) sparams.penalty_last_n = (int32_t) llama_n_ctx(ctx->ctx);
         sparams.penalty_repeat = getPropertyAsDouble(params, "penalty_repeat", sparams.penalty_repeat);
         sparams.penalty_freq = getPropertyAsDouble(params, "penalty_freq", sparams.penalty_freq);
         sparams.penalty_present = getPropertyAsDouble(params, "penalty_present", sparams.penalty_present);
@@ -593,7 +600,8 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             }
         }
 
-        // Logit bias: [[token, bias | false], ...]
+        // Logit bias: [[token, bias | false], ...], or a Float32Array of one
+        // bias per vocabulary token (0: none, -Infinity: never).
         sparams.logit_bias.clear();
         const llama_model * model = llama_get_model(ctx->ctx);
         const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -603,7 +611,17 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
             sparams.logit_bias.push_back({ llama_vocab_eos(vocab), -INFINITY });
         }
 
-        if (const json* logitBias = findProperty(params, "logit_bias"); logitBias && logitBias->is_array()) {
+        if (logit_bias_table != nullptr) {
+            if ((int) logit_bias_table->size() != n_vocab) {
+                throw std::runtime_error("logit_bias: a Float32Array needs one entry per vocabulary token (" +
+                                         std::to_string(n_vocab) + "), got " +
+                                         std::to_string(logit_bias_table->size()));
+            }
+            for (int t = 0; t < n_vocab; ++t) {
+                const float b = (*logit_bias_table)[(size_t) t];
+                if (b != 0.0f) sparams.logit_bias.push_back({ t, b });
+            }
+        } else if (const json* logitBias = findProperty(params, "logit_bias"); logitBias && logitBias->is_array()) {
             for (const auto& el : *logitBias) {
                 if (!el.is_array() || el.size() != 2 || !el[0].is_number()) {
                     continue;
@@ -619,6 +637,21 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
                     sparams.logit_bias.push_back({ tok, -INFINITY });
                 }
             }
+        }
+
+
+        // Sampler order: "penalties;top_k;..." or an array; the model's
+        // (general.sampling.sequence, else llama.cpp's) when absent.
+        sparams.samplers = ctx->default_samplers;
+        if (const json* samplers = findProperty(params, "samplers"); samplers) {
+            std::vector<std::string> names;
+            if (samplers->is_string()) {
+                std::stringstream ss(samplers->get<std::string>());
+                for (std::string n; std::getline(ss, n, ';');) if (!n.empty()) names.push_back(n);
+            } else if (samplers->is_array()) {
+                for (const auto& n : *samplers) if (n.is_string()) names.push_back(n.get<std::string>());
+            }
+            if (!names.empty()) sparams.samplers = common_sampler_types_from_names(names);
         }
 
         ctx->params.antiprompt.clear();
@@ -641,11 +674,9 @@ static common_grammar makeGrammar(common_grammar_type type, std::string grammar)
 #endif
         }
 
-        // TTS speaker id: thread from completion options into tts_wrapper so
-        // rn-completion.cpp can resolve the speaker via getSpeaker(pending_speaker_id).
-        // Default -1 means no speaker override.
-        if (ctx->tts_wrapper != nullptr) {
-            ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(params, "speakerId", -1);
-        }
+        // TTS voice: a registry speaker id (-1 = none) or a builtin voice
+        // name; it fills the prompt's voice markers.
+        ctx->tts_speaker_id = getPropertyAsInt(params, "speakerId", -1);
+        ctx->tts_voice = getPropertyAsString(params, "voice");
     }
 }

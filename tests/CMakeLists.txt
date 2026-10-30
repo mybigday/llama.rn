@@ -47,7 +47,7 @@ else()
 endif()
 
 # Every test links the whole library plus codec.cpp's WAV/NPY helpers
-# (included as "utils/wav_io.h", hence the examples/ include dir).
+# (included as "utils/wav_io.h" from common/; npy_io from the examples/ include dir).
 set(TEST_SOURCES ${RNLLAMA_CORE_SOURCES} ${RNLLAMA_CODEC_UTILS_SOURCES})
 set(TEST_INCLUDE_DIRS ${RNLLAMA_INCLUDE_DIRS} ${RNLLAMA_CODEC_CPP_DIR}/examples)
 
@@ -91,11 +91,6 @@ rnllama_test(parallel_decoding_test parallel_decoding_test.cpp)
 # Decision model probe: prints the /v1/systemone response of a request, to diff
 # against llama-server
 rnllama_test(decision_probe decision_probe.cpp NATIVE_SIMD)
-
-# BlueMagpie CLI probe: measures per-step latency of the continuous_embd
-# completion-loop hook on host, so we can pin down the bottleneck without
-# fighting Pixel's OOM killer.
-rnllama_test(bluemagpie_probe bluemagpie_probe.cpp NATIVE_SIMD)
 
 # -DTESTS_METAL=ON (Apple only): compile the Metal backend into tts_probe so
 # host runs exercise the same GPU path the app uses (backbone via --ngl,

@@ -92,32 +92,34 @@ export const MODELS = {
   },
   OUTE_TTS_0_3: {
     name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (FP16)',
-    repo: 'OuteAI/OuteTTS-0.3-500M-GGUF',
+    repo: 'BricksDisplay/OuteTTS-0.3-500M-GGUF',
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 170MB (vocoder)',
+    size: '403MB (model) + 178MB (vocoder)',
+    // OuteAI's WavTokenizer (wavtokenizer-large-75token-interface) with the
+    // builtin voices baked for this backbone's tokenizer.
     vocoder: {
-      repo: 'BricksDisplay/codec.cpp-gguf',
-      filename: 'wavtokenizer-large-speech-75tokens.gguf',
-      size: '170MB',
+      repo: 'BricksDisplay/OuteTTS-0.3-500M-GGUF',
+      filename: 'codec-f16.gguf',
+      size: '178MB',
     },
   },
   OUTE_TTS_1_0: {
     name: 'OuteTTS 1.0 0.6B (Q4_K_M) + DAC (FP16)',
-    repo: 'OuteAI/OuteTTS-1.0-0.6B-GGUF',
+    repo: 'BricksDisplay/OuteTTS-1.0-0.6B-GGUF',
     filename: 'OuteTTS-1.0-0.6B-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 296MB (vocoder)',
+    size: '402MB (model) + 148MB (vocoder)',
     vocoder: {
-      repo: 'BricksDisplay/codec.cpp-gguf',
-      filename: 'ibm-research--DAC.speech.gguf',
-      size: '296MB',
+      repo: 'BricksDisplay/OuteTTS-1.0-0.6B-GGUF',
+      filename: 'codec-f16.gguf',
+      size: '148MB',
     },
   },
   SOPRANO_1_1: {
     name: 'Soprano-1.1 80M (F16) + codec (FP32)',
     repo: 'BricksDisplay/Soprano-1.1-80M-GGUF',
-    filename: 'Soprano-1.1-80M.F16.gguf',
+    filename: 'Soprano-1.1-80M-soprano-tok.F16.gguf',
     mmproj: undefined,
     size: '160MB (model) + 121MB (vocoder)',
     vocoder: {
@@ -208,13 +210,39 @@ export const MODELS = {
   CHATTERBOX_MULTILINGUAL: {
     name: 'Chatterbox Multilingual T3 (Q4_K_M) + S3G + codec_lm (Q4_K_M)',
     repo: 'BricksDisplay/Chatterbox-Multilingual-TTS-GGUF',
-    filename: 'chatterbox-mtl-t3-q4_k_m.gguf',
+    filename: 'chatterbox-mtl-q4_k_m.gguf',
     mmproj: undefined,
     size: '289MB (T3) + 178MB (codec+codec_lm)',
     vocoder: {
       repo: 'BricksDisplay/Chatterbox-Multilingual-TTS-GGUF',
-      filename: 'chatterbox-mtl-codec-q4_k_m.gguf',
+      filename: 'codec-q4_k_m.gguf',
       size: '178MB',
+    },
+  },
+  CHATTERBOX_TURBO: {
+    name: 'Chatterbox Turbo T3 (Q4_K_M) + MeanFlow S3G + codec_lm (Q4_K_M)',
+    repo: 'BricksDisplay/Chatterbox-Turbo-GGUF',
+    filename: 'chatterbox-turbo-t3-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '259MB (T3) + 217MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'BricksDisplay/Chatterbox-Turbo-GGUF',
+      filename: 'chatterbox-turbo-codec-q4_k_m.gguf',
+      size: '217MB',
+    },
+  },
+  BREEZYVOICE: {
+    // CosyVoice v1 family; the speech LM runs on the `cosyvoice` arch, whose
+    // relative-position attention needs an F16 KV cache (no flash attention).
+    name: 'BreezyVoice LM (Q4_K_M) + CosyVoice flow/HiFT + codec_lm (Q5_K_M)',
+    repo: 'BricksDisplay/BreezyVoice-GGUF',
+    filename: 'breezyvoice-lm-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '161MB (LM) + 316MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'BricksDisplay/BreezyVoice-GGUF',
+      filename: 'breezyvoice-codec-q5_k_m.gguf',
+      size: '316MB',
     },
   },
   BLUEMAGPIE_TTS: {
