@@ -26,7 +26,10 @@ namespace rnllama_jsi {
     // now reads as "absent" (same as JSON.stringify) instead of "present but
     // wrong type".
     void parseCommonParams(const json& params, common_params& cparams);
-    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx);
+    // `logit_bias_table`: logit_bias given as a Float32Array (n_vocab biases,
+    // read by the caller since toJson leaves typed arrays out), or null.
+    void parseCompletionParams(const json& params, rnllama::llama_rn_context* ctx,
+                               const std::vector<float>* logit_bias_table = nullptr);
 
     // `[{ path, scaled? }]` as sent by applyLoraAdapters / lora_list.
     // Entries that are not objects or have an empty path are skipped.
@@ -52,8 +55,10 @@ namespace rnllama_jsi {
         // When the key is absent the binding follows the main context's GPU
         // offload instead of this value.
         bool use_gpu = false;
+        // Codec GGUF metadata overrides, "KEY=TYPE:VALUE".
+        std::vector<std::string> kv_overrides;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(VocoderInitOptions, path, n_batch, use_gpu)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(VocoderInitOptions, path, n_batch, use_gpu, kv_overrides)
 
     struct ParallelModeOptions {
         bool enabled = true;
@@ -89,17 +94,3 @@ namespace rnllama_jsi {
     }
 }
 
-namespace rnllama {
-    // Key-mapping shim for generateAudioCodes: the public API uses camelCase
-    // while the core struct is snake_case. Found by ADL from json::get<>().
-    template <typename BasicJsonType>
-    void from_json(const BasicJsonType& j, llama_rn_audio_codes_options& o) {
-        const llama_rn_audio_codes_options d{};
-        o.prompt      = j.value("prompt",      d.prompt);
-        o.max_frames  = j.value("maxFrames",   d.max_frames);
-        o.temperature = j.value("temperature", d.temperature);
-        o.top_p       = j.value("topP",        d.top_p);
-        o.top_k       = j.value("topK",        d.top_k);
-        o.seed        = j.value("seed",        d.seed);
-    }
-}

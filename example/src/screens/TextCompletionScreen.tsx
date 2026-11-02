@@ -635,7 +635,7 @@ export default function TextCompletionScreen({
 
           <ParameterTextInput
             label="Penalty Last N"
-            description="Last N tokens to consider for repetition penalty. 0 disables, -1 uses context size."
+            description="Last N tokens to consider for repetition penalty. 0 disables."
             value={completionParams?.penalty_last_n?.toString() || '64'}
             onChangeText={(text) => {
               if (text === '') {
@@ -845,8 +845,8 @@ export default function TextCompletionScreen({
 
           <ParameterTextInput
             label="DRY Penalty Last N"
-            description="How many tokens to scan for DRY repetitions. -1 uses context size, 0 disables."
-            value={completionParams?.dry_penalty_last_n?.toString() || '-1'}
+            description="How many tokens to scan for DRY repetitions. 0 disables."
+            value={completionParams?.dry_penalty_last_n?.toString() || '64'}
             onChangeText={(text) => {
               if (text === '') {
                 setCompletionParams((prev) => ({

@@ -7,6 +7,7 @@ jest.mock('..', () => require('../../jest/mock'))
 // moves them into jsiBindings and deletes them from global.
 let mockReleaseSpeaker: jest.Mock
 let mockGetFormattedAudioCompletion: jest.Mock
+let mockGetTTSCapabilities: jest.Mock
 let ctx: LlamaContext
 
 beforeAll(async () => {
@@ -16,9 +17,11 @@ beforeAll(async () => {
   const g = global as typeof globalThis & {
     llamaReleaseSpeaker: jest.Mock
     llamaGetFormattedAudioCompletion: jest.Mock
+    llamaGetTTSCapabilities: jest.Mock
   }
   mockReleaseSpeaker = g.llamaReleaseSpeaker
   mockGetFormattedAudioCompletion = g.llamaGetFormattedAudioCompletion
+  mockGetTTSCapabilities = g.llamaGetTTSCapabilities
   // initLlama calls installJsi → bindJsiFromGlobal → deletes keys from global
   ctx = await initLlama({ model: 'x.gguf' })
 })
@@ -57,6 +60,7 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
     null,
     'hello',
     spk.id,
+    undefined,
   )
 
   // Return value must not carry any speakerEmb* fields
@@ -67,20 +71,89 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
   expect(result).toHaveProperty('flow')
 })
 
-it('getFormattedAudioCompletion forwards a structured speaker payload as-is (not the default voice)', async () => {
+it('getFormattedAudioCompletion rejects structured speaker payloads and unknown voices', async () => {
+  const payload = { ref_phones: 'h ə l oʊ', ref_codes: [11, 22, 33] }
+  await expect(
+    ctx.getFormattedAudioCompletion({
+      prompt: 'hello',
+      speaker: payload as unknown as string,
+    }),
+  ).rejects.toThrow(TypeError)
+  await expect(
+    ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: 'nobody' }),
+  ).rejects.toThrow("Unknown voice 'nobody'")
+})
+
+it('getFormattedAudioCompletion returns completionParams', async () => {
   mockGetFormattedAudioCompletion.mockClear()
 
-  // NeuTTSSpeaker-shaped payload (already phonemized) with custom reference codes.
-  const payload = { ref_phones: 'h ə l oʊ', ref_codes: [11, 22, 33] }
+  const f = await ctx.getFormattedAudioCompletion({ prompt: 'hello' })
 
-  await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: payload })
-
-  // The supplied payload must be passed through as the speaker arg —
-  // NOT silently replaced by the built-in default voice.
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    payload,
+    null,
     'hello',
+    -1,
+    undefined,
+  )
+  expect(f.completionParams.prompt).toBe('hello')
+})
+
+it('getFormattedAudioCompletion forwards a builtin voice name, and none for the codec default', async () => {
+  const voice = (name: string, isDefault = false) => ({
+    name,
+    refText: '',
+    isDefault,
+  })
+  const caps = {
+    type: 5,
+    promptKind: 'neutts',
+    family: 'neutts',
+    requiresPhonemes: true,
+    defaultLanguage: 'en-us',
+    builtinVoices: [voice('jo', true), voice('dave')],
+    canSpeakerFromAudio: true,
+    canTakeInstruct: false,
+    needsVoice: false,
+    usesRefText: true,
+  }
+  mockGetTTSCapabilities.mockResolvedValueOnce(caps)
+  mockGetFormattedAudioCompletion.mockClear()
+  await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: 'dave' })
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    { codec_voice: 'dave' },
+    'hello',
+    -1,
+    undefined,
+  )
+
+  mockGetTTSCapabilities.mockResolvedValueOnce(caps)
+  mockGetFormattedAudioCompletion.mockClear()
+  await ctx.getFormattedAudioCompletion({ prompt: 'hello' })
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    null,
+    'hello',
+    -1,
+    undefined,
+  )
+})
+
+it('getFormattedAudioCompletion forwards instruct', async () => {
+  mockGetFormattedAudioCompletion.mockClear()
+
+  await ctx.getFormattedAudioCompletion({
+    prompt: 'hello',
+    instruct: 'Speak cheerfully',
+  })
+
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    null,
+    'hello',
+    -1,
+    'Speak cheerfully',
   )
 })
 

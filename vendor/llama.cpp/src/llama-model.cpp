@@ -242,6 +242,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_nemotron_h_moe(params);
         case LLM_ARCH_BARBET:
             return new llama_model_barbet(params);
+        case LLM_ARCH_COSYVOICE:
+            return new llama_model_cosyvoice(params);
         case LLM_ARCH_EXAONE:
             return new llama_model_exaone(params);
         case LLM_ARCH_EXAONE4:
@@ -3530,6 +3532,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_KIMI_LINEAR:
         case LLM_ARCH_KIMI_K3:
         case LLM_ARCH_GLM5_NEXT:
+        case LLM_ARCH_COSYVOICE:   // relative positions are applied inside its attention
             return LLAMA_ROPE_TYPE_NONE;
 
         // use what we call a normal RoPE, operating on pairs of consecutive head values
@@ -3741,6 +3744,12 @@ const char * llama_model_meta_key_str(llama_model_meta_key key) {
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT:        return "general.sampling.mirostat";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU:    return "general.sampling.mirostat_tau";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA:    return "general.sampling.mirostat_eta";
+        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ:    return "general.sampling.penalty_freq";
+        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT: return "general.sampling.penalty_present";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER:  return "general.sampling.dry_multiplier";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE:        return "general.sampling.dry_base";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH: return "general.sampling.dry_allowed_length";
+        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N: return "general.sampling.dry_penalty_last_n";
         default:                                            return nullptr;
     }
 }

@@ -1,6 +1,6 @@
 --- a/common/sampling.cpp
 +++ b/common/sampling.cpp
-@@ -309,12 +309,22 @@
+@@ -313,12 +313,22 @@
  
      // reasoning budget sampler (skip when budget is unlimited unless a lazy grammar is active, which needs rbudget for thinking-block suppression)
      if (!params.reasoning_budget_start.empty() && !params.reasoning_budget_end.empty() && (params.grammar_lazy || params.reasoning_budget_tokens >= 0 || params.reasoning_control)) {
@@ -29,3 +29,82 @@
  
          for (const auto & token : prefill_tokens) {
              llama_sampler_accept(rbudget, token);
+@@ -446,6 +456,78 @@
+     return result;
+ }
+ 
++struct common_sampler * common_sampler_init_logits(const struct common_params_sampling & params, int32_t n_vocab) {
++    if (n_vocab <= 0 || !params.grammar.empty() || params.mirostat != 0) {
++        return nullptr;
++    }
++
++    llama_sampler_chain_params lparams = llama_sampler_chain_default_params();
++    lparams.no_perf = params.no_perf;
++    llama_sampler * chain = llama_sampler_chain_init(lparams);
++
++    if (!params.logit_bias.empty()) {
++        llama_sampler_chain_add(chain, llama_sampler_init_logit_bias(n_vocab, params.logit_bias.size(), params.logit_bias.data()));
++    }
++    bool use_adaptive_p = false;
++    for (const auto & cnstr : params.samplers) {
++        llama_sampler * smpl = nullptr;
++        switch (cnstr) {
++            case COMMON_SAMPLER_TYPE_TOP_K:       smpl = llama_sampler_init_top_k(params.top_k); break;
++            case COMMON_SAMPLER_TYPE_TOP_P:       smpl = llama_sampler_init_top_p(params.top_p, params.min_keep); break;
++            case COMMON_SAMPLER_TYPE_TOP_N_SIGMA: smpl = llama_sampler_init_top_n_sigma(params.top_n_sigma); break;
++            case COMMON_SAMPLER_TYPE_MIN_P:       smpl = llama_sampler_init_min_p(params.min_p, params.min_keep); break;
++            case COMMON_SAMPLER_TYPE_XTC:         smpl = llama_sampler_init_xtc(params.xtc_probability, params.xtc_threshold, params.min_keep, params.seed); break;
++            case COMMON_SAMPLER_TYPE_TYPICAL_P:   smpl = llama_sampler_init_typical(params.typ_p, params.min_keep); break;
++            case COMMON_SAMPLER_TYPE_TEMPERATURE: smpl = llama_sampler_init_temp_ext(params.temp, params.dynatemp_range, params.dynatemp_exponent); break;
++            case COMMON_SAMPLER_TYPE_PENALTIES:
++                smpl = llama_sampler_init_penalties(n_vocab, params.penalty_last_n, params.penalty_repeat, params.penalty_freq, params.penalty_present);
++                break;
++            case COMMON_SAMPLER_TYPE_ADAPTIVE_P:  use_adaptive_p = true; break;
++            case COMMON_SAMPLER_TYPE_DRY:
++                // DRY works on token pieces; off unless asked for.
++                if (params.dry_multiplier == 0.0f) break;
++                llama_sampler_free(chain);
++                return nullptr;
++            default:
++                llama_sampler_free(chain);
++                return nullptr;
++        }
++        if (smpl) llama_sampler_chain_add(chain, smpl);
++    }
++    if (use_adaptive_p) {
++        llama_sampler_chain_add(chain, llama_sampler_init_adaptive_p(params.adaptive_target, params.adaptive_decay, params.seed));
++    } else {
++        const bool greedy = params.n_probs == 0 && !params.samplers.empty() &&
++            ((params.samplers.back() == COMMON_SAMPLER_TYPE_TEMPERATURE && params.temp == 0.0f && params.dynatemp_range == 0.0f) ||
++             (params.samplers.back() == COMMON_SAMPLER_TYPE_TOP_K && params.top_k == 1));
++        llama_sampler_chain_add(chain, greedy ? llama_sampler_init_greedy() : llama_sampler_init_dist(params.seed));
++    }
++
++    return new common_sampler {
++        /* .params  = */ params,
++        /* .grmr    = */ nullptr,
++        /* .rbudget = */ nullptr,
++        /* .chain   = */ chain,
++        /* .prev    = */ ring_buffer<llama_token>(std::max(32, params.n_prev)),
++        /* .cur     = */ {},
++        /* .cur_p   = */ {},
++        /* .rng     = */ std::mt19937(llama_sampler_get_seed(chain) ^ 0x9e3779b9u),
++    };
++}
++
++llama_token common_sampler_sample_logits(struct common_sampler * gsmpl, const float * logits, int32_t n) {
++    const auto tm = gsmpl->tm();
++    // The chain reorders cur in place: refill every draw.
++    gsmpl->cur.resize((size_t) n);
++    for (llama_token id = 0; id < n; ++id) {
++        gsmpl->cur[(size_t) id] = llama_token_data{id, logits[id], 0.0f};
++    }
++    gsmpl->cur_p = { gsmpl->cur.data(), gsmpl->cur.size(), -1, false };
++    llama_sampler_apply(gsmpl->chain, &gsmpl->cur_p);
++    GGML_ASSERT(gsmpl->cur_p.selected >= 0 && gsmpl->cur_p.selected < (int64_t) gsmpl->cur_p.size);
++    return gsmpl->cur_p.data[gsmpl->cur_p.selected].id;
++}
++
+ void common_sampler_free(struct common_sampler * gsmpl) {
+     if (!gsmpl) {
+         return;

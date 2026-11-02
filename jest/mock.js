@@ -342,11 +342,12 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaGetFormattedAudioCompletion',
-      jest.fn(async () => ({
-        prompt: '',
+      jest.fn(async (_id, _speaker, text) => ({
+        prompt: text,
         grammar: '',
         embedding: false,
         flow: 'tokens',
+        completionParams: { prompt: text, embedding: false },
       })),
     )
     setGlobal(
@@ -357,21 +358,16 @@ if (!NativeModules.RNLlama) {
         family: 'outetts',
         requiresPhonemes: false,
         defaultLanguage: 'en-us',
+        builtinVoices: [],
+        canSpeakerFromAudio: false,
+        canTakeInstruct: false,
+        needsVoice: false,
+        usesRefText: false,
       })),
     )
     setGlobal(
       'llamaDecodeAudioTokens',
       jest.fn(async () => new Float32Array([0.25, -0.5])),
-    )
-    setGlobal(
-      'llamaGenerateAudioCodes',
-      jest.fn(async () => ({
-        codes: [],
-        nCodebook: 0,
-        nFrames: 0,
-        stoppedOnEos: false,
-        aborted: false,
-      })),
     )
     setGlobal(
       'llamaCreateSpeaker',
@@ -386,7 +382,19 @@ if (!NativeModules.RNLlama) {
       jest.fn(async () => {}),
     )
     setGlobal(
-      'llamaDecodeAudioEmbeddings',
+      'llamaLoadSpeaker',
+      jest.fn(async () => ({ id: 2, family: 'chatterbox', rows: 0, baked: false })),
+    )
+    setGlobal(
+      'llamaSaveSpeaker',
+      jest.fn(async () => {}),
+    )
+    setGlobal(
+      'llamaListSpeakers',
+      jest.fn(async () => [{ name: 'saved', refText: '', isDefault: true }]),
+    )
+    setGlobal(
+      'llamaDecodeAudioLatents',
       jest.fn(async () => new Float32Array([0.125])),
     )
     setGlobal('llamaGetAudioSampleRate', jest.fn(async () => 24000))

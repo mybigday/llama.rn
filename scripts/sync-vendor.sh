@@ -166,9 +166,10 @@ CODEC_CPP_PATHS=(
   LICENSE
   include
   src
-  # audio_lm.cpp + codec_common.h; tts_runner*.cpp are excluded by the builds
+  # audio_lm.cpp + codec_common.h (+ utils/wav_io); tts_runner*.cpp are
+  # excluded by the builds
   common
-  # wav/npy helpers used by the host test probes
+  # npy helpers used by the host test probes
   examples/utils
 )
 # codec.cpp's own llama.cpp submodule (exported as an empty directory)
@@ -251,7 +252,11 @@ export_subset() {
   for p in "${prune[@]}"; do
     rm -rf "${tmp:?}/$p"
   done
-  local rsync_args=(-a --delete)
+  # git archive stamps files with the commit time. Keep rsync from carrying
+  # that over (no -t): a file moving back to an older commit would otherwise
+  # look older than its build objects and never recompile. --checksum leaves
+  # unchanged files, and their mtimes, alone.
+  local rsync_args=(-rlp --checksum --delete)
   for p in "${keep[@]}"; do
     rsync_args+=("--exclude=$p")
   done

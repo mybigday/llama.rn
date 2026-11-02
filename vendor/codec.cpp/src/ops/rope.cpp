@@ -1,5 +1,7 @@
 #include "rope.h"
 
+#include "ggml_ops.h"
+
 ggml_tensor * codec_op_rope(
     ggml_context * ctx,
     ggml_tensor * x_dth,
@@ -20,7 +22,7 @@ ggml_tensor * codec_op_rope(
         return nullptr;
     }
 
-    ggml_tensor * t_pos = ggml_cast(ctx, ggml_arange(ctx, 0.0f, (float) t, 1.0f), GGML_TYPE_I32);
+    ggml_tensor * t_pos = ggml_cast(ctx, codec_op_arange(ctx, 0.0f, (float) t, 1.0f), GGML_TYPE_I32);
     if (t_pos == nullptr) {
         return nullptr;
     }
