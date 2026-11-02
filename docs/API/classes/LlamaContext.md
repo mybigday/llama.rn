@@ -479,7 +479,7 @@ Arm a text-to-speech request and report how to run it.
 The flow is `getFormattedAudioCompletion` → `completion()` →
 `decodeAudioTokens` / `decodeAudioLatents`. Like `getFormattedChat`,
 this returns what the request's format needs, as `completionParams`: the
-prompt, the grammar or `logit_bias` token mask, `embedding` and the
+prompt, the grammar and the `logit_bias` token mask, `embedding` and the
 model's minimum length (`n_min_predict`). Sampling (the backbone GGUF's
 `general.sampling.*` unless set) and `n_predict` are the `completion()`'s,
 which runs with

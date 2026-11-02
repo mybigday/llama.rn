@@ -338,13 +338,14 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     p["prompt"]    = f.prompt ? f.prompt : "";
     p["embedding"] = f.needs_embeddings || f.needs_prompt_hidden;
     if (f.min_frames > 0) p["n_min_predict"] = f.min_frames;
-    // The grammar and the allowed ranges say the same; the grammar wins.
-    // The ranges become a logit bias table: -Infinity outside them.
+    // The grammar and the allowed ranges both apply, as in codec.cpp's runner:
+    // a minimum-length grammar (NeuTTS, Soprano) only holds the end token
+    // back and leaves the vocabulary to the ranges.  The ranges become a
+    // logit bias table: -Infinity outside them.
     const std::string grammar = f.grammar ? f.grammar : "";
     std::vector<float> bias;
-    if (!grammar.empty()) {
-        p["grammar"] = grammar;
-    } else if (f.n_allowed > 0) {
+    if (!grammar.empty()) p["grammar"] = grammar;
+    if (f.n_allowed > 0) {
         const int32_t n_vocab = llama_vocab_n_tokens(vocab);
         bias.assign((size_t) n_vocab, -INFINITY);
         for (int32_t i = 0; i < f.n_allowed; ++i) {
