@@ -1799,21 +1799,33 @@ struct llama_model_nemotron_h_moe : public llama_model_nemotron_h {
 };
 
 
-// Barbet — Open-Formosa R2 text-semantic LM (BlueMagpie-TTS backbone).
-// Mamba2 + attention hybrid: motif `global, sliding, sliding, mamba2` over 28
-// layers, per-head q/k RMSNorm on attention layers, SwiGLU FFN throughout.
-// Sliding-window attention is approximated by full causal attention — Barbet's
-// SWA size (8192) covers the entire TTS use, so the numeric result matches.
-struct llama_model_barbet : public llama_model_base {
-    llama_model_barbet(const struct llama_model_params & params) : llama_model_base(params) {}
+struct llama_model_metis16 : public llama_model_base {
+    llama_model_metis16(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;
     void load_arch_tensors(llama_model_loader & ml) override;
 
+    uint32_t n_pass       = 1;
+    uint32_t n_stream     = 1;
+    uint32_t n_mem        = 0;
+    uint32_t n_route      = 0;
+    uint32_t n_layer_phys = 0;
+    float    cont_limit   = 0.0f;
+
     struct graph : public llm_build_mamba_base {
-        graph(const llama_model & model, const llm_graph_params & params);
-        ggml_tensor * build_attention_layer(ggml_tensor * cur, ggml_tensor * inp_pos,
-            llm_graph_input_attn_kv * inp_attn, const llama_model & model,
-            int64_t n_embd_head, int il);
+        graph(const llama_model_metis16 & model, const llm_graph_params & params);
+
+        // memory bank of the current forward: keys [n_mem, n_entry, n_tokens], values [n_entry, n_mem, n_tokens]
+        ggml_tensor * bank_k  = nullptr;
+        ggml_tensor * bank_vt = nullptr;
+
+        ggml_tensor * stream_mean(ggml_tensor * x) const;
+        ggml_tensor * hc_read(ggml_tensor * x, ggml_tensor * mix, ggml_tensor * read, ggml_tensor * norm, int p, ggml_tensor ** mixed, int il) const;
+        ggml_tensor * hc_write(ggml_tensor * mixed, ggml_tensor * write, ggml_tensor * update, int p) const;
+        ggml_tensor * mem_read(const llama_model_metis16 & model, ggml_tensor ** x) const;
+        void          mem_write(const llama_model_metis16 & model, ggml_tensor * x, ggml_tensor * summary,
+                                ggml_tensor * entropy, ggml_tensor * confidence, ggml_tensor * cont, int entry);
+        ggml_tensor * route_features(const llama_model_metis16 & model, ggml_tensor * state, ggml_tensor * summary,
+                                     ggml_tensor * diff, ggml_tensor * history) const;
     };
 
     std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
