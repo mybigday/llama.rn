@@ -153,7 +153,6 @@ const jsiBindingKeys = [
   'llamaGetTTSCapabilities',
   'llamaDecodeAudioTokens',
   'llamaCreateSpeaker',
-  'llamaBakeSpeaker',
   'llamaReleaseSpeaker',
   'llamaLoadSpeaker',
   'llamaSaveSpeaker',
@@ -396,25 +395,12 @@ export class LlamaSpeaker {
 
   readonly family: string
 
-  rows: number
-
-  baked: boolean
-
   private ctxId: number
 
-  constructor(ctxId: number, h: { id: number; family: string; rows: number; baked: boolean }) {
+  constructor(ctxId: number, h: { id: number; family: string }) {
     this.ctxId = ctxId
     this.id = h.id
     this.family = h.family
-    this.rows = h.rows
-    this.baked = h.baked
-  }
-
-  async bake(): Promise<void> {
-    const { llamaBakeSpeaker } = getJsi()
-    const r = await llamaBakeSpeaker(this.ctxId, this.id)
-    this.rows = r.rows
-    this.baked = r.baked
   }
 
   async release(): Promise<void> {
@@ -1167,6 +1153,7 @@ export class LlamaContext {
 
   /**
    * Attach a codec / vocoder GGUF to this context, enabling the TTS API.
+   * Resolves false when one is already attached: `releaseVocoder()` first.
    *
    * **Experimental:** the TTS API may change without a major version bump, and
    * output quality varies by model family and backend. See the "Tested models"
@@ -1327,22 +1314,19 @@ export class LlamaContext {
   /**
    * Clone a voice from a reference clip (mono, any sample rate) and its
    * transcript `refText`, for models with `canSpeakerFromAudio`. All of the
-   * voice's conditioning is computed here, once; `emotion` and `bake` are
-   * not used.
+   * voice's conditioning is computed here, once; `emotion` is not used.
    */
   async createSpeaker(config: {
     refAudio: Float32Array | number[]
     refAudioSampleRate: number
     refText?: string
     emotion?: number
-    bake?: boolean
   }): Promise<LlamaSpeaker> {
     const { llamaCreateSpeaker } = getJsi()
     // Float32Array is read straight from its ArrayBuffer on the native side.
     const h = await llamaCreateSpeaker(this.id, config.refAudio, {
       inputSampleRate: config.refAudioSampleRate,
       refText: config.refText ?? '',
-      bake: config.bake ?? false,
       ...(config.emotion !== undefined ? { emotion: config.emotion } : {}),
     })
     return new LlamaSpeaker(this.id, h)

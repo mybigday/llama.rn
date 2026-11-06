@@ -99,9 +99,6 @@ using rn_voice = std::shared_ptr<const ::codec_speaker>;
 // speaker file.
 struct rn_speaker {
     rn_voice voice;
-    // Kept for the JS shape of LlamaSpeaker; the voice is ready when created.
-    int rows = 0;
-    bool baked = true;
 };
 
 struct llama_rn_speaker_info {
@@ -195,8 +192,7 @@ struct llama_rn_context_tts {
 
     // ── Speaker registry ─────────────────────────────────────────────────
     int createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
-                      const std::string &ref_text, float emotion, bool has_emotion, bool bake);
-    bool bakeSpeaker(llama_rn_context* main_ctx, int id);
+                      const std::string &ref_text, float emotion, bool has_emotion);
     const rn_speaker* getSpeaker(int id) const;
     void releaseSpeaker(int id);
     // A speaker GGUF of this model.  Throws on failure.

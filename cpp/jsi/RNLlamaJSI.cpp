@@ -2148,9 +2148,8 @@ namespace rnllama_jsi {
 
         // llamaCreateSpeaker(ctxId, pcm, opts)
         //   pcm:  Float32Array | number[] (reference audio samples)
-        //   opts: { inputSampleRate: number, refText?: string,
-        //           bake?: boolean, emotion?: number }
-        // Resolves: { id: number, family: string, rows: number, baked: boolean }
+        //   opts: { inputSampleRate: number, refText?: string, emotion?: number }
+        // Resolves: { id: number, family: string }
         auto createSpeaker = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaCreateSpeaker"),
             3,
@@ -2172,15 +2171,9 @@ namespace rnllama_jsi {
                     const bool has_emotion = opts.hasEmotion();
                     const int speakerId = ctx->tts_wrapper->createSpeaker(
                         ctx, pcm, opts.inputSampleRate, opts.refText,
-                        has_emotion ? opts.emotion : 0.5f, has_emotion, opts.bake);
+                        has_emotion ? opts.emotion : 0.5f, has_emotion);
 
-                    const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
-                    json res = json::object({
-                        {"id", speakerId},
-                        {"family", family},
-                        {"rows", spk ? spk->rows : 0},
-                        {"baked", spk ? spk->baked : false},
-                    });
+                    json res = json::object({{"id", speakerId}, {"family", family}});
 
                     return [res](jsi::Runtime& rt) {
                         return fromJson(rt, res);
@@ -2189,33 +2182,6 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaCreateSpeaker", createSpeaker);
-
-        // llamaBakeSpeaker(ctxId, speakerId)
-        // Resolves: { rows: number, baked: boolean }
-        auto bakeSpeaker = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaBakeSpeaker"),
-            2,
-            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
-                int contextId = (int)arguments[0].asNumber();
-                int speakerId = (int)arguments[1].asNumber();
-
-                return createPromiseTask(runtime, callInvoker, [contextId, speakerId]() -> PromiseResultGenerator {
-                    auto ctx = getContextOrThrow(contextId);
-                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
-
-                    ctx->tts_wrapper->bakeSpeaker(ctx, speakerId);
-
-                    const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
-                    if (!spk) throw std::runtime_error("bakeSpeaker: speaker id not found");
-
-                    json res = json::object({{"rows", spk->rows}, {"baked", spk->baked}});
-                    return [res](jsi::Runtime& rt) {
-                        return fromJson(rt, res);
-                    };
-                }, contextId);
-            }
-        );
-        runtime.global().setProperty(runtime, "llamaBakeSpeaker", bakeSpeaker);
 
         // llamaReleaseSpeaker(ctxId, speakerId)
         // Resolves: void
@@ -2239,7 +2205,7 @@ namespace rnllama_jsi {
         runtime.global().setProperty(runtime, "llamaReleaseSpeaker", releaseSpeaker);
 
         // llamaLoadSpeaker(ctxId, path, name?)
-        // Resolves: { id, family, rows, baked } like llamaCreateSpeaker.
+        // Resolves: { id, family } like llamaCreateSpeaker.
         auto loadSpeaker = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaLoadSpeaker"),
             3,
@@ -2256,8 +2222,6 @@ namespace rnllama_jsi {
                     json res = json::object({
                         {"id", speakerId},
                         {"family", ctx->tts_wrapper->getTTSCapabilities(ctx).family},
-                        {"rows", 0},
-                        {"baked", false},
                     });
                     return [res](jsi::Runtime& rt) {
                         return fromJson(rt, res);

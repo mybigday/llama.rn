@@ -71,13 +71,12 @@ namespace rnllama_jsi {
     struct SpeakerOptions {
         int inputSampleRate = 0;
         std::string refText;
-        bool bake = false;
         // NaN = not provided, so the model's own default applies.
         float emotion = std::numeric_limits<float>::quiet_NaN();
 
         bool hasEmotion() const { return !std::isnan(emotion); }
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SpeakerOptions, inputSampleRate, refText, bake, emotion)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(SpeakerOptions, inputSampleRate, refText, emotion)
 
     // Convert a JS options object (already run through toJson) into one of the
     // structs above. Must run on the JS thread because it throws JSError.

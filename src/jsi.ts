@@ -155,20 +155,15 @@ declare global {
     opts: {
       inputSampleRate: number
       refText: string
-      bake: boolean
       emotion?: number
     },
-  ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
-  var llamaBakeSpeaker: (
-    contextId: number,
-    speakerId: number,
-  ) => Promise<{ rows: number; baked: boolean }>
+  ) => Promise<{ id: number; family: string }>
   var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
   var llamaLoadSpeaker: (
     contextId: number,
     path: string,
     name?: string,
-  ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
+  ) => Promise<{ id: number; family: string }>
   var llamaSaveSpeaker: (
     contextId: number,
     speakerId: number,

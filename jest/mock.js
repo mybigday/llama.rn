@@ -371,11 +371,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaCreateSpeaker',
-      jest.fn(async () => ({ id: 1, family: 'chatterbox', rows: 0, baked: false })),
-    )
-    setGlobal(
-      'llamaBakeSpeaker',
-      jest.fn(async () => ({ rows: 34, baked: true })),
+      jest.fn(async () => ({ id: 1, family: 'chatterbox' })),
     )
     setGlobal(
       'llamaReleaseSpeaker',
@@ -383,7 +379,7 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaLoadSpeaker',
-      jest.fn(async () => ({ id: 2, family: 'chatterbox', rows: 0, baked: false })),
+      jest.fn(async () => ({ id: 2, family: 'chatterbox' })),
     )
     setGlobal(
       'llamaSaveSpeaker',

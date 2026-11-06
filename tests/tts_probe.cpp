@@ -266,7 +266,7 @@ int main(int argc, char ** argv) {
             std::vector<float> pcm;
             int sr = 0;
             if (!load_wav_mono(clone_audio_path, &pcm, &sr)) return 3;
-            speaker_id = ctx.tts_wrapper->createSpeaker(&ctx, pcm, sr, ref_text, 0.5f, false, /*bake=*/false);
+            speaker_id = ctx.tts_wrapper->createSpeaker(&ctx, pcm, sr, ref_text, 0.5f, false);
         }
         if (speaker_id >= 0) std::printf("[probe] registry speaker id=%d\n", speaker_id);
     } catch (const std::exception & e) {

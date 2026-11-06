@@ -540,11 +540,10 @@ llama_rn_context_tts::~llama_rn_context_tts() {
 // ── Speakers ──────────────────────────────────────────────────────────
 
 int llama_rn_context_tts::createSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int sample_rate,
-                                        const std::string &ref_text, float emotion, bool has_emotion, bool bake) {
+                                        const std::string &ref_text, float emotion, bool has_emotion) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     (void) emotion;
     (void) has_emotion;
-    (void) bake;
     if (pcm.empty() || sample_rate <= 0) throw std::runtime_error("createSpeaker: empty reference audio");
     codec_speaker * voice = nullptr;
     {
@@ -558,11 +557,6 @@ int llama_rn_context_tts::createSpeaker(llama_rn_context* main_ctx, const std::v
     const int id = next_speaker_id++;
     speakers[id] = std::move(spk);
     return id;
-}
-
-bool llama_rn_context_tts::bakeSpeaker(llama_rn_context* main_ctx, int id) {
-    (void) main_ctx;
-    return getSpeaker(id) != nullptr;
 }
 
 const rn_speaker* llama_rn_context_tts::getSpeaker(int id) const {
