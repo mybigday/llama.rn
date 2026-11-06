@@ -1195,6 +1195,13 @@ completion_token_output llama_rn_context_completion::nextToken()
                     }
                 }
                 n_past += m;
+                // stop() between chunks, as the decode loop below checks it
+                // between batches; the next TTS request clears the KV cache.
+                if (is_interrupted) {
+                    LOG_INFO("TTS prompt interrupted");
+                    has_next_token = false;
+                    return result;
+                }
             }
         }
         if (prompt.needs_prompt_hidden) tts->prefill(parent_ctx, hiddens.data(), (int) n_past);

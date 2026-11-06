@@ -940,19 +940,17 @@ bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int ba
                                    const std::vector<std::string> &kv_overrides) {
     (void) batch_size;   // codec.cpp sizes its own decode
     try {
-        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, params.model.path, use_gpu, kv_overrides,
-                                               params.cpuparams.n_threads);
-        const std::string why = tts_wrapper->checkBackbone(this);
-        if (!why.empty()) {
-            delete tts_wrapper;
-            tts_wrapper = nullptr;
-            throw std::runtime_error(why);
-        }
+        // One vocoder per context: releaseVocoder() before loading another.
+        if (tts_wrapper != nullptr) throw std::runtime_error("a vocoder is already loaded; call releaseVocoder() first");
+        std::unique_ptr<llama_rn_context_tts> next(new llama_rn_context_tts(
+            vocoder_model_path, params.model.path, use_gpu, kv_overrides, params.cpuparams.n_threads));
+        const std::string why = next->checkBackbone(this);
+        if (!why.empty()) throw std::runtime_error(why);
+        tts_wrapper = next.release();
         has_vocoder = true;
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("initVocoder: %s", e.what());
-        has_vocoder = false;
         return false;
     }
 }
