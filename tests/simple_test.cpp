@@ -246,7 +246,8 @@ bool test_completion() {
 // Shared helper: run one classic (non-parallel) completion of up to `max_tokens`
 // tokens through the same rewind -> loadPrompt -> beginCompletion -> doCompletion
 // -> endCompletion sequence the JSI completion() binding uses.
-static int run_classic_completion(llama_rn_context& ctx, const std::string& prompt, int max_tokens) {
+static int run_classic_completion(llama_rn_context& ctx, const std::string& prompt, int max_tokens,
+                                  std::vector<llama_token>* tokens = nullptr) {
     std::vector<std::string> empty_media;
     ctx.completion->rewind();
     if (!ctx.completion->initSampling()) {
@@ -260,6 +261,7 @@ static int run_classic_completion(llama_rn_context& ctx, const std::string& prom
     while (ctx.completion->has_next_token && generated < max_tokens) {
         completion_token_output out = ctx.completion->doCompletion();
         if (out.tok == -1) break;
+        if (tokens) tokens->push_back(out.tok);
         generated++;
     }
     ctx.completion->is_interrupted = true;
@@ -605,6 +607,42 @@ bool test_draft_simple_rejects_hybrid() {
     }
 }
 
+// bench() right after a completion: the warm-up decodes from position 0, so the
+// chat cache has to go first, together with the completion's record of it.
+bool test_bench_after_completion() {
+    try {
+        const std::string turn1 = "The quick brown fox jumps over the lazy dog. ";
+        const std::string turn2 = turn1 + "Then it ran into the forest and";
+
+        llama_rn_context ref;
+        if (!setup_completion_context(ref)) return false;
+        ref.params.sampling.temp = 0.0f;
+        std::vector<llama_token> expected;
+        run_classic_completion(ref, turn2, 8, &expected);
+
+        llama_rn_context ctx;
+        if (!setup_completion_context(ctx)) return false;
+        ctx.params.sampling.temp = 0.0f;
+        // Also leaves is_interrupted set, as a stopped completion does.
+        run_classic_completion(ctx, turn1, 8);
+
+        const json result = ctx.completion->bench(32, 8, 1, 1);
+        if (result.empty() || result["speed_pp"].get<double>() <= 0.0 ||
+            result["speed_tg"].get<double>() <= 0.0) {
+            std::cout << "bench: " << result.dump() << std::endl;
+            return false;
+        }
+
+        // The next turn must not reuse the prefix the bench discarded.
+        std::vector<llama_token> got;
+        run_classic_completion(ctx, turn2, 8, &got);
+        return !expected.empty() && got == expected;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    }
+}
+
 int main() {
     std::cout << "Starting rnllama API tests..." << std::endl;
     std::cout << "Using test model: ../tiny-random-llama.gguf" << std::endl;
@@ -624,6 +662,7 @@ int main() {
     results.run_test("Utility Functions", test_utilities());
     results.run_test("draft-simple Completion", test_draft_simple_completion());
     results.run_test("draft-simple Rejects Hybrid", test_draft_simple_rejects_hybrid());
+    results.run_test("Bench After Completion", test_bench_after_completion());
 
     // Print summary
     results.print_summary();
