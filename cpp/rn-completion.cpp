@@ -1967,6 +1967,8 @@ json llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     }
 
     is_predicting = true;
+    // A stop sent to the previous completion must not cancel this run.
+    is_interrupted = false;
 
     auto * ctx = parent_ctx->ctx;
     auto * model = parent_ctx->model;
@@ -2032,6 +2034,10 @@ json llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
 
         return true;
     };
+
+    // The warm-up decodes from position 0, so drop the chat cache (and the
+    // completion's record of it) before it.
+    parent_ctx->clearCache(false);
 
     // warm up like the CLI benchmark
     llama_batch_clear(&batch);
