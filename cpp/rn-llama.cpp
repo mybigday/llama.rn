@@ -720,6 +720,11 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
     if (is_mtp) {
         cparams.n_rs_seq = 0;
         cparams.ctx_other = ctx;
+        // The MTP context replays target batches without logits and drafts a few
+        // tokens per step, so a target-sized ubatch only grows its compute buffer
+        // (~2x the target's, from the logits reserve). n_batch is left unchanged.
+        const uint32_t n_ubatch_dft = std::max<uint32_t>(16, params_for_context.speculative.draft.n_max + 1);
+        cparams.n_ubatch = std::min(cparams.n_ubatch, n_ubatch_dft);
     }
     cparams.type_k = params_for_context.speculative.draft.cache_type_k;
     cparams.type_v = params_for_context.speculative.draft.cache_type_v;
