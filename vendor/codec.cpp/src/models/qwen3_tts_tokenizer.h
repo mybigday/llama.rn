@@ -3,6 +3,7 @@
 
 #include "../codec_internal.h"
 #include "mimi.h"
+#include "../blocks/ecapa_tdnn.h"
 
 static constexpr int32_t CODEC_Q3T_MAX_UPSAMPLE = 8;
 
@@ -35,6 +36,11 @@ struct codec_qwen3_tts_tokenizer {
 struct codec_qwen3_tts_tokenizer_impl {
     struct codec_qwen3_tts_tokenizer q3;
     struct codec_mimi mimi;
+    // Base models bundle the talker's ECAPA-TDNN speaker encoder
+    // (`speaker.qwen3_tts.*`): voices are cloned from reference audio.
+    bool has_spk_enc = false;
+    codec_ecapa_params ecapa;
+    int32_t spk_sample_rate = 24000;
 };
 
 enum codec_status codec_qwen3_tts_tokenizer_init(struct codec_model * model);

@@ -556,13 +556,11 @@ static bool xy_build_decode(ggml_context * ctx, void * user_data, ggml_tensor **
                               /*n_valid=*/0);
     if (x == nullptr) return false;
 // UpConv: ConvTranspose1d 3072→768, k=4, s=4, no bias.  PyTorch weight
-    // shape (in=3072, out=768, k=4) lands in ggml as ne=(k, out, in).
-    // ggml_conv_transpose_1d expects input ne=(t, in_c, batch) — exactly what
-    // x already has (ne=(t, 3072)) — so no transpose.  Output ne=(t*s0, out=768, 1).
+    // shape (in=3072, out=768, k=4) lands in ggml as ne=(k, out, in); input
+    // ne=(t, 3072) is already what codec_convtr1d takes.  Output ne=(t*s0, 768).
     {
-        ggml_tensor * up = ggml_conv_transpose_1d(
-            ctx, W("xy.upsample.up_conv.w"), x,
-            /*s0=*/cfg.upsample_stride, /*p0=*/0, /*d0=*/1);
+        ggml_tensor * up = codec_convtr1d(ctx, x, W("xy.upsample.up_conv.w"), nullptr,
+                                          /*stride=*/cfg.upsample_stride, /*padding=*/0, /*dilation=*/1);
         if (up == nullptr) return false;
         x = up;   // (t*4, 768) tc
 }
@@ -577,30 +575,13 @@ static bool xy_build_decode(ggml_context * ctx, void * user_data, ggml_tensor **
     if (x == nullptr) return false;
 {
         // deconv1: 768→768, k=3, stride=2, padding=0, output_padding=0.
-        // x already has ggml ne=(t, 768) which is what conv_transpose_1d
-        // expects ((t, in_c, batch=1)).
-        ggml_tensor * d1 = ggml_conv_transpose_1d(
-            ctx, W("xy.acoust_dec.deconv1.w"), x,
-            /*s0=*/2, /*p0=*/0, /*d0=*/1);
+        ggml_tensor * d1 = codec_convtr1d(ctx, x, W("xy.acoust_dec.deconv1.w"), W("xy.acoust_dec.deconv1.b"),
+                                          /*stride=*/2, /*padding=*/0, /*dilation=*/1);
         if (d1 == nullptr) return false;
-        // ggml_conv_transpose_1d doesn't add bias automatically.
-        ggml_tensor * d1_b = W("xy.acoust_dec.deconv1.b");
-        if (d1_b != nullptr) {
-            ggml_tensor * d1_b_2d = ggml_reshape_2d(ctx, d1_b, 1, d1_b->ne[0]);
-            ggml_tensor * d1_b_rep = ggml_repeat(ctx, d1_b_2d, d1);
-            d1 = ggml_add(ctx, d1, d1_b_rep);
-        }
         d1 = ggml_gelu_erf(ctx, d1);
-        ggml_tensor * d2 = ggml_conv_transpose_1d(
-            ctx, W("xy.acoust_dec.deconv2.w"), d1,
-            /*s0=*/1, /*p0=*/0, /*d0=*/1);
+        ggml_tensor * d2 = codec_convtr1d(ctx, d1, W("xy.acoust_dec.deconv2.w"), W("xy.acoust_dec.deconv2.b"),
+                                          /*stride=*/1, /*padding=*/0, /*dilation=*/1);
         if (d2 == nullptr) return false;
-        ggml_tensor * d2_b = W("xy.acoust_dec.deconv2.b");
-        if (d2_b != nullptr) {
-            ggml_tensor * d2_b_2d = ggml_reshape_2d(ctx, d2_b, 1, d2_b->ne[0]);
-            ggml_tensor * d2_b_rep = ggml_repeat(ctx, d2_b_2d, d2);
-            d2 = ggml_add(ctx, d2, d2_b_rep);
-        }
         d2 = ggml_gelu_erf(ctx, d2);
         // d2 has ggml ne=(t_audio, 80) — already TC.
         x = d2;
@@ -732,7 +713,7 @@ static enum codec_status codec_xy_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, &err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, &err)) {
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -826,7 +807,7 @@ static enum codec_status codec_xy_decode_chunk(
                                      qt.size() * sizeof(int32_t), err)) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, err)) {
+    if (!codec_graph_compute(ctx, entry, ctx->n_threads, err)) {
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 

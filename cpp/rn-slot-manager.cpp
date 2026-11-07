@@ -210,6 +210,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.task_type = SLOT_TASK_TYPE_COMPLETION;
     request.params = params;
     request.post_sampling_probs = parent_ctx->post_sampling_probs;
+    request.n_min_predict = parent_ctx->n_min_predict;
     request.prompt_tokens = prompt;
     request.media_paths = media_paths;
     request.prompt_text = prompt_text;
@@ -732,6 +733,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->params_storage = request.params;
                 slot->params = &slot->params_storage;
                 slot->post_sampling_probs = request.post_sampling_probs;
+                slot->n_min_predict = request.n_min_predict;
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, slot->params->sampling);
 
                 // Assign state parameters
@@ -1084,6 +1086,7 @@ void llama_rn_slot_manager::build_batch() {
                         // process_batch() would overwrite them with other
                         // slots' tokens before sample_and_callback runs
                         if (slot.ctx_sampling != nullptr) {
+                            if (slot.n_min_predict > 0) parent_ctx->holdBackEndOfGeneration(-1);
                             slot.media_pending_token =
                                 common_sampler_sample(slot.ctx_sampling, parent_ctx->ctx, -1);
                         }
@@ -1378,6 +1381,7 @@ void llama_rn_slot_manager::sample_and_callback() {
                     new_token_id = slot.media_pending_token;
                     slot.media_pending_token = LLAMA_TOKEN_NULL;
                 } else {
+                    if (slot.n_decoded < slot.n_min_predict) parent_ctx->holdBackEndOfGeneration(slot.i_batch);
                     new_token_id = common_sampler_sample(slot.ctx_sampling, parent_ctx->ctx, slot.i_batch);
                 }
                 common_sampler_accept(slot.ctx_sampling, new_token_id, true);

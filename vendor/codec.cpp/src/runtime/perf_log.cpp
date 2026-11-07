@@ -1,5 +1,7 @@
 #include "perf_log.h"
 
+#ifdef CODEC_DEBUG_TOOLS
+
 #include <ggml.h>
 
 #include <cstdio>
@@ -105,3 +107,5 @@ void codec_perf_event(const char * phase, const std::string & detail) {
     if (resolve_path() == nullptr) return;
     emit_event(phase, /*wall_us=*/-1, detail);
 }
+
+#endif // CODEC_DEBUG_TOOLS

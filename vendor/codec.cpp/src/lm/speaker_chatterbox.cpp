@@ -4,8 +4,8 @@
 #include "../runtime/graph_exec.h"
 #include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
-#include "../runtime/audio_dsp.h"
 #include "../ops/ggml_ops.h"
+#include "../blocks/chatterbox_voice_encoder.h"
 
 #include <ggml.h>
 
@@ -17,79 +17,36 @@
 #include <vector>
 
 // =====================================================================
-// Chatterbox speaker encoder runtime.
-//
-// Hybrid CPU + ggml-graph pipeline:
+// Chatterbox speaker encoder runtime: one cached graph per call.
 //
 //   ref_pcm (16 kHz mono)
-//     │  CPU: codec_runtime_chatterbox_ve_mel_partials
+//     │  VoiceEncoder block (src/blocks/chatterbox_voice_encoder): power mel
+//     │  → 160-frame partials → 3-layer LSTM → proj → L2 → mean → L2
 //     ▼
-//   mel_partials  (n_partials, 160, 40)
-//     │  CPU: 3-layer LSTM unroll (batched over partials)
-//     │  CPU: per-partial projection + ReLU + L2 norm
-//     │  CPU: mean over partials + L2 norm
-//     ▼
-//   spk_emb_raw  (256,)
-//     │  GRAPH: cond_enc + perceiver + concat
+//   spk_emb_raw  (256,)            ← or the caller's embedding (from_emb)
+//     │  cond_enc + perceiver + concat
 //     │      spkr_enc(spk_emb_raw)                       → cond_spkr      (1,    H=1024)
 //     │      perceiver(speech_emb(ref_tokens) + pos)     → cond_speech    (32,   H=1024)
 //     │      emotion_adv_fc(emotion_scalar)              → cond_emotion   (1,    H=1024)
 //     │      concat([cond_spkr, cond_speech, cond_emot]) → cond_emb       (34,   H=1024)
 //     ▼
 //   cond_emb  (34, 1024)  →  user-provided out buffer
-//
-// The CPU front-end is intentionally not in a ggml graph: the LSTM
-// would need 480+ unrolled timesteps × 3 layers (160 timesteps per
-// partial), the mel front-end is a one-shot CPU-bound DFT, and this
-// whole pipeline runs ONCE per `prepare_conditionals` (i.e. once per
-// ref-audio clip).  The cond_enc + perceiver side is small but warrants
-// the graph cache because callers may re-encode with different
-// `emotion` values (Chatterbox upstream re-runs cond_enc every
-// `generate(exaggeration=…)` call) and we want the heavy projections
-// cached.
 // =====================================================================
 
 namespace {
 
 struct cbx_impl {
-    // VE shape constants (from GGUF metadata).
-    int32_t n_mels        = 40;
-    int32_t hidden_size   = 256;
-    int32_t num_layers    = 3;
-    int32_t embed_size    = 256;
-    int32_t n_fft         = 400;
-    int32_t hop_size      = 160;
-    int32_t win_size      = 400;
-    int32_t partial_frames = 160;
-    int32_t sample_rate   = 16000;
-    float   overlap       = 0.5f;
-    float   rate          = 1.3f;
-    float   min_coverage  = 0.8f;
-    bool    final_relu    = true;
+    codec_voice_encoder_params ve;
 
     int32_t hidden_dim    = 1024;   // backbone hidden (= cond_emb row width)
     int32_t n_rows        = 34;
     int32_t speaker_embed_dim = 256;
 
-    // Mel basis + window (F32 host buffers, dequantised at init).
-    std::vector<float> mel_basis;   // (n_freq * n_mels)
-    std::vector<float> window;      // (n_fft)
-    int32_t n_freq = 0;
-
-    // VE LSTM weights laid out row-major (4H × in_dim), gate order
-    // [i, f, g, o] per PyTorch nn.LSTM convention.  Float32 throughout
-    // (5.5 MB total — trivial).
-    struct lstm_layer {
-        std::vector<float> W_ih;     // 4H × in_dim
-        std::vector<float> W_hh;     // 4H × H
-        std::vector<float> b_ih;     // 4H
-        std::vector<float> b_hh;     // 4H
-        int32_t            in_dim = 0;
-    };
-    std::vector<lstm_layer> lstm;
-
-    std::vector<float> proj_W;       // E × H
-    std::vector<float> proj_b;       // E
+    // cond_enc layout.  Turbo drops the perceiver (raw speech_emb rows of the
+    // cond prompt), the emotion row and the learned speech PE.
+    bool use_perceiver   = true;
+    bool has_emotion     = true;
+    bool learned_pos_emb = true;
 
     // cond_enc graph tensors (handles into model->weights).
     ggml_tensor * spkr_enc_W       = nullptr; // (E_speaker=256, H=1024) F16/F32
@@ -121,29 +78,6 @@ ggml_tensor * find_required(codec_lm * lm, const char * name) {
     return t;
 }
 
-bool load_lstm_layer_weights(
-        codec_lm * lm, int32_t l, cbx_impl::lstm_layer & w) {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.W_ih", l);
-    ggml_tensor * w_ih = find_required(lm, buf); if (!w_ih) return false;
-    std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.W_hh", l);
-    ggml_tensor * w_hh = find_required(lm, buf); if (!w_hh) return false;
-    std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.b_ih", l);
-    ggml_tensor * b_ih = find_required(lm, buf); if (!b_ih) return false;
-    std::snprintf(buf, sizeof(buf), "speaker.voice_encoder.lstm_%d.b_hh", l);
-    ggml_tensor * b_hh = find_required(lm, buf); if (!b_hh) return false;
-
-    if (!codec_tensor_as_vec_f32(w_ih, &w.W_ih) ||
-        !codec_tensor_as_vec_f32(w_hh, &w.W_hh) ||
-        !codec_tensor_as_vec_f32(b_ih, &w.b_ih) ||
-        !codec_tensor_as_vec_f32(b_hh, &w.b_hh)) {
-        lm->last_error = std::string("speaker(chatterbox): dequant failed for lstm_") + std::to_string(l);
-        return false;
-    }
-    w.in_dim = (int32_t) w_ih->ne[0];
-    return true;
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------
@@ -164,62 +98,58 @@ bool chatterbox_speaker_init(codec_lm * lm) {
         return false;
     }
 
-    impl->n_mels         = codec_read_i32_kv(gf, "codec.speaker.ve.num_mels", 40);
-    impl->hidden_size    = codec_read_i32_kv(gf, "codec.speaker.ve.hidden_size", 256);
-    impl->num_layers     = codec_read_i32_kv(gf, "codec.speaker.ve.num_layers", 3);
-    impl->embed_size     = codec_read_i32_kv(gf, "codec.speaker.ve.speaker_embed_dim", 256);
-    impl->n_fft          = codec_read_i32_kv(gf, "codec.speaker.ve.n_fft", 400);
-    impl->hop_size       = codec_read_i32_kv(gf, "codec.speaker.ve.hop_size", 160);
-    impl->win_size       = codec_read_i32_kv(gf, "codec.speaker.ve.win_size", 400);
-    impl->partial_frames = codec_read_i32_kv(gf, "codec.speaker.ve.partial_frames", 160);
-    impl->sample_rate    = lm->speaker_info.ref_sample_rate;
-    impl->overlap        = codec_read_f32_kv(gf, "codec.speaker.ve.overlap", 0.5f);
-    impl->rate           = codec_read_f32_kv(gf, "codec.speaker.ve.rate", 1.3f);
-    impl->min_coverage   = codec_read_f32_kv(gf, "codec.speaker.ve.min_coverage", 0.8f);
-    impl->final_relu     = codec_read_bool_kv(gf, "codec.speaker.ve.final_relu", true);
-    impl->n_freq         = impl->n_fft / 2 + 1;
+    codec_voice_encoder_params & ve = impl->ve;
+    ve.n_mels         = codec_read_i32_kv(gf, "codec.speaker.ve.num_mels", ve.n_mels);
+    ve.hidden         = codec_read_i32_kv(gf, "codec.speaker.ve.hidden_size", ve.hidden);
+    ve.n_layers       = codec_read_i32_kv(gf, "codec.speaker.ve.num_layers", ve.n_layers);
+    ve.embed          = codec_read_i32_kv(gf, "codec.speaker.ve.speaker_embed_dim", ve.embed);
+    ve.n_fft          = codec_read_i32_kv(gf, "codec.speaker.ve.n_fft", ve.n_fft);
+    ve.hop            = codec_read_i32_kv(gf, "codec.speaker.ve.hop_size", ve.hop);
+    ve.partial_frames = codec_read_i32_kv(gf, "codec.speaker.ve.partial_frames", ve.partial_frames);
+    ve.sample_rate    = lm->speaker_info.ref_sample_rate;
+    ve.overlap        = codec_read_f32_kv(gf, "codec.speaker.ve.overlap", ve.overlap);
+    ve.rate           = codec_read_f32_kv(gf, "codec.speaker.ve.rate", ve.rate);
+    ve.min_coverage   = codec_read_f32_kv(gf, "codec.speaker.ve.min_coverage", ve.min_coverage);
+    ve.final_relu     = codec_read_bool_kv(gf, "codec.speaker.ve.final_relu", ve.final_relu);
     impl->hidden_dim     = lm->speaker_info.hidden_dim;
     impl->n_rows         = lm->speaker_info.n_rows;
-    impl->speaker_embed_dim = impl->embed_size;
-
-    // VE LSTM layers.
-    impl->lstm.resize((size_t) impl->num_layers);
-    for (int32_t l = 0; l < impl->num_layers; ++l) {
-        if (!load_lstm_layer_weights(lm, l, impl->lstm[(size_t) l])) {
-            delete impl; return false;
+    impl->speaker_embed_dim = ve.embed;
+    for (const char * t : {"speaker.voice_encoder.mel_basis", "speaker.voice_encoder.window",
+                           "speaker.voice_encoder.proj.weight", "speaker.voice_encoder.proj.bias"}) {
+        if (!find_required(lm, t)) { delete impl; return false; }
+    }
+    for (int32_t l = 0; l < ve.n_layers; ++l) {
+        for (const char * part : {"W_ih", "W_hh", "b_ih", "b_hh"}) {
+            const std::string n = "speaker.voice_encoder.lstm_" + std::to_string(l) + "." + part;
+            if (!find_required(lm, n.c_str())) { delete impl; return false; }
         }
-    }
-
-    // VE projection (256 → 256).
-    ggml_tensor * pw = find_required(lm, "speaker.voice_encoder.proj.weight");
-    ggml_tensor * pb = find_required(lm, "speaker.voice_encoder.proj.bias");
-    if (!pw || !pb) { delete impl; return false; }
-    if (!codec_tensor_as_vec_f32(pw, &impl->proj_W) ||
-        !codec_tensor_as_vec_f32(pb, &impl->proj_b)) {
-        lm->last_error = "speaker(chatterbox): proj dequant failed";
-        delete impl; return false;
-    }
-
-    // Baked mel basis + Hann window — host-side buffers used by the
-    // CPU mel front-end.
-    ggml_tensor * mb_t = find_required(lm, "speaker.voice_encoder.mel_basis");
-    ggml_tensor * wn_t = find_required(lm, "speaker.voice_encoder.window");
-    if (!mb_t || !wn_t) { delete impl; return false; }
-    if (!codec_tensor_as_vec_f32(mb_t, &impl->mel_basis) ||
-        !codec_tensor_as_vec_f32(wn_t, &impl->window)) {
-        lm->last_error = "speaker(chatterbox): mel/window dequant failed";
-        delete impl; return false;
     }
 
     // cond_enc / perceiver weights (live under `lm.chatterbox.cond.*` —
     // bundled by the LM adaptor section, so this is only ever called for
     // GGUFs that also have the LM adaptor; the speaker section is
     // gated on `lm_source` at convert time).
+    impl->use_perceiver   = codec_read_bool_kv(gf, "codec.lm.chatterbox.use_perceiver", true);
+    impl->has_emotion     = codec_read_bool_kv(gf, "codec.lm.chatterbox.has_emotion_cond", true);
+    impl->learned_pos_emb = codec_read_bool_kv(gf, "codec.lm.chatterbox.learned_pos_emb", true);
     impl->spkr_enc_W      = find_required(lm, "lm.chatterbox.cond.spkr_enc.weight");
     impl->spkr_enc_b      = find_required(lm, "lm.chatterbox.cond.spkr_enc.bias");
-    impl->emotion_adv_W   = find_required(lm, "lm.chatterbox.cond.emotion_adv_fc.weight");
     impl->speech_emb      = find_required(lm, "lm.audio_embd_0.weight");
-    impl->speech_pos_emb  = find_required(lm, "lm.chatterbox.speech_pos_emb.weight");
+    if (!impl->spkr_enc_W || !impl->spkr_enc_b || !impl->speech_emb) {
+        delete impl; return false;
+    }
+    if (impl->has_emotion) {
+        impl->emotion_adv_W = find_required(lm, "lm.chatterbox.cond.emotion_adv_fc.weight");
+        if (!impl->emotion_adv_W) { delete impl; return false; }
+    }
+    if (impl->learned_pos_emb) {
+        impl->speech_pos_emb = find_required(lm, "lm.chatterbox.speech_pos_emb.weight");
+        if (!impl->speech_pos_emb) { delete impl; return false; }
+    }
+    if (!impl->use_perceiver) {
+        lm->speaker_impl = impl;
+        return true;
+    }
     impl->perceiver_q     = find_required(lm, "lm.chatterbox.cond.perceiver.queries");
     impl->perc_norm_W     = find_required(lm, "lm.chatterbox.cond.perceiver.norm.weight");
     impl->perc_norm_b     = find_required(lm, "lm.chatterbox.cond.perceiver.norm.bias");
@@ -231,8 +161,7 @@ bool chatterbox_speaker_init(codec_lm * lm) {
     impl->perc_to_v_b     = find_required(lm, "lm.chatterbox.cond.perceiver.to_v.bias");
     impl->perc_proj_out_W = find_required(lm, "lm.chatterbox.cond.perceiver.proj_out.weight");
     impl->perc_proj_out_b = find_required(lm, "lm.chatterbox.cond.perceiver.proj_out.bias");
-    if (!impl->spkr_enc_W || !impl->spkr_enc_b || !impl->emotion_adv_W ||
-        !impl->speech_emb || !impl->speech_pos_emb || !impl->perceiver_q ||
+    if (!impl->perceiver_q ||
         !impl->perc_norm_W || !impl->perc_norm_b ||
         !impl->perc_to_q_W || !impl->perc_to_q_b ||
         !impl->perc_to_k_W || !impl->perc_to_k_b ||
@@ -258,112 +187,6 @@ void chatterbox_speaker_free(codec_lm * lm) {
 }
 
 // ---------------------------------------------------------------------
-// CPU: LSTM forward (3 layers, batched over partials)
-// ---------------------------------------------------------------------
-//
-// PyTorch nn.LSTM convention (gate order in the concatenated 4H slice):
-//   gates = [i, f, g, o]   (input, forget, candidate, output)
-//   c_t = f * c_{t-1} + i * g
-//   h_t = o * tanh(c_t)
-//   where i, f, o use sigmoid and g uses tanh.
-
-namespace {
-
-inline float sigmoidf(float x) {
-    // Stable two-piece sigmoid.
-    if (x >= 0.0f) {
-        const float z = std::exp(-x);
-        return 1.0f / (1.0f + z);
-    } else {
-        const float z = std::exp(x);
-        return z / (1.0f + z);
-    }
-}
-
-// y[B, 4H] = X[B, in] @ W^T + b   ; B = n_partials.  X laid out
-// (B, in) row-major; W is (4H, in) row-major (PyTorch convention).
-void linear_4H_T(
-        const float * X, int32_t B, int32_t in_dim,
-        const float * W, const float * b, int32_t H4,
-        float * Y) {
-    for (int32_t bi = 0; bi < B; ++bi) {
-        for (int32_t r = 0; r < H4; ++r) {
-            const float * w_row = W + (size_t) r * (size_t) in_dim;
-            float acc = b[r];
-            const float * x_row = X + (size_t) bi * (size_t) in_dim;
-            for (int32_t k = 0; k < in_dim; ++k) {
-                acc += w_row[k] * x_row[k];
-            }
-            Y[(size_t) bi * (size_t) H4 + (size_t) r] = acc;
-        }
-    }
-}
-
-// Run one LSTM layer over T timesteps for a B-sized batch.  Input
-// `X_in` is (T, B, in_dim) row-major; output `H_out` is (T, B, H).
-void lstm_layer_forward(
-        const cbx_impl::lstm_layer & w,
-        const float * X_in,
-        int32_t T, int32_t B, int32_t H,
-        float * H_out) {
-    const int32_t H4 = 4 * H;
-    const int32_t in_dim = w.in_dim;
-
-    // Per-timestep scratch buffers.
-    std::vector<float> Wx((size_t) B * (size_t) H4, 0.0f);
-    std::vector<float> Wh((size_t) B * (size_t) H4, 0.0f);
-    std::vector<float> h ((size_t) B * (size_t) H,  0.0f);
-    std::vector<float> c ((size_t) B * (size_t) H,  0.0f);
-    std::vector<float> h_prev((size_t) B * (size_t) H, 0.0f);
-
-    for (int32_t t = 0; t < T; ++t) {
-        const float * x_t = X_in + (size_t) t * (size_t) B * (size_t) in_dim;
-        linear_4H_T(x_t,       B, in_dim, w.W_ih.data(), w.b_ih.data(), H4, Wx.data());
-        linear_4H_T(h_prev.data(), B, H,  w.W_hh.data(), w.b_hh.data(), H4, Wh.data());
-
-        for (int32_t bi = 0; bi < B; ++bi) {
-            const float * gx = Wx.data() + (size_t) bi * (size_t) H4;
-            const float * gh = Wh.data() + (size_t) bi * (size_t) H4;
-            float * c_b = c.data() + (size_t) bi * (size_t) H;
-            float * h_b = h.data() + (size_t) bi * (size_t) H;
-            for (int32_t k = 0; k < H; ++k) {
-                const float i_pre = gx[k]       + gh[k];
-                const float f_pre = gx[H + k]   + gh[H + k];
-                const float g_pre = gx[2*H + k] + gh[2*H + k];
-                const float o_pre = gx[3*H + k] + gh[3*H + k];
-
-                const float i_g = sigmoidf(i_pre);
-                const float f_g = sigmoidf(f_pre);
-                const float g_v = std::tanh(g_pre);
-                const float o_g = sigmoidf(o_pre);
-
-                c_b[k] = f_g * c_b[k] + i_g * g_v;
-                h_b[k] = o_g * std::tanh(c_b[k]);
-            }
-        }
-        // Copy h → H_out and h_prev.
-        std::memcpy(
-            H_out + (size_t) t * (size_t) B * (size_t) H,
-            h.data(),
-            (size_t) B * (size_t) H * sizeof(float));
-        std::memcpy(h_prev.data(), h.data(),
-                    (size_t) B * (size_t) H * sizeof(float));
-    }
-}
-
-void l2_normalize_rows(float * X, int32_t B, int32_t D) {
-    for (int32_t bi = 0; bi < B; ++bi) {
-        float * row = X + (size_t) bi * (size_t) D;
-        double sq = 0.0;
-        for (int32_t k = 0; k < D; ++k) sq += (double) row[k] * (double) row[k];
-        const float inv = (float) (1.0 / std::sqrt(sq + 1e-12));
-        for (int32_t k = 0; k < D; ++k) row[k] *= inv;
-    }
-}
-
-}  // namespace
-
-// ---------------------------------------------------------------------
 // cond_enc + perceiver graph
 // ---------------------------------------------------------------------
 
@@ -372,6 +195,8 @@ namespace {
 struct cbx_cond_build_data {
     cbx_impl * impl;
     int32_t    T_speech;
+    int32_t    n_samples;   // > 0: run the VoiceEncoder on "spk.in.pcm"
+    const codec_model * model;
 };
 
 // Multi-head non-causal attention block matching upstream
@@ -421,10 +246,10 @@ ggml_tensor * perceiver_attn_block(
     // mul_mat src[0] convention.
     auto linear_HH = [&](ggml_tensor * W, ggml_tensor * b, ggml_tensor * x_2d) {
         ggml_tensor * W_lhs = codec_graph_mat_lhs(ctx, W);
-        ggml_tensor * y = ggml_mul_mat(ctx, W_lhs, x_2d);   // (H_out, T)
+        ggml_tensor * y = codec_mul_mat(ctx, W_lhs, x_2d);   // (H_out, T)
         ggml_tensor * b_f32 = codec_graph_cast_f32(ctx, b);
         ggml_tensor * b_2d  = ggml_reshape_2d(ctx, b_f32, H, 1);
-        y = ggml_add(ctx, y, ggml_repeat(ctx, b_2d, y));
+        y = ggml_add(ctx, y, b_2d);
         return y;
     };
     ggml_tensor * q = linear_HH(impl->perc_to_q_W, impl->perc_to_q_b, x1_norm);  // (H, T_q)
@@ -443,7 +268,7 @@ ggml_tensor * perceiver_attn_block(
 
     // sim = k_p^T @ q_p : ggml_mul_mat(a=k_p, b=q_p) contracts on ne[0]=head_dim
     //   → (T_k, T_q, n_heads)
-    ggml_tensor * sim = ggml_mul_mat(ctx, k_p, q_p);
+    ggml_tensor * sim = codec_mul_mat(ctx, k_p, q_p);
     sim = ggml_scale(ctx, sim, scale);
     ggml_tensor * attn = ggml_soft_max(ctx, sim);              // softmax over ne[0]=T_k
 
@@ -452,7 +277,7 @@ ggml_tensor * perceiver_attn_block(
     // ggml_mul_mat needs ne[0]s to match — permute v_p to (T_k, head_dim, n_heads)
     // so contraction is on T_k, result (head_dim, T_q, n_heads).
     ggml_tensor * v_pT = ggml_cont(ctx, ggml_permute(ctx, v_p, 1, 0, 2, 3));
-    ggml_tensor * out  = ggml_mul_mat(ctx, v_pT, attn);          // (head_dim, T_q, n_heads)
+    ggml_tensor * out  = codec_mul_mat(ctx, v_pT, attn);          // (head_dim, T_q, n_heads)
 
     // Merge heads: (head_dim, T_q, n_heads) → (head_dim, n_heads, T_q) → (H, T_q).
     ggml_tensor * out_merged = ggml_cont(ctx, ggml_permute(ctx, out, 0, 2, 1, 3));
@@ -471,40 +296,55 @@ bool build_cond_graph(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     const int64_t T_speech = b->T_speech;
 
     // ---- Inputs ---------------------------------------------------
-    ggml_tensor * t_spk     = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, impl->speaker_embed_dim);
-    ggml_set_name(t_spk, "spk.in.spkr_emb");
+    ggml_tensor * t_spk = nullptr;
+    if (b->n_samples > 0) {
+        ggml_tensor * pcm = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, b->n_samples);
+        ggml_set_name(pcm, "spk.in.pcm");
+        t_spk = codec_block_chatterbox_voice_encoder(ctx_eval, b->model, "speaker.voice_encoder", impl->ve, pcm);
+        if (t_spk == nullptr) return false;
+    } else {
+        t_spk = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, impl->speaker_embed_dim);
+        ggml_set_name(t_spk, "spk.in.spkr_emb");
+    }
     ggml_tensor * t_tokens  = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, T_speech);
     ggml_set_name(t_tokens, "spk.in.tokens");
-    ggml_tensor * t_emotion = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, 1);
-    ggml_set_name(t_emotion, "spk.in.emotion");
 
     // ---- cond_spkr = spkr_enc(spk_emb_raw) ----------------------
     //   spkr_enc.weight is (256, 1024) — ggml ne[0]=256, ne[1]=1024.
     //   y = W^T @ x : ggml_mul_mat(W, x_256) gives (1024,) (contracts on ne[0]).
     ggml_tensor * spk_W = codec_graph_mat_lhs(ctx_eval, impl->spkr_enc_W);
-    ggml_tensor * spk_y = ggml_mul_mat(ctx_eval, spk_W, t_spk);   // (1024,)
+    ggml_tensor * spk_y = codec_mul_mat(ctx_eval, spk_W, t_spk);   // (1024,)
     ggml_tensor * spk_b = codec_graph_cast_f32(ctx_eval, impl->spkr_enc_b);
     spk_y = ggml_add(ctx_eval, spk_y, spk_b);
     ggml_tensor * cond_spkr = ggml_reshape_2d(ctx_eval, spk_y, H, 1);   // (H, 1)
 
+    // ---- speech_emb lookup (+ speech_pos_emb) → seq (H, T_speech) ----
+    ggml_tensor * emb_rows = ggml_get_rows(ctx_eval, impl->speech_emb, t_tokens);   // (H, T_speech)
+    ggml_tensor * seq = codec_graph_cast_f32(ctx_eval, emb_rows);
+    if (impl->learned_pos_emb) {
+        // pos_ids = [0, 1, ..., T_speech-1]
+        ggml_tensor * pos_ids = codec_op_arange(ctx_eval, 0.0f, (float) T_speech, 1.0f);
+        pos_ids = ggml_cast(ctx_eval, pos_ids, GGML_TYPE_I32);
+        ggml_tensor * pos_rows = ggml_get_rows(ctx_eval, impl->speech_pos_emb, pos_ids);
+        seq = ggml_add(ctx_eval, seq, codec_graph_cast_f32(ctx_eval, pos_rows));
+    }
+
+    if (!impl->use_perceiver) {
+        // Turbo: [cond_spkr (1) | seq (T_speech)] (no emotion row).
+        ggml_tensor * cond = ggml_concat(ctx_eval, cond_spkr, seq, 1);
+        ggml_set_name(cond, "spk.out.cond_emb");
+        *out = cond;
+        return true;
+    }
+
     // ---- cond_emotion = emotion_adv_fc(emotion) --------------------
     //   emotion_adv_fc.weight is (1, 1024) — ggml ne[0]=1, ne[1]=1024.
     //   y = W @ scalar : ggml_mul_mat(W_2d, scalar_1d).  Result (1024,).
+    ggml_tensor * t_emotion = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, 1);
+    ggml_set_name(t_emotion, "spk.in.emotion");
     ggml_tensor * emo_W = codec_graph_mat_lhs(ctx_eval, impl->emotion_adv_W);
-    ggml_tensor * emo_y = ggml_mul_mat(ctx_eval, emo_W, t_emotion);   // (1024,)
+    ggml_tensor * emo_y = codec_mul_mat(ctx_eval, emo_W, t_emotion);   // (1024,)
     ggml_tensor * cond_emotion = ggml_reshape_2d(ctx_eval, emo_y, H, 1);
-
-    // ---- speech_emb lookup + speech_pos_emb add → seq (H, T_speech) -
-    ggml_tensor * emb_rows = ggml_get_rows(ctx_eval, impl->speech_emb, t_tokens);   // (H, T_speech)
-    emb_rows = codec_graph_cast_f32(ctx_eval, emb_rows);
-
-    // pos_ids = [0, 1, ..., T_speech-1]
-    ggml_tensor * pos_ids = ggml_arange(ctx_eval, 0.0f, (float) T_speech, 1.0f);
-    pos_ids = ggml_cast(ctx_eval, pos_ids, GGML_TYPE_I32);
-    ggml_tensor * pos_rows = ggml_get_rows(ctx_eval, impl->speech_pos_emb, pos_ids);
-    pos_rows = codec_graph_cast_f32(ctx_eval, pos_rows);
-
-    ggml_tensor * seq = ggml_add(ctx_eval, emb_rows, pos_rows);     // (H, T_speech)
 
     // ---- Perceiver: 32 learned queries cross-attend over seq, then self-attend.
     // perceiver_q stored as (1, 32, H) — flatten to (H, 32).
@@ -526,6 +366,86 @@ bool build_cond_graph(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
 
 }  // namespace
 
+// One cond graph call: `pcm` (VoiceEncoder in-graph) or `speaker_emb`.
+static enum codec_status cbx_run_cond_graph(
+        codec_lm * lm, cbx_impl * impl,
+        const float * pcm, int32_t n_samples, const float * speaker_emb,
+        const int32_t * ref_speech_tokens, int32_t n_ref_speech_tokens,
+        float emotion, float * out, int32_t out_n_elems) {
+    if (n_ref_speech_tokens <= 0) {
+        lm->last_error = "chatterbox speaker_encode: ref_speech_tokens required";
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    std::string err;
+    if (impl->cond_ctx == nullptr) {
+        codec_context * cctx = new (std::nothrow) codec_context();
+        if (cctx == nullptr) return CODEC_STATUS_INTERNAL_ERROR;
+        cctx->model   = lm->codec;
+        cctx->backend = lm->codec->backend;
+        cctx->params  = codec_context_default_params();
+        std::string ierr;
+        if (!codec_runtime_init(cctx, &ierr)) {
+            delete cctx;
+            lm->last_error = "chatterbox speaker_encode: " + ierr;
+            return CODEC_STATUS_INTERNAL_ERROR;
+        }
+        impl->cond_ctx = cctx;
+    }
+
+    cbx_cond_build_data build = { impl, n_ref_speech_tokens, pcm != nullptr ? n_samples : 0, lm->codec };
+    codec_graph_eval_guard guard(impl->cond_ctx);
+    codec_graph_cache_entry * entry = nullptr;
+    codec_graph_cache_key key = {};
+    key.kind     = CODEC_GRAPH_LM_SPEAKER_CHATTERBOX;
+    key.n_frames = n_ref_speech_tokens;
+    key.n_in     = build.n_samples;
+    if (!codec_graph_cache_get_or_build(
+            impl->cond_ctx, key, build_cond_graph, &build, sizeof(build),
+            &entry, &err)) {
+        lm->last_error = "chatterbox speaker_encode: " + err;
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    ggml_tensor * t_in      = codec_graph_get_tensor(impl->cond_ctx, entry, pcm != nullptr ? "spk.in.pcm" : "spk.in.spkr_emb");
+    ggml_tensor * t_tokens  = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.tokens");
+    ggml_tensor * t_emotion = impl->use_perceiver
+        ? codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.emotion") : nullptr;
+    ggml_tensor * t_out     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.out.cond_emb");
+    if (!t_in || !t_tokens || (impl->use_perceiver && !t_emotion) || !t_out) {
+        lm->last_error = "chatterbox speaker_encode: cond graph missing tensors";
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (!codec_graph_prepare_io(impl->cond_ctx, entry, &err)) {
+        lm->last_error = "chatterbox speaker_encode: " + err;
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    const size_t in_bytes = pcm != nullptr ? (size_t) n_samples * sizeof(float)
+                                           : (size_t) impl->speaker_embed_dim * sizeof(float);
+    if (!codec_runtime_write_tensor(t_in, pcm != nullptr ? pcm : speaker_emb, in_bytes, &err) ||
+        !codec_runtime_write_tensor(t_tokens, ref_speech_tokens,
+                                    (size_t) n_ref_speech_tokens * sizeof(int32_t), &err) ||
+        (t_emotion && !codec_runtime_write_tensor(t_emotion, &emotion, sizeof(float), &err))) {
+        lm->last_error = "chatterbox speaker_encode: " + err;
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    const int32_t nt = lm->codec->n_threads > 0 ? lm->codec->n_threads : 1;
+    if (!codec_graph_compute(impl->cond_ctx, entry, nt, &err)) {
+        lm->last_error = "chatterbox speaker_encode: " + err;
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    const int32_t rows = impl->use_perceiver ? impl->n_rows : 1 + n_ref_speech_tokens;
+    const int32_t need = rows * impl->hidden_dim;
+    if (out_n_elems < need) {
+        lm->last_error = "chatterbox speaker_encode: out buffer too small";
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (!codec_runtime_read_tensor(t_out, out,
+                                   (size_t) need * sizeof(float), &err)) {
+        lm->last_error = "chatterbox speaker_encode: " + err;
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    return CODEC_STATUS_SUCCESS;
+}
+
 // ---------------------------------------------------------------------
 // Top-level encode
 // ---------------------------------------------------------------------
@@ -541,7 +461,6 @@ enum codec_status chatterbox_speaker_encode(
     }
     cbx_impl * impl = static_cast<cbx_impl *>(lm->speaker_impl);
 
-    // ---- 1. PCM → mel partials ------------------------------------
     if (ref_pcm == nullptr || ref_pcm->data == nullptr || ref_pcm->n_samples <= 0) {
         lm->last_error = "chatterbox speaker_encode: ref_pcm missing";
         return CODEC_STATUS_INVALID_ARG;
@@ -550,7 +469,7 @@ enum codec_status chatterbox_speaker_encode(
         lm->last_error = "chatterbox speaker_encode: ref_pcm must be PCM_TYPE_F32";
         return CODEC_STATUS_INVALID_ARG;
     }
-    if (ref_pcm->sample_rate != impl->sample_rate) {
+    if (ref_pcm->sample_rate != impl->ve.sample_rate) {
         lm->last_error =
             "chatterbox speaker_encode: ref_pcm sample_rate doesn't match the encoder's "
             "ref_sample_rate (16000) — caller must resample first";
@@ -572,80 +491,12 @@ enum codec_status chatterbox_speaker_encode(
         pcm.swap(mono);
     }
 
-    std::vector<float> partials;
-    int32_t n_partials = 0;
-    std::string err;
-    if (!codec_runtime_chatterbox_ve_mel_partials(
-            pcm, impl->sample_rate, impl->mel_basis, impl->n_freq, impl->n_mels,
-            impl->window, impl->n_fft, impl->hop_size,
-            impl->partial_frames, impl->overlap, impl->rate, impl->min_coverage,
-            &partials, &n_partials, &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
+    if (codec_voice_encoder_n_partials(impl->ve, (int64_t) pcm.size()) <= 0) {
+        lm->last_error = "chatterbox speaker_encode: ref_pcm too short";
+        return CODEC_STATUS_INVALID_ARG;
     }
-    if (n_partials <= 0) {
-        lm->last_error = "chatterbox speaker_encode: no mel partials";
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-
-    // ---- 2. LSTM forward over batched partials --------------------
-    // Reshape partials (n_partials, T=160, n_mels) → input to layer 0 in
-    // shape (T, B, in_dim) — for each timestep, gather the B partials' rows.
-    const int32_t T = impl->partial_frames;
-    const int32_t B = n_partials;
-    std::vector<float> X((size_t) T * (size_t) B * (size_t) impl->n_mels, 0.0f);
-    for (int32_t t = 0; t < T; ++t) {
-        for (int32_t bi = 0; bi < B; ++bi) {
-            std::memcpy(
-                X.data() + ((size_t) t * (size_t) B + (size_t) bi) * (size_t) impl->n_mels,
-                partials.data() + ((size_t) bi * (size_t) T + (size_t) t) * (size_t) impl->n_mels,
-                (size_t) impl->n_mels * sizeof(float));
-        }
-    }
-    std::vector<float> H_curr((size_t) T * (size_t) B * (size_t) impl->hidden_size, 0.0f);
-    lstm_layer_forward(impl->lstm[0], X.data(), T, B, impl->hidden_size, H_curr.data());
-    std::vector<float> H_next((size_t) T * (size_t) B * (size_t) impl->hidden_size, 0.0f);
-    for (int32_t l = 1; l < impl->num_layers; ++l) {
-        lstm_layer_forward(impl->lstm[(size_t) l], H_curr.data(),
-                           T, B, impl->hidden_size, H_next.data());
-        H_curr.swap(H_next);
-    }
-    // Final hidden state per partial = H_curr[T-1, :, :]
-    std::vector<float> raw_embeds((size_t) B * (size_t) impl->hidden_size, 0.0f);
-    std::memcpy(raw_embeds.data(),
-                H_curr.data() + (size_t) (T - 1) * (size_t) B * (size_t) impl->hidden_size,
-                (size_t) B * (size_t) impl->hidden_size * sizeof(float));
-
-    // ---- 3. proj + (optional) relu + L2 normalize per partial ------
-    std::vector<float> proj_embeds((size_t) B * (size_t) impl->embed_size, 0.0f);
-    for (int32_t bi = 0; bi < B; ++bi) {
-        for (int32_t r = 0; r < impl->embed_size; ++r) {
-            float acc = impl->proj_b[(size_t) r];
-            const float * w_row = impl->proj_W.data() + (size_t) r * (size_t) impl->hidden_size;
-            const float * x_row = raw_embeds.data() + (size_t) bi * (size_t) impl->hidden_size;
-            for (int32_t k = 0; k < impl->hidden_size; ++k) acc += w_row[k] * x_row[k];
-            if (impl->final_relu && acc < 0.0f) acc = 0.0f;
-            proj_embeds[(size_t) bi * (size_t) impl->embed_size + (size_t) r] = acc;
-        }
-    }
-    l2_normalize_rows(proj_embeds.data(), B, impl->embed_size);
-
-    // ---- 4. mean over partials + L2 normalize → spk_emb_raw --------
-    std::vector<float> spk_emb_raw((size_t) impl->embed_size, 0.0f);
-    for (int32_t bi = 0; bi < B; ++bi) {
-        for (int32_t k = 0; k < impl->embed_size; ++k) {
-            spk_emb_raw[(size_t) k] += proj_embeds[(size_t) bi * (size_t) impl->embed_size + (size_t) k];
-        }
-    }
-    const float inv_B = 1.0f / (float) B;
-    for (int32_t k = 0; k < impl->embed_size; ++k) spk_emb_raw[(size_t) k] *= inv_B;
-    l2_normalize_rows(spk_emb_raw.data(), 1, impl->embed_size);
-
-    // ---- 5. cond_enc + perceiver graph ----------------------------
-    return chatterbox_speaker_encode_from_emb(
-        lm, spk_emb_raw.data(),
-        ref_speech_tokens, n_ref_speech_tokens, emotion,
-        out, out_n_elems);
+    return cbx_run_cond_graph(lm, impl, pcm.data(), (int32_t) pcm.size(), nullptr,
+                              ref_speech_tokens, n_ref_speech_tokens, emotion, out, out_n_elems);
 }
 
 enum codec_status chatterbox_speaker_encode_from_emb(
@@ -662,68 +513,6 @@ enum codec_status chatterbox_speaker_encode_from_emb(
         lm->last_error = "chatterbox speaker_encode: ref_speech_tokens required";
         return CODEC_STATUS_INVALID_ARG;
     }
-    std::string err;
-    if (impl->cond_ctx == nullptr) {
-        codec_context * cctx = new (std::nothrow) codec_context();
-        if (cctx == nullptr) return CODEC_STATUS_INTERNAL_ERROR;
-        cctx->model   = lm->codec;
-        cctx->backend = lm->codec->backend;
-        cctx->params  = codec_context_default_params();
-        std::string ierr;
-        if (!codec_runtime_init(cctx, &ierr)) {
-            delete cctx;
-            lm->last_error = "chatterbox speaker_encode: " + ierr;
-            return CODEC_STATUS_INTERNAL_ERROR;
-        }
-        impl->cond_ctx = cctx;
-    }
-
-    cbx_cond_build_data build = { impl, n_ref_speech_tokens };
-    codec_graph_eval_guard guard(impl->cond_ctx);
-    codec_graph_cache_entry * entry = nullptr;
-    codec_graph_cache_key key = {};
-    key.kind     = CODEC_GRAPH_LM_SPEAKER_CHATTERBOX;
-    key.n_frames = n_ref_speech_tokens;
-    if (!codec_graph_cache_get_or_build(
-            impl->cond_ctx, key, build_cond_graph, &build, sizeof(build),
-            &entry, &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    ggml_tensor * t_spk     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.spkr_emb");
-    ggml_tensor * t_tokens  = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.tokens");
-    ggml_tensor * t_emotion = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.in.emotion");
-    ggml_tensor * t_out     = codec_graph_get_tensor(impl->cond_ctx, entry, "spk.out.cond_emb");
-    if (!t_spk || !t_tokens || !t_emotion || !t_out) {
-        lm->last_error = "chatterbox speaker_encode: cond graph missing tensors";
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    if (!codec_graph_prepare_io(impl->cond_ctx, entry, &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    if (!codec_runtime_write_tensor(t_spk, speaker_emb,
-                                    (size_t) impl->speaker_embed_dim * sizeof(float), &err) ||
-        !codec_runtime_write_tensor(t_tokens, ref_speech_tokens,
-                                    (size_t) n_ref_speech_tokens * sizeof(int32_t), &err) ||
-        !codec_runtime_write_tensor(t_emotion, &emotion, sizeof(float), &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    const int32_t nt = lm->codec->n_threads > 0 ? lm->codec->n_threads : 1;
-    if (!codec_graph_compute(impl->cond_ctx, entry, nt, &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    const int32_t need = impl->n_rows * impl->hidden_dim;
-    if (out_n_elems < need) {
-        lm->last_error = "chatterbox speaker_encode: out buffer too small";
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    if (!codec_runtime_read_tensor(t_out, out,
-                                   (size_t) need * sizeof(float), &err)) {
-        lm->last_error = "chatterbox speaker_encode: " + err;
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    return CODEC_STATUS_SUCCESS;
+    return cbx_run_cond_graph(lm, impl, nullptr, 0, speaker_emb,
+                              ref_speech_tokens, n_ref_speech_tokens, emotion, out, out_n_elems);
 }

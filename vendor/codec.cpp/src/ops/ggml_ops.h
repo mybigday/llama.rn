@@ -12,6 +12,17 @@ enum codec_unary_op {
 };
 
 ggml_tensor * codec_op_unary(ggml_context * ctx, ggml_tensor * x, codec_unary_op op);
+// sin / cos: ggml_sin / ggml_cos where the backend runs them, else range
+// reduction to [-pi, pi] plus a degree-11 odd minimax polynomial (max abs error
+// ~6e-7 in F32) from scale / round / mul ops (ggml-opencl has no SIN / COS).
+ggml_tensor * codec_op_sin(ggml_context * ctx, ggml_tensor * x);
+ggml_tensor * codec_op_cos(ggml_context * ctx, ggml_tensor * x);
+// ggml_leaky_relu where the backend runs it, else relu(x) - slope * relu(-x)
+// (the same values; ggml-opencl has no LEAKY_RELU).
+ggml_tensor * codec_op_leaky_relu(ggml_context * ctx, ggml_tensor * x, float slope);
+// ggml_arange where the backend runs it, else the same values as a graph
+// constant (ggml-opencl has no ARANGE).
+ggml_tensor * codec_op_arange(ggml_context * ctx, float start, float stop, float step);
 ggml_tensor * codec_op_layer_norm(ggml_context * ctx, ggml_tensor * x, float eps, ggml_tensor * gamma, ggml_tensor * beta);
 ggml_tensor * codec_op_layer_norm_ct(ggml_context * ctx, ggml_tensor * x_ct, float eps, ggml_tensor * gamma, ggml_tensor * beta);
 ggml_tensor * codec_op_layer_norm_tc(ggml_context * ctx, ggml_tensor * x_tc, float eps, ggml_tensor * gamma, ggml_tensor * beta);
@@ -21,8 +32,22 @@ ggml_tensor * codec_op_linear(ggml_context * ctx, ggml_tensor * x, ggml_tensor *
 ggml_tensor * codec_op_linear_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_tensor * w, ggml_tensor * b);
 ggml_tensor * codec_op_snake(ggml_context * ctx, ggml_tensor * x, ggml_tensor * alpha, float eps);
 ggml_tensor * codec_op_snake_beta(ggml_context * ctx, ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * inv_beta, float eps);
+// Zero padding along ne[0]. Left padding prepends a zero constant (Metal's PAD
+// only pads at the end), so call it from a graph build_fn.
 ggml_tensor * codec_op_pad_1d(ggml_context * ctx, ggml_tensor * x, int32_t pad_left, int32_t pad_right);
 ggml_tensor * codec_op_pad_1d_replicate(ggml_context * ctx, ggml_tensor * x, int32_t pad_left, int32_t pad_right);
+// Reflect padding of x [t, c] along t (torch "reflect": the edge sample is
+// not repeated) as a gather, so it also runs on backends without
+// PAD_REFLECT_1D (Vulkan). Call from a graph build_fn (index constant).
+ggml_tensor * codec_op_pad_reflect_tc(ggml_context * ctx, ggml_tensor * x_tc, int32_t pad_left, int32_t pad_right);
+// max(x, lo). Unlike ggml_clamp (an in-place view of x), safe on a tensor
+// that lives on another backend.
+ggml_tensor * codec_op_clamp_min(ggml_context * ctx, ggml_tensor * x, float lo);
+// round(x) for inputs with |round(x)| <= max_abs (FSQ after a tanh bound),
+// built from STEP since Metal has no ROUND: counts the half-integer
+// thresholds x reaches on each side. Matches ggml_round / roundf exactly,
+// ties included (away from zero; FSQ outputs do land on ties).
+ggml_tensor * codec_op_round_bounded(ggml_context * ctx, ggml_tensor * x, int32_t max_abs);
 ggml_tensor * codec_op_causal_crop_1d(ggml_context * ctx, ggml_tensor * x, int32_t target_t);
 ggml_tensor * codec_op_crop_1d(ggml_context * ctx, ggml_tensor * x, int32_t crop_left, int32_t crop_right);
 ggml_tensor * codec_op_channel_scale(ggml_context * ctx, ggml_tensor * x, ggml_tensor * scale);
@@ -97,12 +122,13 @@ ggml_tensor * codec_op_cfm_causal_resnet_block_tc(
 // Diffusers BasicTransformerBlock without cross-attention (standard
 // `LayerNorm → self-attn → +res` then `LayerNorm → GELU FFN → +res`). Used by
 // any diffusion model that pulls in `diffusers.models.attention.BasicTransformerBlock`.
-// `x_tc` is `[t, c]`; norms run along the channel dim. Q/K/V have no bias;
+// `x_ct` is `[c, t]` (channels contiguous, so stacked blocks need no
+// transposes); norms run along the channel dim. Q/K/V have no bias;
 // only `out` and the FFN linears carry biases. `head_dim * num_heads` must
 // equal the inner attention dim implied by `qw`'s rows.
-ggml_tensor * codec_op_basic_transformer_block_tc(
+ggml_tensor * codec_op_basic_transformer_block_ct(
     ggml_context * ctx,
-    ggml_tensor * x_tc,
+    ggml_tensor * x_ct,
     ggml_tensor * norm1_w, ggml_tensor * norm1_b,
     ggml_tensor * qw, ggml_tensor * kw, ggml_tensor * vw,
     ggml_tensor * ow, ggml_tensor * ob,

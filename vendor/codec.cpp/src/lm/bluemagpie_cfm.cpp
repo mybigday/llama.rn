@@ -62,17 +62,6 @@ struct cfm_state {
     std::vector<float> prefill_lm_hidden;       // [h_vox]
     std::vector<float> prefill_residual_hidden; // [h_vox]
 
-    // Teacher-forcing (parity tests only): when `has_teacher_patch` is set, the
-    // NEXT step_generate uses `teacher_patch` (a reference latent patch) as the
-    // LocEnc feedback source AND as this step's cond, instead of the codec's own
-    // generated patch — so codec replays the reference trajectory exactly and
-    // every emitted patch can be compared against the reference at high corr
-    // (free-running feedback would otherwise diverge chaotically after a few
-    // steps).  The patch the graph *emits* is still codec's own.  Cleared after
-    // consumption; the flag is set via codec_lm_set_teacher_patch.
-    bool               has_teacher_patch = false;
-    std::vector<float> teacher_patch;           // [latent_dim*patch_size]
-
     // CFM init-noise RNG for the noise==NULL path.  The reference samples
     // z ~ N(0,1) per step (torch.randn); zero-init instead yields degenerate
     // "mean" ODE trajectories - muffled audio whose stop head never crosses.
@@ -95,7 +84,7 @@ struct cfm_state {
 bool alloc_kv(cfm_state * s, const cfm_impl * I, codec_model * codec);   // fwd (defined below)
 
 ggml_tensor * lin(ggml_context * c, ggml_tensor * w, ggml_tensor * x, ggml_tensor * b) {
-    ggml_tensor * y = ggml_mul_mat(c, w, x);
+    ggml_tensor * y = codec_mul_mat(c, w, x);
     return b ? ggml_add(c, y, codec_graph_cast_f32(c, b)) : y;
 }
 
@@ -125,14 +114,14 @@ ggml_tensor * bm_ralm_kv_step(ggml_context * ctx, ggml_tensor * x_ht, const std:
     ggml_tensor * q, * kk, * vv;
     ggml_tensor * w_qkv = codec_graph_weight_mat(ctx, model, prefix + ".attn_qkv.w");
     if (w_qkv != nullptr) {
-        ggml_tensor * qkv = ggml_mul_mat(ctx, w_qkv, h);   // (q_dim+2*kv_dim, 1)
+        ggml_tensor * qkv = codec_mul_mat(ctx, w_qkv, h);   // (q_dim+2*kv_dim, 1)
         q  = ggml_reshape_3d(ctx, ggml_cont(ctx, ggml_view_1d(ctx, qkv, q_dim,  0)), head_dim, n_heads, 1);
         kk = ggml_reshape_3d(ctx, ggml_cont(ctx, ggml_view_1d(ctx, qkv, kv_dim, (size_t) q_dim * qkv->nb[0])), head_dim, n_kv, 1);
         vv = ggml_reshape_3d(ctx, ggml_cont(ctx, ggml_view_1d(ctx, qkv, kv_dim, (size_t) (q_dim + kv_dim) * qkv->nb[0])), head_dim, n_kv, 1);
     } else {
-        q  = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_q.w"), h), head_dim, n_heads, 1);
-        kk = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_k.w"), h), head_dim, n_kv, 1);
-        vv = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_v.w"), h), head_dim, n_kv, 1);
+        q  = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_q.w"), h), head_dim, n_heads, 1);
+        kk = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_k.w"), h), head_dim, n_kv, 1);
+        vv = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_v.w"), h), head_dim, n_kv, 1);
     }
     // In-graph scatter of the new token's K/V into the persistent cache at row
     // `row_idx` (= kv_pos), replacing the Phase-3 host readback + tensor_set.
@@ -165,28 +154,28 @@ ggml_tensor * bm_ralm_kv_step(ggml_context * ctx, ggml_tensor * x_ht, const std:
 
     ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));       // (head_dim, 1, n_heads)
     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k_all, 0, 2, 1, 3));   // (head_dim, bucket+1, n_kv)
-    ggml_tensor * scores = ggml_mul_mat(ctx, k_p, q_p);                          // (bucket+1, 1, n_heads)
+    ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);                          // (bucket+1, 1, n_heads)
     // Fused scale + additive mask + softmax.  mask is (bucket+1, 1): valid
     // slots (<= kv_pos and the self slot) are 0, unfilled slots are -inf.
     scores = ggml_soft_max_ext(ctx, scores, mask, 1.0f / std::sqrt((float) head_dim), 0.0f);
     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v_all, 1, 2, 0, 3));
-    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, ggml_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
+    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, codec_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
     attn = ggml_reshape_2d(ctx, attn, q_dim, 1);
-    x_ht = ggml_add(ctx, x_ht, ggml_mul_mat(ctx, WM(".attn_o.w"), attn));
+    x_ht = ggml_add(ctx, x_ht, codec_mul_mat(ctx, WM(".attn_o.w"), attn));
 
     h = codec_op_rms_norm_ct(ctx, x_ht, eps, W(".ln2.w"));
     ggml_tensor * mlp;
     ggml_tensor * w_gu = codec_graph_weight_mat(ctx, model, prefix + ".gate_up.w");
     if (w_gu != nullptr) {
         // Fused gate|up: gate is the first half of ne[0] → swiglu (non-swapped).
-        ggml_tensor * gu = ggml_mul_mat(ctx, w_gu, h);   // (2*ffn, 1)
+        ggml_tensor * gu = codec_mul_mat(ctx, w_gu, h);   // (2*ffn, 1)
         mlp = ggml_swiglu(ctx, gu);
     } else {
-        ggml_tensor * g = ggml_mul_mat(ctx, WM(".gate.w"), h);
-        ggml_tensor * u = ggml_mul_mat(ctx, WM(".up.w"), h);
+        ggml_tensor * g = codec_mul_mat(ctx, WM(".gate.w"), h);
+        ggml_tensor * u = codec_mul_mat(ctx, WM(".up.w"), h);
         mlp = ggml_swiglu_split(ctx, g, u);
     }
-    return ggml_add(ctx, x_ht, ggml_mul_mat(ctx, WM(".down.w"), mlp));
+    return ggml_add(ctx, x_ht, codec_mul_mat(ctx, WM(".down.w"), mlp));
 }
 
 // tslm_adapter(h) → (h_vox, T): RMSNorm + proj + one residual SwiGLU block.
@@ -197,9 +186,9 @@ ggml_tensor * bm_tslm_adapter(ggml_context * ctx, const codec_model * model, ggm
     ggml_tensor * a = codec_op_rms_norm_ct(ctx, x_in, eps, W("lm.tslm_adapter.norm.w"));
     a = lin(ctx, WM("lm.tslm_adapter.proj.w"), a, W("lm.tslm_adapter.proj.b"));   // (h_vox,T)
     ggml_tensor * bn = codec_op_rms_norm_ct(ctx, a, eps, W("lm.tslm_adapter.blk0.ln.w"));
-    ggml_tensor * g  = ggml_mul_mat(ctx, WM("lm.tslm_adapter.blk0.gate.w"), bn);
-    ggml_tensor * u  = ggml_mul_mat(ctx, WM("lm.tslm_adapter.blk0.up.w"), bn);
-    ggml_tensor * dn = ggml_mul_mat(ctx, WM("lm.tslm_adapter.blk0.down.w"), ggml_swiglu_split(ctx, g, u));
+    ggml_tensor * g  = codec_mul_mat(ctx, WM("lm.tslm_adapter.blk0.gate.w"), bn);
+    ggml_tensor * u  = codec_mul_mat(ctx, WM("lm.tslm_adapter.blk0.up.w"), bn);
+    ggml_tensor * dn = codec_mul_mat(ctx, WM("lm.tslm_adapter.blk0.down.w"), ggml_swiglu_split(ctx, g, u));
     return ggml_add(ctx, a, dn);
 }
 
@@ -208,7 +197,7 @@ ggml_tensor * bm_fsq(ggml_context * ctx, const codec_model * model, ggml_tensor 
     auto W  = [&](const char * s) { return codec_graph_weight(ctx, model, s); };
     auto WM = [&](const char * s) { return codec_graph_weight_mat(ctx, model, s); };
     ggml_tensor * q = ggml_tanh(ctx, lin(ctx, WM("lm.fsq.in_proj.w"), a, W("lm.fsq.in_proj.b")));
-    q = ggml_scale(ctx, ggml_round(ctx, ggml_scale(ctx, q, (float) fsq_scale)), 1.0f / (float) fsq_scale);
+    q = ggml_scale(ctx, codec_op_round_bounded(ctx, ggml_scale(ctx, q, (float) fsq_scale), fsq_scale), 1.0f / (float) fsq_scale);
     return lin(ctx, WM("lm.fsq.out_proj.w"), q, W("lm.fsq.out_proj.b"));   // (h_vox,T)
 }
 
@@ -253,7 +242,7 @@ ggml_tensor * bm_ralm_prefill_layer(ggml_context * ctx, ggml_tensor * x_ht, cons
     ggml_tensor * q, * kk, * vv;
     ggml_tensor * w_qkv = codec_graph_weight_mat(ctx, model, prefix + ".attn_qkv.w");
     if (w_qkv != nullptr) {
-        ggml_tensor * qkv = ggml_mul_mat(ctx, w_qkv, h);   // (q_dim+2*kv_dim, T)
+        ggml_tensor * qkv = codec_mul_mat(ctx, w_qkv, h);   // (q_dim+2*kv_dim, T)
         ggml_tensor * qv = ggml_view_2d(ctx, qkv, q_dim,  T, qkv->nb[1], 0);
         ggml_tensor * kv = ggml_view_2d(ctx, qkv, kv_dim, T, qkv->nb[1], (size_t) q_dim * qkv->nb[0]);
         ggml_tensor * vvw= ggml_view_2d(ctx, qkv, kv_dim, T, qkv->nb[1], (size_t) (q_dim + kv_dim) * qkv->nb[0]);
@@ -261,9 +250,9 @@ ggml_tensor * bm_ralm_prefill_layer(ggml_context * ctx, ggml_tensor * x_ht, cons
         kk = ggml_reshape_3d(ctx, ggml_cont(ctx, kv),  head_dim, n_kv,    T);
         vv = ggml_reshape_3d(ctx, ggml_cont(ctx, vvw), head_dim, n_kv,    T);
     } else {
-        q  = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_q.w"), h), head_dim, n_heads, T);
-        kk = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_k.w"), h), head_dim, n_kv,    T);
-        vv = ggml_reshape_3d(ctx, ggml_mul_mat(ctx, WM(".attn_v.w"), h), head_dim, n_kv,    T);
+        q  = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_q.w"), h), head_dim, n_heads, T);
+        kk = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_k.w"), h), head_dim, n_kv,    T);
+        vv = ggml_reshape_3d(ctx, codec_mul_mat(ctx, WM(".attn_v.w"), h), head_dim, n_kv,    T);
     }
 
     // Scatter K/V for all T tokens into the persistent cache rows [0..T).  The
@@ -282,26 +271,26 @@ ggml_tensor * bm_ralm_prefill_layer(ggml_context * ctx, ggml_tensor * x_ht, cons
     // Causal self-attention over the T tokens (no rope).
     ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q,  0, 2, 1, 3));   // (d, T, n_heads)
     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, kk, 0, 2, 1, 3));   // (d, T, n_kv)
-    ggml_tensor * scores = ggml_mul_mat(ctx, k_p, q_p);                       // (T_k, T_q, n_heads)
+    ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);                       // (T_k, T_q, n_heads)
     scores = ggml_scale(ctx, scores, 1.0f / std::sqrt((float) head_dim));
     scores = ggml_diag_mask_inf(ctx, scores, 0);
     scores = ggml_soft_max(ctx, scores);
     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, vv, 1, 2, 0, 3));   // (T, d, n_kv)
-    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, ggml_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
+    ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, codec_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
     attn = ggml_reshape_2d(ctx, attn, q_dim, T);
-    x_ht = ggml_add(ctx, x_ht, ggml_mul_mat(ctx, WM(".attn_o.w"), attn));
+    x_ht = ggml_add(ctx, x_ht, codec_mul_mat(ctx, WM(".attn_o.w"), attn));
 
     h = codec_op_rms_norm_ct(ctx, x_ht, eps, W(".ln2.w"));
     ggml_tensor * mlp;
     ggml_tensor * w_gu = codec_graph_weight_mat(ctx, model, prefix + ".gate_up.w");
     if (w_gu != nullptr) {
-        mlp = ggml_swiglu(ctx, ggml_mul_mat(ctx, w_gu, h));
+        mlp = ggml_swiglu(ctx, codec_mul_mat(ctx, w_gu, h));
     } else {
-        ggml_tensor * g = ggml_mul_mat(ctx, WM(".gate.w"), h);
-        ggml_tensor * u = ggml_mul_mat(ctx, WM(".up.w"), h);
+        ggml_tensor * g = codec_mul_mat(ctx, WM(".gate.w"), h);
+        ggml_tensor * u = codec_mul_mat(ctx, WM(".up.w"), h);
         mlp = ggml_swiglu_split(ctx, g, u);
     }
-    return ggml_add(ctx, x_ht, ggml_mul_mat(ctx, WM(".down.w"), mlp));
+    return ggml_add(ctx, x_ht, codec_mul_mat(ctx, WM(".down.w"), mlp));
 }
 
 bool build_prefill(ggml_context * ctx, void * ud, ggml_tensor ** out) {
@@ -414,17 +403,6 @@ enum codec_status set_min_len(codec_lm_state * st, int32_t min_len) {
     return CODEC_STATUS_SUCCESS;
 }
 
-enum codec_status set_teacher_patch(codec_lm_state * st, const float * patch, int32_t n) {
-    cfm_impl * I = static_cast<cfm_impl *>(st->lm->impl);
-    cfm_state * s = static_cast<cfm_state *>(st->impl);
-    const int32_t dp = I->latent_dim * I->patch_size;
-    if (patch == nullptr) { s->has_teacher_patch = false; return CODEC_STATUS_SUCCESS; }
-    if (n != dp) { st->last_error = "teacher patch length mismatch"; return CODEC_STATUS_INVALID_ARG; }
-    s->teacher_patch.assign(patch, patch + dp);
-    s->has_teacher_patch = true;
-    return CODEC_STATUS_SUCCESS;
-}
-
 // Build the whole per-step graph.
 //
 // IMPORTANT: the graph shape depends ONLY on (bucket, n_real, cfg_value) — NOT
@@ -440,8 +418,6 @@ struct cfm_build {
     float     cfg_value;
     int32_t   primed;       // 1 = primed first step: lm_hidden/residual_hidden are
                             // INPUTS (from prefill); skip adapter/FSQ/RALM entirely.
-    int32_t   teacher;      // 1 = LocEnc runs on the `bm.cfm.teacher` input patch
-                            // (teacher-forced trajectory) instead of the emitted x.
     float     dt[64];
     ggml_tensor * k_cache[32];
     ggml_tensor * v_cache[32];
@@ -492,7 +468,7 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
         }
         // ---- FSQ: round(tanh(in_proj(a))*s)/s then out_proj ----
         ggml_tensor * q = ggml_tanh(ctx, linW("lm.fsq.in_proj.w", a, "lm.fsq.in_proj.b"));
-        q = ggml_scale(ctx, ggml_round(ctx, ggml_scale(ctx, q, (float) I.fsq_scale)), 1.0f / (float) I.fsq_scale);
+        q = ggml_scale(ctx, codec_op_round_bounded(ctx, ggml_scale(ctx, q, (float) I.fsq_scale), I.fsq_scale), 1.0f / (float) I.fsq_scale);
         lm_hidden = linW("lm.fsq.out_proj.w", q, "lm.fsq.out_proj.b");   // (h_vox,1)
 
         // ---- RALM input = fusion_concat_proj([lm_hidden ; prev_feedback_lm]) ----
@@ -581,22 +557,13 @@ bool build_step(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     ggml_set_output(stop_logit);
 
     // ---- LocEnc(patch) → feedback ----
-    // Teacher-forcing: LocEnc runs on the reference patch input so the feedback
-    // (and hence the next step's RALM/backbone drive) tracks the reference
-    // trajectory exactly.  The emitted patch `x` is unchanged.
-    ggml_tensor * le_src = x;
-    if (p->teacher) {
-        ggml_tensor * tp = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, D, P);
-        ggml_set_name(tp, "bm.cfm.teacher"); ggml_set_input(tp);
-        le_src = tp;
-    }
-    ggml_tensor * le = linW("lm.locenc.in_proj.w", le_src, "lm.locenc.in_proj.b");   // (h_enc, P)
+    ggml_tensor * le = linW("lm.locenc.in_proj.w", x, "lm.locenc.in_proj.b");   // (h_enc, P)
     ggml_tensor * sptok = ggml_reshape_2d(ctx, codec_graph_cast_f32(ctx, W("lm.locenc.special_token")), I.h_enc, 1);
     le = ggml_concat(ctx, sptok, le, 1);                                                   // (h_enc, P+1)
     const int64_t Te = le->ne[1];
     ggml_tensor * ecos = ggml_cont(ctx, ggml_view_2d(ctx, W("lm.rope.cos"), I.head_dim, Te, W("lm.rope.cos")->nb[1], 0));
     ggml_tensor * esin = ggml_cont(ctx, ggml_view_2d(ctx, W("lm.rope.sin"), I.head_dim, Te, W("lm.rope.sin")->nb[1], 0));
-    ggml_tensor * le_pos = ggml_cast(ctx, ggml_arange(ctx, 0.0f, (float) Te, 1.0f), GGML_TYPE_I32);
+    ggml_tensor * le_pos = ggml_cast(ctx, codec_op_arange(ctx, 0.0f, (float) Te, 1.0f), GGML_TYPE_I32);
     for (int32_t i = 0; i < I.n_locenc; ++i) {
         le = codec_bm_minicpm_block_ht(ctx, le, "lm.locenc.layers." + std::to_string(i), model,
                                        I.n_heads, I.n_kv, I.head_dim, I.eps, ecos, esin, /*causal=*/false, le_pos);
@@ -672,7 +639,6 @@ void state_reset(codec_lm_state * st) {
     s->kv_pos = 0;   // discard cached RALM K/V (positions before 0 are never read)
     s->patch_index = 0;
     s->primed = false;
-    s->has_teacher_patch = false;
     std::fill(s->prev_patch.begin(), s->prev_patch.end(), 0.0f);
     std::fill(s->prev_feedback_lm.begin(), s->prev_feedback_lm.end(), 0.0f);
     std::fill(s->feedback_tslm.begin(), s->feedback_tslm.end(), 0.0f);
@@ -750,7 +716,6 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     cfm_build b = {};
     b.imp = *I; b.bucket = bucket; b.cfg_value = cfg_value; b.model = st->lm->codec;
     b.primed = primed ? 1 : 0;
-    b.teacher = s->has_teacher_patch ? 1 : 0;
     for (int32_t l = 0; l < I->n_ralm; ++l) { b.k_cache[l] = s->k_cache[(size_t) l]; b.v_cache[l] = s->v_cache[(size_t) l]; }
     std::vector<double> t_real;
     double t = tspan[0], dt = tspan[0] - tspan[1];
@@ -782,8 +747,8 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     key.n_frames = bucket;        // graph shape depends only on the 64-bucketed KV view length
     key.n_q = n_timesteps;
     // hop bit0 = cfg==1 single-branch shape; bit1 = primed (lm/res hidden are
-    // inputs, no adapter/FSQ/RALM subgraph); bit2 = teacher-forced LocEnc input.
-    key.hop = ((cfg_value == 1.0f) ? 1 : 0) | (primed ? 2 : 0) | (b.teacher ? 4 : 0);
+    // inputs, no adapter/FSQ/RALM subgraph).
+    key.hop = ((cfg_value == 1.0f) ? 1 : 0) | (primed ? 2 : 0);
     if (!codec_graph_cache_get_or_build(st->ctx, key, build_step, &b, sizeof(b), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -795,9 +760,6 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     };
     bool ok = wr("bm.cfm.cond", s->prev_patch.data(), dp) && wr("bm.cfm.z", noise, dp)
         && wr("bm.cfm.tsin", tsin_all.data(), tsin_all.size()) && wr("bm.cfm.dtsin", dtsin.data(), dtsin.size());
-    if (b.teacher) {
-        ok = ok && wr("bm.cfm.teacher", s->teacher_patch.data(), dp);
-    }
     if (primed) {
         // Primed step inputs: cached lm_hidden / residual_hidden from prefill.
         ok = ok && wr("bm.cfm.lm_hidden_in", s->prefill_lm_hidden.data(), I->h_vox)
@@ -844,14 +806,8 @@ enum codec_status step_generate(codec_lm_state * st, const float * h_in, float c
     if (!primed) s->kv_pos += 1;
     s->primed = false;   // consumed the prime
     s->patch_index += 1;
-    // Next step's cond = this step's patch.  Under teacher-forcing that is the
-    // reference patch (so the trajectory stays aligned); else the codec's own.
-    if (s->has_teacher_patch) {
-        std::memcpy(s->prev_patch.data(), s->teacher_patch.data(), dp * sizeof(float));
-        s->has_teacher_patch = false;   // consumed; caller re-arms per step
-    } else {
-        std::memcpy(s->prev_patch.data(), out_patch, dp * sizeof(float));
-    }
+    // Next step's cond = this step's patch.
+    std::memcpy(s->prev_patch.data(), out_patch, dp * sizeof(float));
     return CODEC_STATUS_SUCCESS;
 }
 
@@ -877,7 +833,6 @@ const codec_lm_kind_vtable codec_lm_vtable_continuous_latent_cfm = {
     /*.step_logits        =*/ nullptr,
     /*.step_push_code     =*/ nullptr,
     /*.step_finish        =*/ nullptr,
-    /*.audio_embd         =*/ nullptr,
     /*.compose_audio_embd =*/ nullptr,
     /*.compose_next_embd  =*/ nullptr,
     /*.speaker_encode     =*/ nullptr,
@@ -885,5 +840,4 @@ const codec_lm_kind_vtable codec_lm_vtable_continuous_latent_cfm = {
     /*.step_feedback_embd =*/ step_feedback_embd,
     /*.text_prefill       =*/ text_prefill,
     /*.set_min_len        =*/ set_min_len,
-    /*.set_teacher_patch  =*/ set_teacher_patch,
 };
