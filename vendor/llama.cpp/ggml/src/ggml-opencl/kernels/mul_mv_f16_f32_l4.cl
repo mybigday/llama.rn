@@ -28,12 +28,6 @@
 // name, so calling it is an implicit declaration and the program fails to build.
 // Route it to the qcom builtin.
 #define sub_group_shuffle_xor(val, mask) qcom_sub_group_shuffle_xor((val), (mask), CLK_SUB_GROUP_SHUFFLE_WIDTH_WAVE_SIZE_QCOM, 0.0f)
-// Compilers without the KHR shuffle are the older E031 ones. E031.38 (Adreno 730)
-// runs the last shuffle of a reduction whose result is only used under
-// `if (lane == 0)` with that branch's lane mask, so it reads an inactive lane and
-// returns 0. The GQA image kernels below keep each row sum with a select instead
-// and store after the row loop.
-#define GQA_IMG_SELECT_STORE 1
 #endif
 
 // Assumes row size (ne00) is a multiple of 4
@@ -905,12 +899,6 @@ kernel void kernel_mul_mat_f16_f32_l4_x8_gqa4_img(
 
     const int head_px_base = i02 * pitch_px_head + (i03 / r3) * pitch_px_n13;
 
-#ifdef GQA_IMG_SELECT_STORE
-    // each lane keeps rows lane_q and lane_q + LANES_PER_QH
-    float out0 = 0.0f;
-    float out1 = 0.0f;
-#endif
-
     #pragma unroll
     for (int dr = 0; dr < N_K_ROWS_GQA; ++dr) {
         const int r0 = r0_base + dr;
@@ -938,22 +926,11 @@ kernel void kernel_mul_mat_f16_f32_l4_x8_gqa4_img(
         sumf += sub_group_shuffle_xor(sumf, 2);
         sumf += sub_group_shuffle_xor(sumf, 1);
 
-#ifdef GQA_IMG_SELECT_STORE
-        out0 = dr == lane_q                ? sumf : out0;
-        out1 = dr == lane_q + LANES_PER_QH ? sumf : out1;
-#else
         if (lane_q == 0) {
             const int im_out = i03 * ne12 + (q_head_lo + q_id);
             dst[im_out * ne1 * ne0 + r0] = sumf;
         }
-#endif
     }
-
-#ifdef GQA_IMG_SELECT_STORE
-    const int im_out = i03 * ne12 + (q_head_lo + q_id);
-    dst[im_out * ne1 * ne0 + r0_base + lane_q               ] = out0;
-    dst[im_out * ne1 * ne0 + r0_base + lane_q + LANES_PER_QH] = out1;
-#endif
 }
 
 #ifdef ADRENO_GPU
@@ -1130,11 +1107,6 @@ kernel void kernel_mul_mat_f16_f32_l4_x8_gqa_r4_img(
 
     const int head_px_base = i02 * pitch_px_head + (i03 / r3) * pitch_px_n13;
 
-#ifdef GQA_IMG_SELECT_STORE
-    // lane_q also indexes the row: N_K_ROWS_GQA_R4 == LANES_PER_QH_R4
-    float out = 0.0f;
-#endif
-
     #pragma unroll
     for (int dr = 0; dr < N_K_ROWS_GQA_R4; ++dr) {
         const int r0 = r0_base + dr;
@@ -1161,20 +1133,11 @@ kernel void kernel_mul_mat_f16_f32_l4_x8_gqa_r4_img(
         sumf += sub_group_shuffle_xor(sumf, 2);
         sumf += sub_group_shuffle_xor(sumf, 1);
 
-#ifdef GQA_IMG_SELECT_STORE
-        out = dr == lane_q ? sumf : out;
-#else
         if (lane_q == 0) {
             const int im_out = i03 * ne12 + (q_head_lo + q_id);
             dst[im_out * ne1 * ne0 + r0] = sumf;
         }
-#endif
     }
-
-#ifdef GQA_IMG_SELECT_STORE
-    const int im_out = i03 * ne12 + (q_head_lo + q_id);
-    dst[im_out * ne1 * ne0 + r0_base + lane_q] = out;
-#endif
 }
 
 #define N_K_ROWS_GQA_R2_DK256   16
