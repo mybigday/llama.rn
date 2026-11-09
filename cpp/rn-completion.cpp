@@ -1045,7 +1045,14 @@ completion_token_output llama_rn_context_completion::nextTokenMTP() {
     result.tok = -1;
 
     if (spec == nullptr) {
-        initMTP();
+        try {
+            initMTP();
+        } catch (...) {
+            // Memory holds only [0, n_past). Drop the undecoded prompt tail so the
+            // next loadPrompt can't reuse cells that were never decoded.
+            embd.resize(std::clamp<llama_pos>(n_past, 0, (llama_pos) embd.size()));
+            throw;
+        }
     }
     startGenerationTiming();
 

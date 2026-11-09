@@ -634,6 +634,48 @@ bool test_draft_simple_rejects_hybrid() {
     }
 }
 
+// A speculative completion whose draft context can't be created fails before the
+// prompt is decoded. On a fresh context the KV cache stays empty, so the next
+// completion must not take the never-decoded prompt as a cached prefix.
+bool test_draft_init_failure_keeps_cache_consistent() {
+    try {
+        const std::string prompt = "The quick brown fox jumps over the lazy dog. Once upon a time";
+
+        llama_rn_context ref;
+        if (!setup_completion_context(ref)) return false;
+        ref.params.sampling.temp = 0.0f;
+        std::vector<llama_token> expected;
+        run_classic_completion(ref, prompt, 8, &expected);
+
+        llama_rn_context ctx;
+        if (!setup_draft_simple_context(ctx, "../tiny-random-llama.gguf")) return false;
+        ctx.params.sampling.temp = 0.0f;
+        // A quantized V cache needs flash attention, so the draft context init fails
+        ctx.params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        ctx.params.speculative.draft.cache_type_v = GGML_TYPE_Q8_0;
+        try {
+            run_classic_completion(ctx, prompt, 8);
+            std::cout << "Expected the draft context init to fail" << std::endl;
+            return false;
+        } catch (const std::exception& e) {
+            if (std::string(e.what()) != "failed to create draft context") {
+                std::cout << "Unexpected exception: " << e.what() << std::endl;
+                return false;
+            }
+            // As the JSI completion task does on a throw
+            ctx.completion->endCompletion();
+        }
+
+        ctx.params.speculative.types = { COMMON_SPECULATIVE_TYPE_NONE };
+        std::vector<llama_token> got;
+        run_classic_completion(ctx, prompt, 8, &got);
+        return !expected.empty() && got == expected;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    }
+}
+
 // bench() right after a completion: the warm-up decodes from position 0, so the
 // chat cache has to go first, together with the completion's record of it.
 bool test_bench_after_completion() {
@@ -690,6 +732,7 @@ int main() {
     results.run_test("Utility Functions", test_utilities());
     results.run_test("draft-simple Completion", test_draft_simple_completion());
     results.run_test("draft-simple Rejects Hybrid", test_draft_simple_rejects_hybrid());
+    results.run_test("Draft Init Failure Keeps Cache Consistent", test_draft_init_failure_keeps_cache_consistent());
     results.run_test("Bench After Completion", test_bench_after_completion());
 
     // Print summary
