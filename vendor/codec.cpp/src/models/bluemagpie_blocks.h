@@ -7,8 +7,7 @@
 
 #include <string>
 
-// Shared BlueMagpie/VoxCPM ggml building blocks (parity-verified in
-// src/models/bluemagpie_locenc_debug.cpp).  Reused by the codec_lm
+// Shared BlueMagpie/VoxCPM ggml building blocks.  Reused by the codec_lm
 // continuous_latent_cfm kind to assemble the per-step graph.
 
 // MiniCPM decoder block (RMSNorm + GQA + baked-RoPE + SwiGLU, use_mup=false).

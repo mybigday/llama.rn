@@ -17,6 +17,7 @@ import type {
   JinjaFormattedChatResult,
   ParallelStatus,
 } from './types'
+import type { TTSCapabilities, TTSSpeakerInfo } from './tts'
 
 declare global {
   var llamaInitContext: (
@@ -118,7 +119,12 @@ declare global {
   var llamaReleaseMultimodal: (contextId: number) => Promise<void>
   var llamaInitVocoder: (
     contextId: number,
-    params: { path: string; n_batch?: number; use_gpu?: boolean },
+    params: {
+      path: string
+      n_batch?: number
+      use_gpu?: boolean
+      kv_overrides?: string[]
+    },
   ) => Promise<boolean>
   var llamaIsVocoderEnabled: (contextId: number) => Promise<boolean>
   var llamaGetFormattedAudioCompletion: (
@@ -126,94 +132,51 @@ declare global {
     speaker: Record<string, any> | null,
     text: string,
     speakerId?: number,
+    instruct?: string,
   ) => Promise<{
     prompt: string
     grammar?: string
     embedding: boolean
-    // 'tokens'           — feed `prompt` through `completion()` and collect audio tokens.
-    //                      Covers the codec_lm-AR family too (CSM / Qwen3-TTS /
-    //                      MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox): the
-    //                      native completion loop drives the codec_lm step
-    //                      machine per `llama_decode` and appends codes to the
-    //                      standard audio-token buffer (`result.audio_tokens`).
-    // 'continuous_embd'  — feed `prompt` through `completion()`; the loop drives the
-    //                      codec_lm's continuous-latent step machine per
-    //                      `llama_decode` (BlueMagpie-TTS / VoxCPM).  Collect
-    //                      `embeddings` + `embedding_dim` from the completion
-    //                      result and pass them to `decodeAudioEmbeddings`.
+    // Always 'tokens': a completion() with completionParams runs the request.
+    // Its result carries `audio_tokens` (codes, for decodeAudioTokens) or
+    // `audio_latents` (for decodeAudioLatents); 'continuous_embd' is
+    // no longer produced.
     flow: 'tokens' | 'continuous_embd' | ''
+    completionParams: import('./tts').TTSCompletionParams
   }>
-  var llamaGetTTSCapabilities: (contextId: number) => Promise<{
-    type: number
-    promptKind:
-      | 'outetts_legacy'
-      | 'outetts_v0_3'
-      | 'outetts_v1_0'
-      | 'soprano'
-      | 'neutts'
-      | 'csm'
-      | 'qwen3_tts'
-      | 'moss_tts_realtime'
-      | 'moss_ttsd'
-      | 'chatterbox'
-      | 'chatterbox_multilingual'
-      | 'bluemagpie'
-      | ''
-    family:
-      | 'outetts'
-      | 'soprano'
-      | 'neutts'
-      | 'csm'
-      | 'qwen3_tts'
-      | 'moss_tts'
-      | 'moss_ttsd'
-      | 'chatterbox'
-      | 'bluemagpie'
-      | ''
-    requiresPhonemes: boolean
-    defaultLanguage: string
-  }>
+  var llamaGetTTSCapabilities: (contextId: number) => Promise<TTSCapabilities>
   var llamaDecodeAudioTokens: (
     contextId: number,
     tokens: Int32Array | number[],
   ) => Promise<Float32Array>
-  var llamaGenerateAudioCodes: (
-    contextId: number,
-    opts: {
-      prompt: string
-      maxFrames?: number
-      temperature?: number
-      topP?: number
-      topK?: number
-      seed?: number
-    },
-    onFrame?: (step: number, codes: number[]) => void,
-  ) => Promise<{
-    codes: number[]
-    nCodebook: number
-    nFrames: number
-    stoppedOnEos: boolean
-    aborted: boolean
-  }>
   var llamaCreateSpeaker: (
     contextId: number,
     pcm: Float32Array | number[],
     opts: {
       inputSampleRate: number
       refText: string
-      bake: boolean
       emotion?: number
     },
-  ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
-  var llamaBakeSpeaker: (
+  ) => Promise<{ id: number; family: string }>
+  var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
+  var llamaLoadSpeaker: (
+    contextId: number,
+    path: string,
+    name?: string,
+  ) => Promise<{ id: number; family: string }>
+  var llamaSaveSpeaker: (
     contextId: number,
     speakerId: number,
-  ) => Promise<{ rows: number; baked: boolean }>
-  var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
-  var llamaDecodeAudioEmbeddings: (
+    path: string,
+    name?: string,
+  ) => Promise<void>
+  var llamaListSpeakers: (
     contextId: number,
-    embeddings: Float32Array | number[],
-    embeddingDim: number,
+    path: string,
+  ) => Promise<TTSSpeakerInfo[]>
+  var llamaDecodeAudioLatents: (
+    contextId: number,
+    latents: Float32Array | number[],
   ) => Promise<Float32Array>
   var llamaGetAudioSampleRate: (contextId: number) => Promise<number>
   var llamaReleaseVocoder: (contextId: number) => Promise<void>

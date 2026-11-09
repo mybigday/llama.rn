@@ -1,0 +1,26 @@
+The OpenCL buffer type reads dev_ctx->backend_ctx in get_alignment / get_max_size,
+which is only set once a backend (or alloc_buffer) has run ggml_cl_init. mtmd now
+allocates the mmproj tensors from ggml_backend_dev_buffer_type() before creating a
+backend (mtmd-model.cpp), which crashed on Adreno with a null backend_ctx.
+
+--- a/ggml/src/ggml-opencl/ggml-opencl.cpp
++++ b/ggml/src/ggml-opencl/ggml-opencl.cpp
+@@ -17553,15 +17553,14 @@
+ }
+ 
+ static size_t ggml_backend_opencl_buffer_type_get_alignment(ggml_backend_buffer_type_t buffer_type) {
+-    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
+-    return dev_ctx->backend_ctx->alignment;
++    // init lazily like alloc_buffer: the buffer type may be used before any backend exists on the device
++    return ggml_cl_init(buffer_type->device)->alignment;
+ }
+ 
+ static size_t ggml_backend_opencl_buffer_type_get_max_size(ggml_backend_buffer_type_t buffer_type) {
+     static size_t max_size = -1;
+     if (max_size == (size_t)-1) {
+-        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
+-        max_size = dev_ctx->backend_ctx->max_alloc_size;
++        max_size = ggml_cl_init(buffer_type->device)->max_alloc_size;
+     }
+     return max_size;
+ }

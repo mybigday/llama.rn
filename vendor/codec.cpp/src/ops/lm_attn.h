@@ -27,6 +27,19 @@ ggml_tensor * codec_op_lm_attn_ctx_dth(
     ggml_tensor * v_dth,
     const codec_lm_attn_params * params);
 
+// Unmasked multi-head attention over projected [n_heads * head_dim, t] q/k/v;
+// returns [n_heads * head_dim, t].  Flash attention straight off strided views
+// of the inputs (no [t, t] score matrix, no permute copies) where the backend
+// runs it, the softmax + matmul composite elsewhere.
+ggml_tensor * codec_op_attn_ct(
+    ggml_context * ctx,
+    ggml_tensor * q_ct,
+    ggml_tensor * k_ct,
+    ggml_tensor * v_ct,
+    int32_t head_dim,
+    int32_t n_heads,
+    float scale);
+
 // Espnet rel-shift trick. Input has ne[0]=2t-1, ne[1]=t, ne[2]=heads — the
 // matrix-BD shape from a Conformer self-attention with relative positional
 // encoding (matrix_ac shape (t, t, h) ≠ matrix_bd shape (2t-1, t, h)).
@@ -81,9 +94,10 @@ ggml_tensor * codec_op_lm_attn_rel_key_dth(
 //     batched mul_mat (with the input as the LHS operand because
 //     ggml's batch-broadcast rule only lets `a` broadcast).
 //
-// Casts `w` to F32 internally if it isn't already; the caller can pass
-// the raw GGUF weight tensor.  Used by codec_lm depth-decoder graphs
-// to keep the shared and flexible runtime paths on one helper.
+// `w` runs at its stored type (an F16 weight rounds x to F16, so weights fed
+// activations beyond F16 range are stored F32 by the converter).  Used by
+// codec_lm depth-decoder graphs to keep the shared and flexible runtime paths on
+// one helper.
 ggml_tensor * codec_op_lm_per_pos_linear(
     ggml_context * ctx,
     ggml_tensor * w,
@@ -102,8 +116,8 @@ ggml_tensor * codec_op_lm_per_pos_linear(
 // `(in_dim, out_dim, N>=T)` (per-position, Moshi flexible) —
 // `codec_op_lm_per_pos_linear` handles either case internally.  Norm
 // weights are 1D: `head_dim` for q/k-norm, `hidden` for attn / ffn
-// norm.  Weights may be F16 / quantized; the op casts them to F32 on
-// the fly via `codec_graph_cast_f32`.
+// norm.  Weights may be any stored type (F32 / F16 / BF16 / quantized);
+// they run at that type.
 //
 // Optional knobs:
 //   - `q_norm_w` / `k_norm_w`: per-head RMSNorm on q/k (Qwen3 family,

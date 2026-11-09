@@ -1,189 +1,114 @@
 #ifndef CODEC_TTS_RUNNER_H
 #define CODEC_TTS_RUNNER_H
 
-// codec_common::tts_runner — OPTIONAL reference host loop for TTS.
+// codec_common::tts_runner — the reference TTS host loop.
 //
-// codec_common (audio_lm.*) provides per-step hooks so a host that owns
-// its own `llama_decode` loop (llama.rn's rn-tts) can drive an audio-LM
-// without inheriting a loop it can't control.  That contract is
-// unchanged — see docs/codec_common_api.md §Boundary.
+// It drives the public codec_audio_lm API (include/codec_audio_lm.h) with
+// llama.cpp as the backbone, the same loop a host such as llama.rn writes
+// against the API: load the codec and the backbone, split the text, set the
+// voice, then per segment build the prompt, sample / decode / observe each
+// step and decode (or stream) the audio.  `tools/cli/tts-cli` (one-shot
+// tts_runner_synthesize) and `tools/server/tts-server` (a tts_runner_session) are
+// thin drivers over it.
 //
-// This header adds a SEPARATE, opt-in convenience layer for hosts that
-// DO want a complete, ready-made reference loop: it LINKS the isolated
-// llama.cpp backbone (libttsbackbone, cmake/SetupTtsBackbone.cmake) and
-// owns the whole flow — backbone load, tokenize/prefill, every per-model
-// flow (continuous CFM, residual depth-AR, parallel-heads delay,
-// streaming interleave, sequential text→audio, Chatterbox CFG dual-seq,
-// and the self-contained Pocket-TTS FlowLM), sampling, EOS handling, and
-// codes→PCM decode.  `examples/tts-cli` is a thin driver over this; a
-// future server example can link the same library.
-//
-// This library is built only when CODEC_TTS_BACKBONE=ON.  When it is
-// OFF, tts-cli falls back to the self-contained (no-backbone) FlowLM path
-// exposed by `tts_runner_synthesize_selfcontained`.
+// The session API is built only when CODEC_TTS_BACKBONE=ON (codec_tts_runner
+// links libttsbackbone).  Without it, tts-cli still runs the self-contained
+// models (Pocket-TTS FlowLM) through tts_runner_synthesize_selfcontained.
+
+#include "codec.h"
+#include "codec_audio_lm.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
-
-// llama_logit_bias / llama_token — replicated inline so this header is
-// includable by TUs that do NOT have llama.h on their include path (e.g.
-// tts_runner_flow.cpp, which lives in the always-built codec_common library).
-// Layouts are identical to llama.h's typedefs.  Gated on !LLAMA_H so that
-// TUs that already included llama.h don't see a redeclaration.
-#ifndef LLAMA_H
-typedef struct llama_logit_bias {
-    int32_t token;
-    float   bias;
-} llama_logit_bias;
-typedef int32_t llama_token;
-#endif  // !LLAMA_H
-
-// Forward-declare llama_vocab so the detection helpers below can accept a
-// pointer without requiring callers to include llama.h.
-struct llama_vocab;
 
 namespace codec_common {
 
 // ─────────────────────────────────────────────────────────────────────
-// Backbone-sampler constraint.  Exactly one field is populated for a
-// constrained model; both empty = unconstrained.
-//   grammar    — GBNF for structured models (OuteTTS / MOSS-TTSD)
-//   logit_bias — id-level mask for flat direct-audio Type A models
+// Params — everything the reference loop needs.  Sampling is llama.cpp's
+// (its defaults; the model card recommends values); decoder graph settings
+// left < 0 come from the GGUF metadata.
 // ─────────────────────────────────────────────────────────────────────
-struct tts_constraint {
-    std::string                   grammar;
-    std::vector<llama_logit_bias> logit_bias;
+// Sampling settings the user set (tts_runner_params::sampling_user_set): the
+// backbone GGUF's general.sampling.* fills the others, as llama.cpp does.
+enum tts_sampling_field : uint32_t {
+    TTS_SAMPLING_TEMP               = 1u << 0,
+    TTS_SAMPLING_TOP_K              = 1u << 1,
+    TTS_SAMPLING_TOP_P              = 1u << 2,
+    TTS_SAMPLING_MIN_P              = 1u << 3,
+    TTS_SAMPLING_PENALTY_LAST_N     = 1u << 4,
+    TTS_SAMPLING_PENALTY_REPEAT     = 1u << 5,
+    TTS_SAMPLING_PENALTY_FREQ       = 1u << 6,
+    TTS_SAMPLING_PENALTY_PRESENT    = 1u << 7,
+    TTS_SAMPLING_DRY_MULTIPLIER     = 1u << 8,
+    TTS_SAMPLING_DRY_BASE           = 1u << 9,
+    TTS_SAMPLING_DRY_ALLOWED_LENGTH = 1u << 10,
+    TTS_SAMPLING_DRY_PENALTY_LAST_N = 1u << 11,
+    TTS_SAMPLING_SAMPLERS           = 1u << 12,
 };
 
-// Mask every token OUTSIDE [offset, offset+count) ∪ {eos_id} to -INFINITY.
-// eos_id < 0 = no sentinel.  offset < 0 → returns {} (Type A disabled).
-std::vector<llama_logit_bias> build_flat_audio_mask(int32_t offset, int32_t count,
-                                                    int32_t eos_id, int32_t n_vocab);
-
-// ── OuteTTS V3 prompt builder ─────────────────────────────────────────────────
-//
-// Speaker profile: per-word text, acoustic features, and c1/c2 code frames.
-// Populated by load_outetts_speaker from a JSON file (outetts 0.4.4 schema).
-
-struct OutettsSpeakerWord {
-    std::string          word;                // raw word text
-    float                duration   = 0.0f;  // duration in seconds
-    std::vector<int32_t> c1;                  // DAC codebook-0 indices, 0..1023
-    std::vector<int32_t> c2;                  // DAC codebook-1 indices, 0..1023
-    int32_t energy             = 0;           // quantized 0..100
-    int32_t spectral_centroid  = 0;
-    int32_t pitch              = 0;
+// The host's llama.cpp sampling (common_params_sampling's fields and defaults),
+// for the backbone and every codec-side head group.
+struct tts_sampling {
+    uint32_t seed               = CODEC_AUDIO_LM_DEFAULT_SEED;   // random
+    float    temp               = 0.80f;
+    int32_t  top_k              = 40;
+    float    top_p              = 0.95f;
+    float    min_p              = 0.05f;
+    int32_t  penalty_last_n     = 64;      // 0 = off, -1 = the whole context
+    float    penalty_repeat     = 1.00f;
+    float    penalty_freq       = 0.00f;
+    float    penalty_present    = 0.00f;
+    float    dry_multiplier     = 0.0f;
+    float    dry_base           = 1.75f;
+    int32_t  dry_allowed_length = 2;
+    int32_t  dry_penalty_last_n = -1;
 };
 
-struct OutettsSpeaker {
-    std::string                      text;    // reference text for this speaker
-    std::vector<OutettsSpeakerWord>  words;
+// One llama.cpp sampling setting: its CLI flag (common/arg.cpp), its
+// llama-server request field, the bit, and the field (float or int).
+struct tts_sampling_option {
+    const char * flag;
+    const char * json;
+    uint32_t     bit;
+    float   tts_sampling::* f32;
+    int32_t tts_sampling::* i32;
 };
+const std::vector<tts_sampling_option> & tts_sampling_options();
 
-// Parse an OuteTTS V3 speaker JSON file (outetts 0.4.4 schema) into *out.
-// Returns true on success, false on parse failure (prints to stderr).
-bool load_outetts_speaker(const std::string & json_path, OutettsSpeaker * out);
-
-// Assemble the exact OuteTTS V3 prefill token sequence (outetts10-facts §Step 1):
-//
-//   <|im_start|>\n
-//   <|text_start|>SPEAKER_TEXT. TARGET_TEXT<|text_end|>\n
-//   <|audio_start|>\n
-//   <speaker word blocks>\n
-//   <|word_start|>
-//
-// Each speaker word block is one line:
-//   <|word_start|>WORD<|features|><|t_D.DD|><|energy_N|><|spectral_centroid_N|><|pitch_N|>
-//   <|code|><|c1_X|><|c2_X|>...<|word_end|>
-//
-// Code tokens are appended as raw llama_token ids (c1_base+code, c2_base+code).
-// Valid code range: 0..1023.  Returns empty on any error (null vocab, empty text,
-// out-of-range code).
-std::vector<llama_token> build_outetts_v3_prompt(const llama_vocab      * vocab,
-                                                 const std::string      & text,
-                                                 const OutettsSpeaker   & speaker);
-
-// ── NeuTTS detection ─────────────────────────────────────────────────────────
-//
-// Identifies a NeuTTS backbone from its vocab signature tokens.
-// Returns true when the vocab contains the three marker pieces that together
-// uniquely identify a NeuTTS backbone (nano or air).
-//
-// Both helpers are non-static so they can be called from the test binary
-// (separate TU).  The llama_vocab* pointer type is forward-declared above;
-// callers that also include llama.h see the same concrete type.
-
-bool detect_neutts(const llama_vocab * vocab);
-
-// Derives the audio-token range from the NeuTTS backbone vocab.
-// On success: *offset = id of <|speech_0|>, *count = contiguous <|speech_N|>
-// block length, *eos_id = id of <|SPEECH_GENERATION_END|>.  Returns false if
-// any of the marker tokens are absent.
-bool neutts_audio_token_range(const llama_vocab * vocab,
-                              int32_t * offset,
-                              int32_t * count,
-                              int32_t * eos_id);
-
-// Derive the multi-codebook audio-token ranges from an OuteTTS V3 backbone
-// vocab.  Resolves from vocab pieces (robust across the 0.6B/1B backbones):
-//   offsets[0] = <|c1_0|>, offsets[1] = <|c2_0|>, counts = {1024, 1024},
-//   *sentinel = <|code|> (per-frame reset), *eos = <|audio_end|>.
-// Returns false if any marker token is absent.
-bool outetts_audio_token_ranges(const llama_vocab * vocab,
-                                int32_t offsets[2],
-                                int32_t counts[2],
-                                int32_t * sentinel,
-                                int32_t * eos);
-
-// Build the full NeuTTS ICL prefill token sequence.
-//
-// Assembles the verbatim prompt string (phonemes mode):
-//   "user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref_text_phonemes} {input_phonemes}"
-//   "<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>"
-// tokenized with parse_special=true so the <|...|> markers resolve to their
-// special ids, then appends one vocab id (offset + c) for each code in
-// ref_codes.
-//
-// Guards: returns an empty vector if vocab is null, if llama_tokenize fails,
-// or if any ref_code is out of [0, count).
-std::vector<llama_token> build_neutts_prompt(
-    const llama_vocab          * vocab,
-    const std::string          & ref_text_phonemes,
-    const std::string          & input_phonemes,
-    const std::vector<int32_t> & ref_codes);
-
-// ─────────────────────────────────────────────────────────────────────
-// Params — everything the reference loop needs.  Unset optionals fall
-// back to the model's training-time defaults (read from GGUF metadata).
-// ─────────────────────────────────────────────────────────────────────
 struct tts_runner_params {
     std::string codec_path;          // codec / codec_lm GGUF (required)
+    std::vector<codec_model_kv_override> kv_overrides;  // codec GGUF metadata overrides
     std::string backbone_path;       // llama.cpp backbone GGUF; empty for
                                      // self-contained models (Pocket FlowLM)
     std::string text;                // synthesis target (required)
     std::string ref_audio_path;      // optional WAV for voice conditioning
     std::string ref_text;            // optional transcript of ref_audio (NeuTTS phonemization)
+    std::string voice;               // builtin codec speaker name (codec_get_speaker)
+    std::string speaker_file;        // speaker GGUF from codec_speaker_save
+    std::string save_speaker;        // write the voice in use to this path
+    const codec_speaker * voice_spk = nullptr;   // the resolved voice (tts_runner_make_voice), borrowed
+    std::string instruct;            // CosyVoice instruct text (instruct2 mode)
 
     int32_t  n_threads = 0;
     bool     use_gpu   = false;
-    uint32_t seed      = 0xC0DEC1AB;
+    int32_t  n_parallel = 1;         // tts_runner_load: requests a session runs at once
     int32_t  max_frames = 0;         // 0 → per-model default
+    int32_t  min_frames = -1;        // -1 → the model's own minimum
 
-    // Sampler overrides — has_* gates whether the value is applied.
-    bool  has_temp = false;   float   temp  = 0.0f;
-    bool  has_top_p = false;  float   top_p = 0.0f;
-    bool  has_top_k = false;  int32_t top_k = 0;
+    // llama.cpp sampling (common_params_sampling defaults).  Segment i of a
+    // long text uses seed + i (a random seed stays random); the seed also
+    // drives the model's own randomness (flow init noise).
+    tts_sampling           sampling;
+    std::string            samplers;
+    std::vector<int32_t>   penalty_exempt;
+    uint32_t               sampling_user_set = 0;   // tts_sampling_field bits
 
-    // Continuous-CFM (BlueMagpie) / FlowLM knobs.
-    float   cfg       = 2.0f;
-    int32_t timesteps = 10;
-    int32_t min_len   = -1;          // -1 → model default
-
-    // Chatterbox T3 knobs (has_* gates the override).
-    bool has_cfg_weight = false;         float cfg_weight = 0.0f;
-    bool has_min_p = false;              float min_p = 0.0f;
-    bool has_rep_penalty = false;        float repetition_penalty = 0.0f;
+    // Decoder graph settings; < 0 → the GGUF's.
+    float   lm_guidance   = -1.0f;   // guidance of the backbone pair (Chatterbox T3)
+    float   flow_guidance = -1.0f;   // guidance of a flow / CFM decoder
+    int32_t flow_steps    = -1;      // steps of a flow / CFM decoder
 
     // Grammar (GBNF) constraint for the BACKBONE-logits sampler.  When
     // non-empty this GBNF is attached to the common_sampler that samples
@@ -193,6 +118,20 @@ struct tts_runner_params {
     // error, not a crash.  Empty → the model's auto-grammar (if any) is used
     // instead; see codec_common::tts_auto_grammar.
     std::string grammar;
+
+    // Long input runs a segment at a time: sentences packed up to this many
+    // UTF-8 bytes per segment, blank lines always split (tts_split_text).
+    // 0 = the whole text in one run.
+    int32_t segment_bytes = 0;
+
+    // Streaming.  When set, every piece of audio goes to on_audio (model
+    // sample rate / channels, interleaved) as soon as it is ready and
+    // result.pcm stays empty; return false to stop the run.  Pieces are whole
+    // segments, or with stream_chunk_ms > 0 chunks of about that much audio
+    // decoded while the AR loop runs — for models whose codes accumulate in
+    // audio_lm (the others still stream per segment).
+    std::function<bool(const float * pcm, int32_t n_samples, int32_t sample_rate, int32_t n_channels)> on_audio;
+    int32_t stream_chunk_ms = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -206,32 +145,85 @@ struct tts_runner_result {
     int32_t     n_frames = 0;        // audio frames generated
     std::string stop_reason;         // "eos_code_c0" / "stop_head" / …
 
+    double load_ms    = 0.0;         // codec + backbone load, up to the first AR step (incl. speaker_ms)
+    double speaker_ms = 0.0;         // decoder speaker from --ref-audio / --speaker-file / --voice
+    double decode_ms = 0.0;          // codes -> PCM (audio_lm_decode_audio)
+    double total_ms  = 0.0;
+
     std::string error;               // set + returns false on failure
 };
 
-// Self-contained (no-backbone) FlowLM synthesize (Pocket-TTS,
-// codec.lm.kind="flow_lm").  Everything runs through the codec C API +
-// codec_lm_flow_* helpers — no llama.cpp backbone.  Lives in the always-
-// built codec_common library so the no-backbone tts-cli build keeps the
-// FlowLM path.  Return value:
-//   * 1  → handled the request (out populated on success; out->error set
-//          on failure — check out->error.empty()).
-//   * 0  → this is NOT a FlowLM model; the caller should fall through to
-//          the backbone-driven flows.
-// (Mirrors the old run_flow_lm_synthesize's -1 sentinel, remapped.)
+// Self-contained synthesize (models that need no backbone, Pocket-TTS
+// FlowLM).  Lives in the always-built codec_common library.  Returns 0 when
+// the codec GGUF needs a backbone; 1 when it handled the request (out->error
+// set on failure, including a codec that cannot be opened).
 int tts_runner_synthesize_selfcontained(const tts_runner_params & params,
                                         tts_runner_result * out);
 
-// Run the full reference host loop and synthesize `params.text` → PCM.
-// Returns true on success (result.pcm populated); false with
-// result.error set on failure.  Tries the self-contained FlowLM path
-// first, then chooses a backbone flow from the codec GGUF metadata
-// (host_arch / codec.lm.kind) and loads the backbone.  Requires the
-// isolated llama backbone (CODEC_TTS_BACKBONE=ON); only compiled into
-// the codec_tts_runner library.
-//
-// Diagnostic progress is printed to stdout/stderr (the same lines
-// examples/tts-cli emitted); hosts that want silence can capture them.
+// Pieces of the runner that need no backbone (tts_runner_base.cpp).
+// Interleaved multi-channel PCM -> mono (channel average); n_frames samples per channel.
+std::vector<float> downmix_mono(const float * in, size_t n_frames, int32_t n_channels);
+// Mono F32 from a WAV file (channels averaged); true with an empty `ref_pcm`
+// when `path` is empty.
+bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm, int32_t * out_n, int32_t * out_sr,
+                    std::string * err);
+codec_audio_lm * tts_runner_open_codec(const tts_runner_params & params, std::string * err);
+// The request's codec_audio_lm_tts_request (pointers into `params`).
+codec_audio_lm_tts_request tts_runner_request(const tts_runner_params & params);
+// The request's voice: speaker_file > ref_audio (+ ref_text, when the model
+// can clone) > the builtin `voice` > `voice_spk` > the model default;
+// save_speaker writes it.
+struct tts_runner_voice {
+    codec_speaker *       owned = nullptr;
+    const codec_speaker * use   = nullptr;   // NULL: the model default
+    tts_runner_voice() = default;
+    tts_runner_voice(const tts_runner_voice &) = delete;
+    tts_runner_voice & operator=(const tts_runner_voice &) = delete;
+    ~tts_runner_voice() { if (owned) codec_speaker_free(owned); }
+};
+bool tts_runner_make_voice(codec_audio_lm * alm, const tts_runner_params & params, tts_runner_voice * out,
+                           double * ms, std::string * err);
+// Moves `buf` into out->pcm (frees it).
+bool tts_runner_take_pcm(codec_pcm_buffer * buf, tts_runner_result * out);
+bool tts_runner_generate_self_contained(codec_audio_lm * alm, const tts_runner_params & params,
+                                        tts_runner_result * out);
+
+// ─────────────────────────────────────────────────────────────────────
+// Session — load once, synthesize many (a server).  tts_runner_load reads
+// the load-time fields of `params` (codec_path, kv_overrides,
+// backbone_path, n_threads, use_gpu, max_frames, n_parallel);
+// tts_runner_run reads the per-request ones (text, voice / speaker_file /
+// ref_audio, sampler knobs, ...); max_frames stays the load-time one.
+// The weights load once; each of the n_parallel slots has its own codec and
+// backbone contexts, so that many runs go at once (n_threads each).  Runs
+// may come from any thread: a run waits for a free slot, in arrival order.
+// Only compiled into codec_tts_runner.
+// ─────────────────────────────────────────────────────────────────────
+struct tts_runner_session;
+
+struct tts_runner_info {
+    std::vector<std::string> voices;      // the speakers `voice` can name
+    std::string              default_voice;
+    bool                     takes_instruct = false;   // CosyVoice instruct mode
+    std::string              error;       // speaker file could not be listed
+};
+
+tts_runner_session * tts_runner_load(const tts_runner_params & params, std::string * err);
+bool                 tts_runner_run (tts_runner_session * s, const tts_runner_params & params,
+                                     tts_runner_result * out);
+void                 tts_runner_free(tts_runner_session * s);
+// Calls fn with an idle slot's codec_audio_lm, e.g. to create / load voices
+// (voices work on every slot); waits for one like a run.
+void                 tts_runner_with_audio_lm(tts_runner_session * s,
+                                              const std::function<void(codec_audio_lm *)> & fn);
+// Voices are the codec GGUF's builtin speakers, or those in `speaker_file`
+// when the runs pass one.
+tts_runner_info      tts_runner_get_info(tts_runner_session * s, const std::string & speaker_file = "");
+
+// Load, run and free in one go: `params.text` -> PCM.  Returns true on
+// success (result.pcm populated); false with result.error set on failure.
+// Progress goes through codec_log (codec_log_set to redirect it).  Only
+// compiled into the codec_tts_runner library.
 bool tts_runner_synthesize(const tts_runner_params & params,
                            tts_runner_result * out);
 

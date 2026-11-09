@@ -74,6 +74,7 @@ void llama_rn_slot::reset() {
     n_past = 0;
     n_decoded = 0;
     n_remaining = -1;
+    n_min_predict = -1;
     i_batch = -1;
     params = nullptr;
 
@@ -562,6 +563,10 @@ bool llama_rn_slot::refill_mtp_tokens() {
         throw std::runtime_error("failed to process speculative target batch");
     }
 
+    // n_min_predict: the batch's logits i are the token n_decoded + i.
+    for (size_t i = 0; i <= n_draft && n_decoded + (int32_t) i < n_min_predict; ++i) {
+        parent_ctx->holdBackEndOfGeneration((int) i);
+    }
     auto accepted = common_sampler_sample_and_accept_n(ctx_sampling, parent_ctx->ctx, spec_draft);
     if (accepted.empty()) {
         return false;

@@ -158,6 +158,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_NVFP4         = 39, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q1_0          = 40, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q2_0          = 41, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_F8_E4M3       = 42, // except 1d tensors
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
@@ -292,6 +293,12 @@ extern "C" {
         LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT,
         LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU,
         LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA,
+        LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ,
+        LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT,
+        LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER,
+        LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE,
+        LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH,
+        LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N,
     };
 
     enum llama_process_type {
@@ -396,7 +403,8 @@ extern "C" {
         enum ggml_type type_k; // data type for K cache [EXPERIMENTAL]
         enum ggml_type type_v; // data type for V cache [EXPERIMENTAL]
 
-        size_t moe_cache_size; // device cache in bytes for the experts kept in host memory, split among the devices like the layers, 0 = disabled [EXPERIMENTAL]
+        size_t moe_cache_size;      // device cache in bytes for the experts kept in host memory, split among the devices like the layers, 0 = disabled [EXPERIMENTAL]
+        float  moe_cache_cpu_share; // share of the MoE cache misses computed on the CPU instead of uploaded, 0 = all uploaded [EXPERIMENTAL]
 
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted

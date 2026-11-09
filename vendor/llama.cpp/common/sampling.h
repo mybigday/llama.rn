@@ -41,6 +41,14 @@ struct common_sampler * common_sampler_init(
         const struct llama_model * model,
         struct common_params_sampling & params);
 
+// A sampler over external logits of `n_vocab` entries (ids 0..n_vocab-1),
+// e.g. a token head evaluated outside llama.cpp, from the same params as
+// common_sampler_init: logit bias, penalties and the vocabulary-free stages.
+// Grammar, DRY, infill and mirostat need a llama vocabulary and are refused
+// (nullptr).  Sample it with common_sampler_sample_logits, accept with
+// common_sampler_accept.
+struct common_sampler * common_sampler_init_logits(const struct common_params_sampling & params, int32_t n_vocab);
+
 void common_sampler_free(struct common_sampler * gsmpl);
 
 // if is_generated is true, the token is accepted by the sampling chain, the reasoning budget sampler, and the grammar sampler
@@ -66,6 +74,10 @@ struct llama_sampler * common_sampler_get(const struct common_sampler * gsmpl);
 // useful in cases where all the resulting candidates (not just the sampled one) must fit the grammar
 //
 llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_context * ctx, int idx, bool grammar_first = false);
+
+// Draw from `n` external logits with a common_sampler_init_logits sampler (not
+// accepted: call common_sampler_accept).
+llama_token common_sampler_sample_logits(struct common_sampler * gsmpl, const float * logits, int32_t n);
 
 // generalized version of common_sampler_sample
 //

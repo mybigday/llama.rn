@@ -3,7 +3,7 @@
 
 // Generic audio-LM API for codec.cpp.  See docs/codec_common_api.md
 // for the full design.  Mirrors llama.cpp's `common/` layer pattern:
-// the host (llama.rn's rn-tts, examples/tts-cli, …) keeps full
+// the host (llama.rn's rn-tts, tools/cli/tts-cli, …) keeps full
 // ownership of the `llama_decode` loop, the sampler, and KV
 // management; this layer provides build-time + per-step + end-of-
 // sequence hooks that the host calls at three points in its existing
@@ -11,6 +11,7 @@
 
 #include "codec.h"
 #include "codec_lm.h"
+#include "codec_speaker.h"
 
 #include <cstdint>
 #include <map>
@@ -47,7 +48,15 @@ struct audio_lm_params {
     std::string codec_path;             // codec / codec_lm GGUF path
     bool        use_gpu      = false;
     int32_t     n_threads    = 0;       // 0 → codec.cpp default
+    std::vector<codec_model_kv_override> kv_overrides;  // GGUF metadata overrides (no terminator)
 };
+
+// Parses llama.cpp-style "KEY=TYPE:VALUE" (TYPE ∈ int|float|bool|str).
+bool parse_kv_override(const char * spec, codec_model_kv_override * out);
+
+// Loads a codec model applying `overrides` (terminator appended internally).
+codec_model * load_codec_model(const std::string & path, codec_model_params mp,
+                               const std::vector<codec_model_kv_override> & overrides);
 
 // Generic input descriptor.  Fill the fields the caller has; the model
 // uses what its modality + speaker_info declare.  Unknown / unused
@@ -72,9 +81,8 @@ struct audio_lm_input {
     // Synthesis target text.
     std::string   text;
 
-    // Model-specific knobs (language_id, speaker_id, x_vector_only_mode,
-    // …).  Keys + semantics live in docs/codec_common_input_keys.md
-    // (to be authored alongside the first 2–3 model integrations).
+    // Model-specific knobs; read by audio_lm_build_prompt (currently
+    // `ref_speech_tokens_csv`).
     std::map<std::string, std::string> extra;
 };
 
@@ -97,13 +105,6 @@ struct audio_lm_prompt {
     // shape as `embeds_prefix` when present; empty when CFG isn't used.
     std::vector<float> embeds_uncond;
 
-    // Sampler hints — model's training-time defaults.  Host may
-    // override; presented for one-call convenience.
-    float                 default_temperature        = 0.0f;
-    float                 default_top_p              = 0.0f;
-    float                 default_min_p              = 0.0f;
-    float                 default_repetition_penalty = 0.0f;
-    float                 default_cfg_weight         = 0.0f;   // 0 = no CFG
     codec_common_token    start_token                = -1;    // -1 = no seed
     codec_common_token    stop_token                 = -1;    // -1 = use vocab EOS
 };
@@ -140,6 +141,10 @@ struct audio_lm_context;
 // failure returns nullptr and writes the reason into `*err` if non-null.
 
 audio_lm_context * audio_lm_init (const audio_lm_params & p, std::string * err = nullptr);
+// Another context on `base`'s codec model (weights loaded once): its own codec
+// context, codec_lm and generation state, so the two can run at the same
+// time.  `base` must outlive it.
+audio_lm_context * audio_lm_init_shared(const audio_lm_context * base, std::string * err = nullptr);
 void               audio_lm_free (audio_lm_context * ctx);
 
 // Drop per-sequence state (accumulated codes, internal step machine,
@@ -156,9 +161,45 @@ int32_t      audio_lm_n_codebook     (const audio_lm_context * ctx);
 int32_t      audio_lm_hidden_dim     (const audio_lm_context * ctx);
 const char * audio_lm_last_error     (const audio_lm_context * ctx);
 
-// Borrowed handle to the underlying codec_lm (NULL when none loaded).
-// Lets a host reach model-specific helpers not wrapped by codec_common
-// (e.g. the Chatterbox T3 `codec_lm_chatterbox_*` prompt/tokenizer API).
+// ─────────────────────────────────────────────────────────────────────
+// Voices (codec_speaker): the generation's voice is borrowed, set per
+// request (audio_lm_use_decode_speaker, NULL = the model's default); the
+// prompt builders read its slots and decode_audio decodes with it.
+// ─────────────────────────────────────────────────────────────────────
+bool audio_lm_codec_can_speaker_from_audio(const audio_lm_context * ctx);
+void audio_lm_use_decode_speaker         (audio_lm_context * ctx, const codec_speaker * spk);
+const codec_speaker * audio_lm_decode_speaker_set(const audio_lm_context * ctx);   // as set (may be NULL)
+// A builtin voice (owned by the model; NULL name = the default), or NULL.
+const codec_speaker * audio_lm_builtin_speaker(audio_lm_context * ctx, const char * name);
+// Caller-owned (codec_speaker_free); NULL on error.  `name` = NULL loads the
+// file's default; `ref_text` (optional) is the clip's transcript.
+codec_speaker * audio_lm_load_speaker      (audio_lm_context * ctx, const char * path, const char * name);
+codec_speaker * audio_lm_speaker_from_audio(audio_lm_context * ctx, const float * pcm, int32_t n_samples,
+                                            int32_t sample_rate, const char * ref_text);
+bool            audio_lm_save_speaker      (audio_lm_context * ctx, const codec_speaker * spk, const char * path,
+                                            const char * name);
+// The voice the generation uses (the model default when none was set;
+// NULL when the codec has none), e.g. to read model-specific slots.
+const codec_speaker * audio_lm_decode_speaker(const audio_lm_context * ctx);
+// `spk`, else the model's default voice (may be NULL); sets nothing.
+const codec_speaker * audio_lm_resolve_speaker(const audio_lm_context * ctx, const codec_speaker * spk);
+
+struct audio_lm_speaker_entry {
+    std::string name;
+    std::string ref_text;
+    bool        is_default = false;
+};
+// Builtin speakers of the codec model.
+std::vector<audio_lm_speaker_entry> audio_lm_list_codec_speakers(const audio_lm_context * ctx);
+// Speakers in a speaker file (checked against the codec model like a load).
+bool audio_lm_list_speaker_file(audio_lm_context * ctx, const char * path,
+                                std::vector<audio_lm_speaker_entry> * out);
+
+// Raw codec GGUF metadata value (stringified), or NULL when absent.
+const char * audio_lm_meta_str(const audio_lm_context * ctx, const char * key);
+
+// Borrowed handle to the underlying codec_lm (NULL when none loaded); the
+// families reach their model-specific helpers (src/lm/lm_models.h) through it.
 struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
@@ -224,50 +265,10 @@ void audio_lm_set_audio_token_ranges(
         int32_t            frame_sentinel_id,
         int32_t            eos_id);
 
-void audio_lm_get_audio_token_range(
-        const audio_lm_context * ctx,
-        int32_t * out_offset,
-        int32_t * out_count,
-        int32_t * out_eos_id);
-
 // Number of complete audio frames accumulated so far (valid during or
 // after observe_token / observe_codes calls; incremented when the last
 // codebook of each frame is filled).
 int32_t audio_lm_codes_n_frames(const audio_lm_context * ctx);
-
-// ─────────────────────────────────────────────────────────────────────
-// Bare-context allocation (unit-test / model-less use)
-//
-// Allocates a zeroed audio_lm_context without loading any model.
-// Only the accumulator and Type A range state are functional; all
-// model-dependent paths (observe_codes, decode_audio, etc.) will fail
-// gracefully.  Free with audio_lm_free_bare (NOT audio_lm_free).
-// ─────────────────────────────────────────────────────────────────────
-audio_lm_context * audio_lm_alloc_bare();
-void               audio_lm_free_bare(audio_lm_context * ctx);
-
-// Debug accessor: returns a pointer to the raw accumulated codes vector
-// and writes the number of codebooks + frames into *out_n_q / *out_n_frames.
-// Valid until the next mutating call (observe_token, reset, free).
-// Returns nullptr when ctx is null or no codes have been accumulated.
-const int32_t * audio_lm_debug_codes(const audio_lm_context * ctx,
-                                      int32_t * out_n_q,
-                                      int32_t * out_n_frames);
-
-// ─────────────────────────────────────────────────────────────────────
-// codec_lm end-of-audio metadata (codebook-AR kinds).
-//
-// Surfaces the codec_lm's `codec.lm.eos_code_c0` / `codec.lm.eos_min_step`
-// (see codec_lm.h).  This is the model-owned end-of-audio decision the
-// host used to hardcode; `audio_lm_observe_codes` already acts on it, but
-// hosts may want to read the raw values (e.g. to display / log the stop
-// code).  Writes -1 / 0 when no codec_lm is loaded or no sentinel exists.
-// Any out-pointer may be NULL.
-// ─────────────────────────────────────────────────────────────────────
-void audio_lm_get_lm_eos(
-        const audio_lm_context * ctx,
-        int32_t * out_eos_code_c0,
-        int32_t * out_eos_min_step);
 
 // ─────────────────────────────────────────────────────────────────────
 // Type B embed-override flag
@@ -289,8 +290,6 @@ void audio_lm_get_lm_eos(
 void audio_lm_set_uses_embed_override(audio_lm_context * ctx,
                                        bool    enabled,
                                        int32_t start_step);
-
-bool audio_lm_get_uses_embed_override(const audio_lm_context * ctx);
 
 // ─────────────────────────────────────────────────────────────────────
 // Per-step observe (called by host after each backbone token sample)
@@ -413,6 +412,45 @@ bool audio_lm_push_codes(audio_lm_context * ctx,
 // ─────────────────────────────────────────────────────────────────────
 bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out);
 
+// Chunked decode for streaming: output frames [frame_begin, frame_end) of
+// the audio accumulated so far (frame_end = -1: up to the last one).  Frames
+// are what the codec decodes — latent frames, or code frames after the
+// delay-pattern undo — and audio_lm_decodable_frames counts them.  A window
+// decodes with no context beyond its edges, so callers overlap windows and
+// cross-fade the seams.
+bool    audio_lm_decode_audio_range(audio_lm_context * ctx, int32_t frame_begin, int32_t frame_end,
+                                    audio_lm_audio_output * out);
+int32_t audio_lm_decodable_frames(const audio_lm_context * ctx);
+// Samples per decoded frame.  A window of n frames decodes to about n * hop
+// samples aligned at its start; some codecs drop a few at the end (DAC: 8).
+int32_t audio_lm_codec_hop(const audio_lm_context * ctx);
+// Width of the codec's continuous latent (codec_decode_quantized_representation).
+int32_t audio_lm_codec_latent_dim(const audio_lm_context * ctx);
+
+// Decode host-collected latents straight through the codec, in the codec's
+// own `codec_decode_quantized_representation` layout (Soprano: frame-major
+// [n_frames, dim] backbone hidden states).  For codec-only continuous models
+// that have no codec_lm adaptor.
+bool audio_lm_decode_latents(audio_lm_context * ctx, const float * latents,
+                             int32_t n_frames, int32_t dim, audio_lm_audio_output * out);
+// Same for frame-major [n_frames, dim] latents (the continuous / flow layout).
+bool audio_lm_decode_latents_frame_major(audio_lm_context * ctx, const float * latents,
+                                         int32_t n_frames, int32_t dim, audio_lm_audio_output * out);
+
+// The codec input decode_audio builds, apart from the decoding: frames
+// [frame_begin, frame_end) (-1 = all) of frame-major LM codes [n_frames_in, n_cb_in]
+// mapped to codec quantizer codes [n_frames, *out_n_q] (control codebooks
+// dropped, delay pattern undone, merged cb0 shifted).
+bool audio_lm_codec_codes(audio_lm_context * ctx, const int32_t * lm_codes, int32_t n_frames_in, int32_t n_cb_in,
+                          int32_t frame_begin, int32_t frame_end, std::vector<int32_t> * out, int32_t * out_n_q);
+// codec_decode of quantizer codes with the decoder speaker.
+bool audio_lm_decode_codec_codes(audio_lm_context * ctx, const int32_t * codes, int32_t n_frames, int32_t n_q,
+                                 audio_lm_audio_output * out);
+// The accumulated generation as codec input: quantizer codes (codes, width = n_q)
+// or, for continuous models, frame-major latents (latents, width = dim).
+bool audio_lm_generation_input(audio_lm_context * ctx, std::vector<int32_t> * codes, std::vector<float> * latents,
+                               int32_t * n_frames, int32_t * width);
+
 // ═════════════════════════════════════════════════════════════════════
 // Host-driven AR (Phase B): prompt assembly + codebook step machine
 //
@@ -462,11 +500,6 @@ struct audio_lm_prompt_info {
     int32_t eos_code_c0   = -1;     // cb0 EOS sentinel (-1 = none)
     int32_t eos_min_step  = 0;
 
-    // Sampling defaults (rn-tts convention): temp 0.9 / top_p 0.95 /
-    // top_k 50.  Host may override.  0 → greedy.
-    float   default_temperature = 0.0f;
-    float   default_top_p       = 0.0f;
-    int32_t default_top_k       = 0;
 
     // ── Streaming text↔audio interleave (MOSS-TTS-Realtime) ─────────────
     // When true the per-backbone-step input is composed as
@@ -488,8 +521,6 @@ struct audio_lm_prompt_info {
     int32_t text_pad_id           = -1;     // text lane fill once text ends
     int32_t audio_pad_code        = -1;     // audio lane fill during text-only
     int32_t bos_code_c0           = -1;     // audio BOS in last prefill row cb0
-    float   default_repetition_penalty = 1.0f;
-    int32_t repetition_window          = 0;
 
     // ── Sequential text→audio (LFM2-Audio) ──────────────────────────────
     // When true the model is a *sequential* multimodal LM (LFM2-Audio):
@@ -541,9 +572,7 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
 // it is meaningless for codec_lm audio-codebook heads (arbitrary float
 // arrays, no vocab).
 //
-// Precedent: llama.rn's rn-tts build_dynamic_grammar (OuteTTS/Soprano/
-// NeuTTS families).  The concept is ported; the first real application
-// here is MOSS-TTSD cb0 (merged text+speech vocab): the grammar allows
+// The first application is MOSS-TTSD cb0 (merged text+speech vocab): the grammar allows
 // only the speech-token range [cb0_speech_range_start, cb0_speech_range_end)
 // plus the end-of-audio sentinel eos_code_c0, so the backbone can't drift
 // into arbitrary text tokens mid-utterance.  A non-speech cb0 token is the
@@ -553,8 +582,9 @@ bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
 // threaded through for future prompt-dependent grammars (OuteTTS-style
 // word-sequence constraints).
 
-// OuteTTS interface version — selects the grammar template family.
-enum class outetts_version { V2, V3 };
+// OuteTTS interface version (upstream outetts/version/vN): V1 = OuteTTS 0.2,
+// V2 = 0.3, V3 = 1.0. Selects the prompt format and grammar template.
+enum class outetts_version { V1, V2, V3 };
 
 // Build the prompt-dependent GBNF for an OuteTTS backbone. Pure string:
 // splits `text` on ASCII whitespace into words, converts each to a GBNF
@@ -565,7 +595,7 @@ enum class outetts_version { V2, V3 };
 std::string outetts_build_grammar(outetts_version v, const std::string & text);
 
 std::string tts_auto_grammar(const audio_lm_prompt_info & pi,
-                             const std::string & text);
+                             const std::string & text, int32_t min_frames = 0);
 
 // ─── Codebook step machine passthroughs (Type C/D) ──────────────────
 //
@@ -645,9 +675,12 @@ bool audio_lm_compose_audio_codes_embd(audio_lm_context * ctx,
 //
 // `role_tokens` are the tokenized "<|im_start|>assistant\n" header (host
 // tokenizes them), `text_tokens` the payload text tokens.  `xvector` (may
-// be null) is the ECAPA x-vector (hidden floats).  On success writes the
-// prefix rows (row-major, `out_n_rows * hidden` floats) into `out_embds`
-// (host sizes it to at least `(3 + 5 + n_text_prefix) * hidden`), sets
+// be null) is the ECAPA x-vector (hidden floats).  Without one, the decode
+// speaker's `spk_id` slot (CustomVoice builtin voices) supplies the speaker
+// row as codec_embd[spk_id], and its `language_id` slot (dialect voices)
+// switches the control stream to [think, think_bos, LANG, think_eos].  On
+// success writes the prefix rows (row-major, `out_n_rows * hidden` floats)
+// into `out_embds` (host sizes it to at least `(n_role + 7 + 1) * hidden`), sets
 // `*out_n_rows`, and reports how many payload text tokens were consumed by
 // the prefix in `*out_text_consumed` (1: text[0] summed at row 8).
 bool audio_lm_talker_has_projection(const audio_lm_context * ctx);

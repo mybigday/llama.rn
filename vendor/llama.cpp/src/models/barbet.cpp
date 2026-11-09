@@ -109,7 +109,7 @@ llama_model_barbet::graph::graph(const llama_model & model, const llm_graph_para
         cb(cur, "attn_norm", il);
 
         if (hparams.is_recr(il)) {
-            cur = build_mamba2_layer(inp->get_recr(), cur, model, ubatch, il);
+            cur = build_mamba2_layer(inp->get_recr(), cur, ubatch, il);
         } else {
             cur = build_attention_layer(cur, inp_pos, inp->get_attn(), model, n_embd_head, il);
         }

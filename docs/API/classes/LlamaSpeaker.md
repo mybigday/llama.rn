@@ -10,15 +10,12 @@
 
 ### Properties
 
-- [baked](LlamaSpeaker.md#baked)
 - [ctxId](LlamaSpeaker.md#ctxid)
 - [family](LlamaSpeaker.md#family)
 - [id](LlamaSpeaker.md#id)
-- [rows](LlamaSpeaker.md#rows)
 
 ### Methods
 
-- [bake](LlamaSpeaker.md#bake)
 - [release](LlamaSpeaker.md#release)
 
 ## Constructors
@@ -33,26 +30,14 @@
 | :------ | :------ |
 | `ctxId` | `number` |
 | `h` | `Object` |
-| `h.baked` | `boolean` |
 | `h.family` | `string` |
 | `h.id` | `number` |
-| `h.rows` | `number` |
 
 #### Defined in
 
-[index.ts:411](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L411)
+[index.ts:400](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L400)
 
 ## Properties
-
-### baked
-
-• **baked**: `boolean`
-
-#### Defined in
-
-[index.ts:407](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L407)
-
-___
 
 ### ctxId
 
@@ -60,7 +45,7 @@ ___
 
 #### Defined in
 
-[index.ts:409](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L409)
+[index.ts:398](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L398)
 
 ___
 
@@ -70,7 +55,7 @@ ___
 
 #### Defined in
 
-[index.ts:403](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L403)
+[index.ts:396](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L396)
 
 ___
 
@@ -80,33 +65,9 @@ ___
 
 #### Defined in
 
-[index.ts:401](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L401)
-
-___
-
-### rows
-
-• **rows**: `number`
-
-#### Defined in
-
-[index.ts:405](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L405)
+[index.ts:394](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L394)
 
 ## Methods
-
-### bake
-
-▸ **bake**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-#### Defined in
-
-[index.ts:419](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L419)
-
-___
 
 ### release
 
@@ -118,4 +79,4 @@ ___
 
 #### Defined in
 
-[index.ts:426](https://github.com/mybigday/llama.rn/blob/ccfc8e22/src/index.ts#L426)
+[index.ts:406](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L406)

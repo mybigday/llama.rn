@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <string>
 
-// Lightweight phase-timing hook.  When the `CODEC_PERF_LOG` environment
+// Lightweight phase-timing hook, compiled in only with CODEC_DEBUG_TOOLS
+// (cmake -DCODEC_DEBUG_TOOLS=ON); otherwise the macros below expand to nothing.
+// When the `CODEC_PERF_LOG` environment
 // variable is set to a file path, each completed `codec_perf_scope`
 // instance appends a JSON-lines record like:
 //
@@ -17,6 +19,8 @@
 // Use the `CODEC_PERF_SCOPE` macro to record a phase with its enclosing
 // scope's lifetime.  Pass an optional `detail` string for caller-specific
 // context (graph kind, n_frames, etc.).
+
+#ifdef CODEC_DEBUG_TOOLS
 
 struct codec_perf_scope {
     const char * phase;
@@ -39,5 +43,13 @@ void codec_perf_event(const char * phase, const std::string & detail);
 #define CODEC_PERF_TOKEN_PASTE(a, b)  CODEC_PERF_TOKEN_PASTE2(a, b)
 #define CODEC_PERF_SCOPE(name)        codec_perf_scope CODEC_PERF_TOKEN_PASTE(_codec_perf_, __LINE__)((name))
 #define CODEC_PERF_SCOPE_D(name, det) codec_perf_scope CODEC_PERF_TOKEN_PASTE(_codec_perf_, __LINE__)((name), (det))
+
+#else
+
+inline void codec_perf_event(const char *, const std::string &) {}
+#define CODEC_PERF_SCOPE(name)        ((void) 0)
+#define CODEC_PERF_SCOPE_D(name, det) ((void) 0)
+
+#endif // CODEC_DEBUG_TOOLS
 
 #endif // CODEC_RUNTIME_PERF_LOG_H
