@@ -14,13 +14,35 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
+#include <cxxabi.h>
 #include <fstream>
+#include <typeinfo>
 
 #if defined(__ANDROID__)
 #include <android/set_abort_message.h>
 #endif
 
 namespace rnllama {
+
+std::string current_exception_message() {
+    try {
+        throw;
+    } catch (const std::exception & e) {
+        return e.what();
+    } catch (...) {
+        // Objective-C exceptions land here too; their type name is the class name.
+        const std::type_info * type = abi::__cxa_current_exception_type();
+        if (type == nullptr) {
+            return "Unknown error";
+        }
+        int status = 0;
+        char * demangled = abi::__cxa_demangle(type->name(), nullptr, nullptr, &status);
+        std::string name = (status == 0 && demangled != nullptr) ? demangled : type->name();
+        std::free(demangled);
+        return "Unknown error (exception type: " + name + ")";
+    }
+}
 
 namespace {
 
