@@ -17553,15 +17553,14 @@ static ggml_backend_buffer_t ggml_backend_opencl_buffer_type_alloc_buffer(ggml_b
 }
 
 static size_t ggml_backend_opencl_buffer_type_get_alignment(ggml_backend_buffer_type_t buffer_type) {
-    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
-    return dev_ctx->backend_ctx->alignment;
+    // init lazily like alloc_buffer: the buffer type may be used before any backend exists on the device
+    return ggml_cl_init(buffer_type->device)->alignment;
 }
 
 static size_t ggml_backend_opencl_buffer_type_get_max_size(ggml_backend_buffer_type_t buffer_type) {
     static size_t max_size = -1;
     if (max_size == (size_t)-1) {
-        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
-        max_size = dev_ctx->backend_ctx->max_alloc_size;
+        max_size = ggml_cl_init(buffer_type->device)->max_alloc_size;
     }
     return max_size;
 }
