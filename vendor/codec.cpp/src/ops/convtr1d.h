@@ -3,6 +3,10 @@
 
 #include "../codec_internal.h"
 
+// ConvTranspose1d kernels are (K, C_out, C_in) or C_in-major (C_in, C_out, K), the
+// layout block-quantized kernels need.  Kernel size of either, given C_in.
+int64_t codec_convtr1d_kernel_size(const ggml_tensor * w, int64_t c_in);
+
 ggml_tensor * codec_convtr1d(
     ggml_context * ctx,
     ggml_tensor * x,

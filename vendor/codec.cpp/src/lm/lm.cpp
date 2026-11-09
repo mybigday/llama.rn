@@ -173,9 +173,9 @@ static bool codec_lm_populate_info(codec_lm * lm) {
 
     int32_t hidden             = codec_read_i32_kv(gf, "codec.lm.hidden_dim", 0);
 
-    // FlowLM (Pocket-TTS): self-contained continuous-latent AR.  No codebooks,
-    // no external backbone; uses codec.lm.d_model / ldim.  Populate minimal info
-    // and skip the codebook + continuous_latent_cfm metadata paths below.
+    // FlowLM (Pocket-TTS): continuous-latent AR, one ldim latent per step.  No
+    // codebooks; hidden = codec.lm.d_model.  Populate minimal info and skip the
+    // codebook + continuous_latent_cfm metadata paths below.
     if (lm->kind == CODEC_LM_KIND_FLOW_LM) {
         const int32_t d_model    = codec_read_i32_kv(gf, "codec.lm.d_model", 0);
         const int32_t ldim       = codec_read_i32_kv(gf, "codec.lm.ldim", 0);
@@ -395,6 +395,7 @@ void codec_lm_free(struct codec_lm * lm) {
     }
     speaker_arch_free(lm);
     codec_lm_chatterbox_free_state(lm);
+    codec_lm_cosyvoice_free_state(lm);
     if (lm->vtable != nullptr && lm->vtable->free != nullptr) {
         lm->vtable->free(lm);
     }
@@ -505,19 +506,6 @@ enum codec_status codec_lm_state_set_text_context(
 // ---------------------------------------------------------------------
 // audio embed lookup + compose — delegate to vtable
 // ---------------------------------------------------------------------
-
-const float * codec_lm_audio_embd(struct codec_lm * lm, int32_t cb_idx, int32_t code) {
-    if (lm == nullptr || lm->vtable == nullptr || lm->vtable->audio_embd == nullptr) {
-        return nullptr;
-    }
-    if (cb_idx < 0 || cb_idx >= lm->info.n_codebook) {
-        return nullptr;
-    }
-    if (code < 0 || code >= lm->info.codebook_sizes[cb_idx]) {
-        return nullptr;
-    }
-    return lm->vtable->audio_embd(lm, cb_idx, code);
-}
 
 enum codec_status codec_lm_compose_audio_embd(
     struct codec_lm * lm,
@@ -798,17 +786,6 @@ enum codec_status codec_lm_set_continuous_min_len(struct codec_lm_state * st, in
         return CODEC_STATUS_NOT_SUPPORTED;
     }
     return st->lm->vtable->set_min_len(st, min_len);
-}
-
-enum codec_status codec_lm_set_teacher_patch(struct codec_lm_state * st, const float * patch, int32_t n) {
-    if (st == nullptr || st->lm == nullptr) {
-        return CODEC_STATUS_INVALID_ARG;
-    }
-    if (st->lm->vtable == nullptr || st->lm->vtable->set_teacher_patch == nullptr) {
-        st->last_error = "codec_lm_set_teacher_patch not supported for this kind";
-        return CODEC_STATUS_NOT_SUPPORTED;
-    }
-    return st->lm->vtable->set_teacher_patch(st, patch, n);
 }
 
 // ---------------------------------------------------------------------

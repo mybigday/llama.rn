@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-static bool codec_example_parse_shape_dims(const std::string & header, std::vector<int32_t> * out_shape, std::string * err) {
+static bool codec_util_parse_shape_dims(const std::string & header, std::vector<int32_t> * out_shape, std::string * err) {
     const size_t p0 = header.find('(');
     const size_t p1 = header.find(')', p0 == std::string::npos ? 0 : p0 + 1);
     if (p0 == std::string::npos || p1 == std::string::npos || p1 <= p0 + 1) {
@@ -67,7 +67,7 @@ static bool codec_example_parse_shape_dims(const std::string & header, std::vect
     return true;
 }
 
-static bool codec_example_parse_npy_header(std::ifstream & ifs, enum codec_example_npy_dtype * dtype, std::vector<int32_t> * shape, std::string * err) {
+static bool codec_util_parse_npy_header(std::ifstream & ifs, enum codec_util_npy_dtype * dtype, std::vector<int32_t> * shape, std::string * err) {
     char magic[6] = { 0 };
     if (!ifs.read(magic, 6) || std::memcmp(magic, "\x93NUMPY", 6) != 0) {
         if (err != nullptr) {
@@ -135,10 +135,10 @@ static bool codec_example_parse_npy_header(std::ifstream & ifs, enum codec_examp
         return false;
     }
 
-    return codec_example_parse_shape_dims(header, shape, err);
+    return codec_util_parse_shape_dims(header, shape, err);
 }
 
-bool codec_example_load_npy(const char * path, codec_example_npy_array * out, std::string * err) {
+bool codec_util_load_npy(const char * path, codec_util_npy_array * out, std::string * err) {
     if (path == nullptr || out == nullptr) {
         if (err != nullptr) {
             *err = "invalid npy load arguments";
@@ -159,7 +159,7 @@ bool codec_example_load_npy(const char * path, codec_example_npy_array * out, st
     out->i32.clear();
     out->f32.clear();
 
-    if (!codec_example_parse_npy_header(ifs, &out->dtype, &out->shape, err)) {
+    if (!codec_util_parse_npy_header(ifs, &out->dtype, &out->shape, err)) {
         return false;
     }
 
@@ -206,9 +206,9 @@ bool codec_example_load_npy(const char * path, codec_example_npy_array * out, st
     return true;
 }
 
-bool codec_example_load_npy_i32_2d_tq(const char * path, std::vector<int32_t> * out, int32_t * n_q, int32_t * n_frames, std::string * err) {
-    codec_example_npy_array arr;
-    if (!codec_example_load_npy(path, &arr, err)) {
+bool codec_util_load_npy_i32_2d_tq(const char * path, std::vector<int32_t> * out, int32_t * n_q, int32_t * n_frames, std::string * err) {
+    codec_util_npy_array arr;
+    if (!codec_util_load_npy(path, &arr, err)) {
         return false;
     }
     if (arr.dtype != CODEC_EXAMPLE_NPY_DTYPE_I32 || arr.shape.size() != 2) {
@@ -230,9 +230,9 @@ bool codec_example_load_npy_i32_2d_tq(const char * path, std::vector<int32_t> * 
     return true;
 }
 
-bool codec_example_load_npy_f32_2d(const char * path, std::vector<float> * out, int32_t * n_rows, int32_t * n_cols, std::string * err) {
-    codec_example_npy_array arr;
-    if (!codec_example_load_npy(path, &arr, err)) {
+bool codec_util_load_npy_f32_2d(const char * path, std::vector<float> * out, int32_t * n_rows, int32_t * n_cols, std::string * err) {
+    codec_util_npy_array arr;
+    if (!codec_util_load_npy(path, &arr, err)) {
         return false;
     }
     if (arr.dtype != CODEC_EXAMPLE_NPY_DTYPE_F32 || arr.shape.size() != 2) {
@@ -248,7 +248,7 @@ bool codec_example_load_npy_f32_2d(const char * path, std::vector<float> * out, 
     return true;
 }
 
-bool codec_example_save_npy_i32_2d_qt(const char * path, const int32_t * data_tq, int32_t n_q, int32_t n_frames, std::string * err) {
+bool codec_util_save_npy_i32_2d_qt(const char * path, const int32_t * data_tq, int32_t n_q, int32_t n_frames, std::string * err) {
     if (path == nullptr || data_tq == nullptr || n_q <= 0 || n_frames <= 0) {
         if (err != nullptr) {
             *err = "invalid npy save args";
@@ -306,7 +306,7 @@ bool codec_example_save_npy_i32_2d_qt(const char * path, const int32_t * data_tq
     return true;
 }
 
-static bool codec_example_save_npy_1d(
+static bool codec_util_save_npy_1d(
     const char * path, const void * data, size_t elem_size,
     int32_t n, const char * descr, std::string * err) {
 
@@ -349,10 +349,10 @@ static bool codec_example_save_npy_1d(
     return true;
 }
 
-bool codec_example_save_npy_f32_1d(const char * path, const float * data, int32_t n, std::string * err) {
-    return codec_example_save_npy_1d(path, data, sizeof(float), n, "<f4", err);
+bool codec_util_save_npy_f32_1d(const char * path, const float * data, int32_t n, std::string * err) {
+    return codec_util_save_npy_1d(path, data, sizeof(float), n, "<f4", err);
 }
 
-bool codec_example_save_npy_i32_1d(const char * path, const int32_t * data, int32_t n, std::string * err) {
-    return codec_example_save_npy_1d(path, data, sizeof(int32_t), n, "<i4", err);
+bool codec_util_save_npy_i32_1d(const char * path, const int32_t * data, int32_t n, std::string * err) {
+    return codec_util_save_npy_1d(path, data, sizeof(int32_t), n, "<i4", err);
 }

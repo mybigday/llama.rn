@@ -1,0 +1,19 @@
+TTS backbone tokenizers, ported from codec.cpp's llama.cpp patches:
+- soprano: upstream's (v0.8.0+), plus [UNK] as id 0 by default, since
+  BricksDisplay/Soprano-1.1-80M-GGUF predates upstream's converter and lacks
+  tokenizer.ggml.unknown_token_id.
+- chatterbox (patches/chatterbox-tokenizer-llamacpp.patch): Chatterbox T3's
+  text BPE behind HF's Whitespace pre-tokenizer
+  (BricksDisplay/Chatterbox-Multilingual-TTS-GGUF since 2026-10-21).
+- UGM byte fallback (patches/ugm-byte-fallback-llamacpp.patch): Pocket-TTS's
+  SentencePiece vocab.
+--- a/src/llama-vocab.h
++++ b/src/llama-vocab.h
+@@ -74,6 +74,7 @@
+     LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL       = 63,
+     LLAMA_VOCAB_PRE_TYPE_NEMOTRON_3_5_EMBD = 64,
+     LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 65,
++    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 66,
+ };
+ 
+ // HF Metaspace pre-tokenizer prepend_scheme

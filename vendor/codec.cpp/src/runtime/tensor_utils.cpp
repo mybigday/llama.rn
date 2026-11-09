@@ -1,4 +1,5 @@
 #include "tensor_utils.h"
+#include "graph.h"
 
 #include <ggml-backend.h>
 
@@ -97,12 +98,15 @@ ggml_tensor * codec_model_get_tensor(const codec_model * model, const char * nam
     if (model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    return ggml_get_tensor(model->weights, name);
+    const auto it = model->weight_index.find(name);
+    return it == model->weight_index.end() ? nullptr : it->second;
 }
 
 ggml_tensor * codec_model_get_tensor(const codec_model * model, const std::string & name) {
     return codec_model_get_tensor(model, name.c_str());
 }
+
+static ggml_tensor * codec_graph_cast_f32_new(ggml_context * ctx_eval, ggml_tensor * t);
 
 ggml_tensor * codec_graph_cast_f32(ggml_context * ctx_eval, ggml_tensor * t) {
     if (ctx_eval == nullptr || t == nullptr) {
@@ -111,31 +115,50 @@ ggml_tensor * codec_graph_cast_f32(ggml_context * ctx_eval, ggml_tensor * t) {
     if (t->type == GGML_TYPE_F32) {
         return t;
     }
+    // Small stored weights (biases, norm scales) are cast once per graph and
+    // shared; large ones are not, so their F32 copies don't all stay alive.
+    ggml_tensor ** slot = nullptr;
+    if (t->op == GGML_OP_NONE && t->buffer != nullptr && ggml_nelements(t) <= 65536) {
+        slot = codec_graph_weight_cast_slot(ctx_eval, t);
+        if (slot != nullptr && *slot != nullptr) {
+            return *slot;
+        }
+    }
+    ggml_tensor * y = codec_graph_cast_f32_new(ctx_eval, t);
+    if (slot != nullptr) {
+        *slot = y;
+    }
+    return y;
+}
+
+static ggml_tensor * codec_graph_cast_f32_new(ggml_context * ctx_eval, ggml_tensor * t) {
+    // Short rows (1x1 conv weights are [1, c_in, c_out]) make GPU copy kernels,
+    // which run one threadgroup per row, crawl (Metal: 56 ms for a 1024x2048
+    // weight).  Cast those as wide rows and view the result back.
+    if (t->ne[0] < 32 && ggml_is_contiguous(t) && (t->type == GGML_TYPE_F16 || t->type == GGML_TYPE_BF16)) {
+        const int64_t n = ggml_nelements(t);
+        for (int64_t w = 4096; w >= 32; w /= 2) {
+            if (n % w == 0) {
+                ggml_tensor * flat = ggml_cast(ctx_eval, ggml_reshape_2d(ctx_eval, t, w, n / w), GGML_TYPE_F32);
+                return ggml_reshape_4d(ctx_eval, flat, t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
+            }
+        }
+    }
     return ggml_cast(ctx_eval, t, GGML_TYPE_F32);
 }
 
 ggml_tensor * codec_graph_mat_lhs(ggml_context * ctx_eval, ggml_tensor * t) {
-    // Pass-through for the dtypes ggml_mul_mat consumes natively as
-    // src[0] without an extra dequant pass — see header comment for
-    // the rationale.  Cast the rest.
     if (ctx_eval == nullptr || t == nullptr) {
         return nullptr;
     }
-    switch (t->type) {
-        case GGML_TYPE_F32:
-        case GGML_TYPE_F16:
-        case GGML_TYPE_BF16:
-            return t;
-        default:
-            return ggml_cast(ctx_eval, t, GGML_TYPE_F32);
-    }
+    return codec_graph_stored_weight(ctx_eval, t);
 }
 
 ggml_tensor * codec_graph_weight_or_null(ggml_context * ctx_eval, const codec_model * model, const char * name) {
     if (ctx_eval == nullptr || model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    ggml_tensor * w = ggml_get_tensor(model->weights, name);
+    ggml_tensor * w = codec_model_get_tensor(model, name);
     if (w == nullptr) {
         return nullptr;
     }
@@ -154,36 +177,49 @@ ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model 
     if (ctx_eval == nullptr || model == nullptr || model->weights == nullptr || name == nullptr) {
         return nullptr;
     }
-    ggml_tensor * w = ggml_get_tensor(model->weights, name);
+    ggml_tensor * w = codec_model_get_tensor(model, name);
     if (w == nullptr) {
         return nullptr;
     }
-    // LHS pass-through for the graph's hot matmuls: F16/BF16 weights feed
-    // ggml_mul_mat natively, so we must NOT bake a dequant CPY into the graph.
-    // That per-eval full-weight F16->F32 copy dominated BlueMagpie's CFM wall
-    // time (30% of compute — the matmuls themselves are tiny), see Phase-4
-    // profiling.
-    //
-    // Block-quantized types (Q8_0, …) are cast to F32 here on purpose.  The
-    // alternative — native quantized mul_mat — re-quantizes the F32 activation
-    // to the block type per matmul, which measurably degrades CFM parity
-    // (Q8 e2e audio corr 0.99979 -> 0.99809, below the parity gate).  Set
-    // CODEC_MAT_NATIVE_QUANT=1 to opt into the faster-but-lossy native path
-    // (~8x on Vulkan for this graph); default keeps parity.  Note an F16 GGUF
-    // on GPU is both faster than cast-Q8 and bit-parity, so Q8 is off the
-    // critical config on UMA hardware.
-    if (w->type == GGML_TYPE_F32 || w->type == GGML_TYPE_F16 || w->type == GGML_TYPE_BF16) {
-        return w;
-    }
-    static const bool native_quant = std::getenv("CODEC_MAT_NATIVE_QUANT") != nullptr;
-    if (native_quant && ggml_is_quantized(w->type)) {
-        return w;
-    }
-    return ggml_cast(ctx_eval, w, GGML_TYPE_F32);
+    return w;
 }
 
 ggml_tensor * codec_graph_weight_mat(ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
     return codec_graph_weight_mat(ctx_eval, model, name.c_str());
+}
+
+ggml_tensor * codec_graph_stored_weight(ggml_context * ctx_eval, ggml_tensor * t) {
+    if (t == nullptr) {
+        return nullptr;
+    }
+    if (t->op == GGML_OP_RESHAPE && t->src[0] != nullptr) {
+        ggml_tensor * src = codec_graph_stored_weight(ctx_eval, t->src[0]);
+        if (src == t->src[0]) {
+            return t;
+        }
+        // A block-quantized weight can only be viewed with its rows intact.
+        if (ggml_is_quantized(src->type) && t->ne[0] % ggml_blck_size(src->type) != 0) {
+            return t;
+        }
+        return ggml_reshape_4d(ctx_eval, src, t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
+    }
+    ggml_tensor * w = t->src[0];
+    if (t->op != GGML_OP_CPY || t->type != GGML_TYPE_F32 || w == nullptr || w->op != GGML_OP_NONE ||
+        w->buffer == nullptr || w->type == GGML_TYPE_F32 || !ggml_is_contiguous(w) || !ggml_are_same_shape(w, t)) {
+        return t;
+    }
+    return w;
+}
+
+ggml_tensor * codec_mul_mat(ggml_context * ctx_eval, ggml_tensor * a, ggml_tensor * b) {
+    ggml_tensor * w = codec_graph_stored_weight(ctx_eval, a);
+    ggml_tensor * y = ggml_mul_mat(ctx_eval, w, b);
+    if (w->type != GGML_TYPE_F32) {
+        // F32 accumulation where a backend would accumulate an F16 matmul in F16
+        // (Vulkan: S3Gen decode GPU vs CPU 39 dB -> 20 dB).
+        ggml_prec_set_acc(y, GGML_PREC_F32);
+    }
+    return y;
 }
 
 ggml_tensor * codec_graph_weight(ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
