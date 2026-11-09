@@ -1187,21 +1187,13 @@ namespace rnllama_jsi {
                             throw std::runtime_error("Multimodal support not enabled. Call initMultimodal first.");
                         }
                         ctx->completion->loadPrompt(mediaPaths);
-                    } catch (const std::exception &e) {
-                        ctx->completion->endCompletion();
-                        throw std::runtime_error(e.what());
-                    }
 
-                    if (ctx->completion->context_full) {
-                        ctx->completion->endCompletion();
-                        throw std::runtime_error("Context is full");
-                    }
+                        if (ctx->completion->context_full) {
+                            throw std::runtime_error("Context is full");
+                        }
 
-                    size_t sent_count = 0;
+                        size_t sent_count = 0;
 
-                    // A TTS step throws on a bad request (missing embedding, unknown
-                    // voice); end the completion so the context is not left predicting.
-                    try {
                         while (ctx->completion->has_next_token && !ctx->completion->is_interrupted) {
                             const rnllama::completion_token_output token_with_probs = ctx->completion->doCompletion();
                             if (token_with_probs.tok == -1 || ctx->completion->incomplete) {
@@ -1260,6 +1252,9 @@ namespace rnllama_jsi {
                             }
                         }
                     } catch (...) {
+                        // Any throw after beginCompletion() (a draft context that can't be
+                        // allocated, a TTS step on a bad request, ...) must end the completion,
+                        // or is_predicting stays set and the context reports busy until released.
                         ctx->completion->endCompletion();
                         throw;
                     }
