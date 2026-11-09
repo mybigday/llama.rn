@@ -4,7 +4,6 @@
 #include "rn-common.hpp"
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
-#include "tools/mtmd/clip.h"
 #include <algorithm>
 #include <string>
 #include <vector>

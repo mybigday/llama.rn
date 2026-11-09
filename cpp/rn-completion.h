@@ -91,6 +91,7 @@ struct llama_rn_context_completion {
     size_t num_draft_tokens_accepted = 0;
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
+    size_t n_sampled = 0;               // steps sampled (n_min_predict)
     int64_t t_start_generation = 0;
     double t_token_generation = 0.0;
     llama_pos n_past = 0;
@@ -137,6 +138,10 @@ struct llama_rn_context_completion {
 
     // Sampling context
     common_sampler *ctx_sampling = nullptr;
+    // TTS: samplers for codec.cpp's codebook head groups (sampleAux).
+    std::vector<common_sampler *> aux_sampling;
+    std::vector<common_params_sampling> aux_params;
+    std::vector<std::vector<llama_token>> aux_history;
 
     // Speculative decoding context (MTP or classic draft-simple).
     common_speculative *spec = nullptr;
@@ -197,6 +202,7 @@ struct llama_rn_context_completion {
     void startGenerationTiming();
     void updateGenerationTiming();
     completion_token_output nextToken();
+    llama_token sampleAux(int group, const float * logits, int n_vocab);
     bool shouldUseMTP() const;
     void resetSpeculative();
     void initMTP();

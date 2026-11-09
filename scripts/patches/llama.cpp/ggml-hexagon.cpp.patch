@@ -1,6 +1,6 @@
 --- a/ggml/src/ggml-hexagon/ggml-hexagon.cpp
 +++ b/ggml/src/ggml-hexagon/ggml-hexagon.cpp
-@@ -2735,8 +2735,12 @@
+@@ -895,8 +895,12 @@
          return nullptr;
      }
      try {
@@ -15,7 +15,7 @@
      } catch (const std::exception & exc) {
          GGML_LOG_ERROR("ggml-hex: %s failed to allocate device buffer context: %s\n", dev_ctx->c_name(), exc.what());
          return nullptr;
-@@ -2753,8 +2757,12 @@
+@@ -913,8 +917,12 @@
          return nullptr;
      }
      try {
@@ -30,7 +30,7 @@
      } catch (const std::exception & exc) {
          GGML_LOG_ERROR("ggml-hex: %s failed to allocate host buffer context: %s\n", dev_ctx->c_name(), exc.what());
          return nullptr;
-@@ -8341,6 +8349,24 @@
+@@ -3130,6 +3138,24 @@
          devices[i].context = new ggml_backend_hexagon_device_context(i, opt_device_configs[i], &devices[i]);
      }
  
