@@ -9,11 +9,11 @@ TTS backbone tokenizers, ported from codec.cpp's llama.cpp patches:
   SentencePiece vocab.
 --- a/src/llama-vocab.h
 +++ b/src/llama-vocab.h
-@@ -74,6 +74,7 @@
-     LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL       = 63,
+@@ -75,6 +75,7 @@
      LLAMA_VOCAB_PRE_TYPE_NEMOTRON_3_5_EMBD = 64,
      LLAMA_VOCAB_PRE_TYPE_SOPRANO           = 65,
-+    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 66,
+     LLAMA_VOCAB_PRE_TYPE_TEKKEN_NUM3       = 66,
++    LLAMA_VOCAB_PRE_TYPE_CHATTERBOX        = 67,
  };
  
  // HF Metaspace pre-tokenizer prepend_scheme

@@ -118,22 +118,24 @@ LLAMA_CPP_PATHS=(
   common
 
   tools/mtmd/CMakeLists.txt
-  tools/mtmd/clip-graph.h
-  tools/mtmd/clip-impl.h
-  tools/mtmd/clip-model.h
-  tools/mtmd/clip.cpp
-  tools/mtmd/clip.h
   tools/mtmd/debug
   tools/mtmd/models
   tools/mtmd/mtmd-audio.cpp
   tools/mtmd/mtmd-audio.h
+  tools/mtmd/mtmd-graph.cpp
+  tools/mtmd/mtmd-graph.h
   tools/mtmd/mtmd-helper-common.h
   tools/mtmd/mtmd-helper-gen.cpp
   tools/mtmd/mtmd-helper.cpp
   tools/mtmd/mtmd-helper.h
   tools/mtmd/mtmd-image.cpp
   tools/mtmd/mtmd-image.h
+  tools/mtmd/mtmd-impl.h
   tools/mtmd/mtmd-internal.h
+  tools/mtmd/mtmd-model.cpp
+  tools/mtmd/mtmd-model.h
+  tools/mtmd/mtmd-subcontext.cpp
+  tools/mtmd/mtmd-subcontext.h
   tools/mtmd/mtmd.cpp
   tools/mtmd/mtmd.h
 

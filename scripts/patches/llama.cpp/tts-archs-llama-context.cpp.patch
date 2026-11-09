@@ -1,0 +1,16 @@
+CosyVoice (see cosyvoice-models-cosyvoice.cpp.patch) passes a KQ bias indexed
+by KV cell, which the unified-cache kv_rows attention path cannot take, so
+keep it on the dense mask.
+
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -400,7 +400,8 @@
+ 
+         const char * LLAMA_KV_ROWS_DISABLE = getenv("LLAMA_KV_ROWS_DISABLE");
+         if (!LLAMA_KV_ROWS_DISABLE) {
+-            cparams.auto_fkvr = cparams.kv_unified;
++            // llama.rn: CosyVoice adds a KQ bias over every KV cell, which the kv_rows path cannot take
++            cparams.auto_fkvr = cparams.kv_unified && model.arch != LLM_ARCH_COSYVOICE;
+         } else {
+             LLAMA_LOG_INFO("%s: LLAMA_KV_ROWS_DISABLE set, disabling kv_rows\n", __func__);
+             cparams.auto_fkvr = false;

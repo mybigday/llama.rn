@@ -103,7 +103,9 @@ llama_model_cosyvoice::graph::graph(const llama_model & model_base, const llm_gr
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     // Rotated position keys rope_j(c) for every KV cell j: [n_embd, n_kv].
-    const int64_t n_kv = inp_attn->get_kq_mask()->ne[0];
+    // kq_pos is indexed by KV cell, so the dense mask is required (kv_rows is off for this arch, see llama-context.cpp)
+    GGML_ASSERT(inp_attn->self_attn_mask.rows == nullptr);
+    const int64_t n_kv = inp_attn->self_attn_mask.n_kv;
     ggml_tensor * kpos;
     {
         ggml_tensor * j = ggml_arange(ctx0, 0.0f, (float) n_kv, 1.0f);                                  // [n_kv]

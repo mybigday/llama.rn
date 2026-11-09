@@ -14,7 +14,6 @@
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
-#include "tools/mtmd/clip.h"
 
 namespace rnllama {
 
