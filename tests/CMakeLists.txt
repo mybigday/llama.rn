@@ -113,6 +113,9 @@ endif()
 
 rnllama_test(barbet_hidden_dump barbet_hidden_dump.cpp NATIVE_SIMD)
 
+# read_gguf_file_info() array-length reporting
+rnllama_test(model_info_test model_info_test.cpp)
+
 # KV-cache-reuse harness
 rnllama_test(kv_cache_reuse_test kv_cache_reuse_test.cpp)
 

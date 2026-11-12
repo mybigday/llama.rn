@@ -108,7 +108,8 @@ ggml_backend_buffer_type_t backend_cpu_buffer_type() {
     return ggml_backend_cpu_buffer_type();
 }
 
-bool read_gguf_file_info(const std::string & path, gguf_file_info & info) {
+bool read_gguf_file_info(const std::string & path, gguf_file_info & info,
+                         const std::vector<std::string> & skip) {
     struct gguf_init_params params = {
         /*.no_alloc = */ false,
         /*.ctx      = */ NULL,
@@ -123,8 +124,20 @@ bool read_gguf_file_info(const std::string & path, gguf_file_info & info) {
     const int n_kv = gguf_get_n_kv(ctx);
     info.kv.clear();
     info.kv.reserve(n_kv);
+    info.arr_lengths.clear();
     for (int i = 0; i < n_kv; ++i) {
-        info.kv.emplace_back(gguf_get_key(ctx, i), gguf_kv_to_str(ctx, i));
+        const char * key = gguf_get_key(ctx, i);
+        // gguf_kv_to_str flattens a whole array into one string, with no length
+        // bound by default. For a tokenizer that is megabytes of std::string
+        // built here and dropped by the caller, which only ever wanted to know
+        // how many entries there were. Record the count and skip the text.
+        if (std::find(skip.begin(), skip.end(), key) != skip.end()) {
+            if (gguf_get_kv_type(ctx, i) == GGUF_TYPE_ARRAY) {
+                info.arr_lengths.emplace_back(key, gguf_get_arr_n(ctx, i));
+            }
+            continue;
+        }
+        info.kv.emplace_back(key, gguf_kv_to_str(ctx, i));
     }
     gguf_free(ctx);
     return true;

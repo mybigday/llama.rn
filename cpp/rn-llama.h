@@ -290,9 +290,16 @@ struct gguf_file_info {
     size_t alignment = 0;
     size_t data_offset = 0;
     std::vector<std::pair<std::string, std::string>> kv;
+    // Element counts for the array-valued keys named in read_gguf_file_info's
+    // `skip`. Those keys are absent from `kv`, so this is all a caller gets of
+    // them -- and for a tokenizer array the count is the useful part anyway.
+    std::vector<std::pair<std::string, size_t>> arr_lengths;
 };
 // Reads GGUF header metadata (no tensor data). Returns false if the file cannot be parsed.
-bool read_gguf_file_info(const std::string & path, gguf_file_info & info);
+// Keys in `skip` are not stringified into `kv`; an array among them contributes
+// its length to `arr_lengths` instead.
+bool read_gguf_file_info(const std::string & path, gguf_file_info & info,
+                         const std::vector<std::string> & skip = {});
 
 // Logging functions
 void log(const char *level, const char *function, int line, const char *format, ...);
