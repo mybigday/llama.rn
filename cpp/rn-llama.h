@@ -30,6 +30,13 @@ namespace rnllama {
 inline common_json to_common_json(const json & j) { return common_json::parse(j.dump()); }
 inline json from_common_json(const common_json & j) { return json::parse(j.dump()); }
 
+// Message of the exception currently being handled; call only from inside a
+// catch handler. The rethrow is matched in this library's image, so callers
+// in another image (the JSI glue linked into the app on iOS) get the what()
+// of a std::exception even when their own catch (const std::exception &)
+// misses it. Anything else is reported by its demangled type name.
+std::string current_exception_message();
+
 // Display form of a raw token piece: a lone high-bit byte is hex-escaped,
 // any other ill-formed piece is sanitized (JSI strings require well-formed UTF-8)
 std::string token_piece_to_output_string(const std::string & piece);

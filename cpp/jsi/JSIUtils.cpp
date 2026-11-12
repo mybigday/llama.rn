@@ -1,6 +1,7 @@
 #include "JSIUtils.h"
 #include "JSITaskManager.h"
 #include "ThreadPool.h"
+#include "JSINativeHeaders.h"
 
 namespace rnllama_jsi {
 
@@ -106,7 +107,7 @@ namespace rnllama_jsi {
                                     } catch (const std::exception& e) {
                                         reject->call(rt, createJsiError(rt, e.what()));
                                     } catch (...) {
-                                        reject->call(rt, createJsiError(rt, "Unknown error"));
+                                        reject->call(rt, createJsiError(rt, rnllama::current_exception_message()));
                                     }
                                 });
                                 invokeScheduled = true;
@@ -137,6 +138,11 @@ namespace rnllama_jsi {
                                 // invokeAsync failed
                             }
                         } catch (...) {
+                            // On iOS the throw usually comes from rnllama.framework and this
+                            // catch lives in the app image, where catch (const std::exception &)
+                            // above was seen to miss a std::runtime_error. Match it inside the
+                            // framework instead and carry the message across as data.
+                            std::string msg = rnllama::current_exception_message();
                             try {
                                 if (TaskManager::getInstance().isShuttingDown()) {
                                     if (shouldTrack) {
@@ -144,14 +150,14 @@ namespace rnllama_jsi {
                                     }
                                     return;
                                 }
-                                callInvoker->invokeAsync([reject, runtimePtr, contextId, shouldTrack]() {
+                                callInvoker->invokeAsync([reject, msg, runtimePtr, contextId, shouldTrack]() {
                                     if (TaskManager::getInstance().isShuttingDown()) {
                                         TaskFinishGuard guard(contextId, shouldTrack);
                                         return;
                                     }
                                     TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
-                                    reject->call(rt, createJsiError(rt, "Unknown error"));
+                                    reject->call(rt, createJsiError(rt, msg));
                                 });
                                 invokeScheduled = true;
                             } catch (...) {
