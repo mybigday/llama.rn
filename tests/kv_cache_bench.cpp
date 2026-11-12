@@ -66,8 +66,10 @@ struct Bench {
         params.no_kv_offload = params.n_gpu_layers == 0;
         params.n_predict = -1;
         params.ctx_shift = false;
+        // Greedy, marked as user-set so loadModel() keeps it over the gguf's sampling defaults.
         params.sampling.temp = 0.0f;
         params.sampling.top_k = 1;
+        params.sampling.user_sampling_config |= COMMON_PARAMS_SAMPLING_CONFIG_TEMP | COMMON_PARAMS_SAMPLING_CONFIG_TOP_K;
 #ifdef KV_BENCH_HAS_STATE_CACHE
         const int budget = env_i("BENCH_BUDGET_MB", -1);
         if (budget >= 0) ctx.state_cache_budget_bytes = (size_t) budget * 1024 * 1024;

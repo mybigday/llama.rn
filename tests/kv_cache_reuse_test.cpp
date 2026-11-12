@@ -125,8 +125,11 @@ struct ChatSim {
         params.n_predict = -1;
         params.ctx_shift = ctx_shift;
         // Deterministic greedy sampling so leak checks and reuse counts are stable.
+        // Marked as user-set, or loadModel() replaces it with the gguf's
+        // general.sampling.* defaults (Gemma 4: temp 1.0, top_k 64).
         params.sampling.temp = 0.0f;
         params.sampling.top_k = 1;
+        params.sampling.user_sampling_config |= COMMON_PARAMS_SAMPLING_CONFIG_TEMP | COMMON_PARAMS_SAMPLING_CONFIG_TOP_K;
 
         if (use_mtp) {
             // Native multi-token-prediction speculative decoding. qwen35-style
