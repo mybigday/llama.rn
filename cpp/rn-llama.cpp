@@ -753,7 +753,7 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
         return nullptr;
     }
 
-    auto cparams = common_context_params_to_llama(params_for_context);
+    auto cparams = common_context_params_to_llama(common_base_params_to_speculative(params_for_context));
 
     // An embedded MTP draft lives on an MTP-type context tied to the target context
     // (ctx_other) and uses rollback sequences; a classic standalone draft model
@@ -764,8 +764,6 @@ llama_context * llama_rn_context::createMTPDraftContext(const common_params &par
         cparams.n_rs_seq = 0;
         cparams.ctx_other = ctx;
     }
-    cparams.type_k = params_for_context.speculative.draft.cache_type_k;
-    cparams.type_v = params_for_context.speculative.draft.cache_type_v;
 
     return llama_init_from_model(model_dft, cparams);
 }
