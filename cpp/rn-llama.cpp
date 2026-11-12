@@ -15,7 +15,9 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#if !defined(_MSC_VER)
 #include <cxxabi.h>
+#endif
 #include <fstream>
 #include <typeinfo>
 
@@ -31,6 +33,10 @@ std::string current_exception_message() {
     } catch (const std::exception & e) {
         return e.what();
     } catch (...) {
+#if defined(_MSC_VER)
+        // MSVC / clang-cl: no Itanium C++ ABI (<cxxabi.h>) to query the type.
+        return "Unknown error";
+#else
         // Objective-C exceptions land here too; their type name is the class name.
         const std::type_info * type = abi::__cxa_current_exception_type();
         if (type == nullptr) {
@@ -41,6 +47,7 @@ std::string current_exception_message() {
         std::string name = (status == 0 && demangled != nullptr) ? demangled : type->name();
         std::free(demangled);
         return "Unknown error (exception type: " + name + ")";
+#endif
     }
 }
 
