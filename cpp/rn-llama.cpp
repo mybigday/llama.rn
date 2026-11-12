@@ -102,6 +102,7 @@ bool read_gguf_file_info(const std::string & path, gguf_file_info & info,
     const int n_kv = gguf_get_n_kv(ctx);
     info.kv.clear();
     info.kv.reserve(n_kv);
+    info.arr_lengths.clear();
     for (int i = 0; i < n_kv; ++i) {
         const char * key = gguf_get_key(ctx, i);
         // gguf_kv_to_str flattens a whole array into one string, with no length
