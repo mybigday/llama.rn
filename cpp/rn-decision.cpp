@@ -970,19 +970,17 @@ static bool decision_take_media(const json & part, std::vector<std::string> & im
     if (!part.is_object() || !part.contains("type")) {
         return false;
     }
-    if (part.at("type") == "image_url" && part.contains("image_url")) {
-        const json & image_url = part.at("image_url");
-        decision_add_image(image_url.is_object() && image_url.contains("url") ? image_url.at("url") : image_url, images);
+    // lfm3-d1 sees the frames of a video part; the file is told apart from an image when it is loaded
+    const char * url_key = part.at("type") == "image_url" ? "image_url"
+                         : allow_video && part.at("type") == "video_url" ? "video_url" : nullptr;
+    if (url_key != nullptr && part.contains(url_key)) {
+        const json & url = part.at(url_key);
+        decision_add_image(url.is_object() && url.contains("url") ? url.at("url") : url, images);
         return true;
     }
     if (part.at("type") == "input_audio" && part.contains("input_audio")) {
         decision_add_audio(part.at("input_audio"), images);
         return true;
-    }
-    // lfm3-d1 sees the frames of a video part, but mtmd decodes video only with MTMD_VIDEO (an ffmpeg
-    // subprocess), which no llama.rn build enables
-    if (allow_video && part.at("type") == "video_url" && part.contains("video_url")) {
-        throw std::invalid_argument("\"video_url\" is not supported: llama.rn cannot decode video yet");
     }
     return false;
 }
@@ -1882,7 +1880,8 @@ static void decision_load_bitmaps(
     };
     try {
         for (const auto & image : images) {
-            mtmd_helper_init_opt opt = mtmd_helper_init_opt_default();
+            // without a video decoder a video is rejected before it is opened
+            mtmd_helper_init_opt opt = allow_video ? rnllama::media_init_opt() : mtmd_helper_init_opt_default();
             opt.video_params.no_soundtrack = allow_video; // the d1 reference sees the frames of a video, not its soundtrack
             mtmd_helper_bitmap_wrapper out{};
             if (string_starts_with(image, "data:")) {

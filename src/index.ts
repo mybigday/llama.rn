@@ -57,6 +57,15 @@ export type RNLlamaMessagePart = {
     data?: string
     url?: string
   }
+  /**
+   * A video file (path, `file://` URL or base64 `data:video/` URL), decoded by
+   * the platform (AVFoundation on iOS, MediaCodec on Android). The model sees
+   * its frames, sampled as the model expects, or at 4 fps for a model without
+   * video support of its own.
+   */
+  video_url?: {
+    url?: string
+  }
 }
 
 export type RNLlamaOAICompatibleMessage = {
@@ -800,6 +809,15 @@ export class LlamaContext {
             let path = part.image_url?.url || ''
             if (path?.startsWith('file://')) path = path.slice(7)
             mediaPaths.push(path)
+            return {
+              type: 'text',
+              text: RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER,
+            }
+          } else if (part.type === 'video_url') {
+            const url = part.video_url?.url
+            // A marker with no path is paired with the next file.
+            if (!url) throw new Error('video_url url is required')
+            mediaPaths.push(url.replace(/^file:\/\//, ''))
             return {
               type: 'text',
               text: RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER,

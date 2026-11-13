@@ -58,6 +58,14 @@ if [ ! -f "model_info_test" ]; then
 fi
 echo "✓ model_info_test built successfully"
 
+echo "Building video_test..."
+make video_test -j4
+if [ ! -f "video_test" ]; then
+    echo "Error: Failed to build video_test"
+    exit 1
+fi
+echo "✓ video_test built successfully"
+
 echo ""
 echo "=== Build Successful ==="
 echo ""
@@ -66,6 +74,7 @@ echo "  - rnllama_tests (basic integration tests)"
 echo "  - parallel_decoding_test (parallel decoding tests)"
 echo "  - chat_parse_utf8_test (chat parse UTF-8 robustness tests)"
 echo "  - model_info_test (GGUF model info tests)"
+echo "  - video_test (platform video decoder tests)"
 echo ""
 echo "To run the tests:"
 echo "  cd tests/build"
@@ -73,7 +82,8 @@ echo "  ./rnllama_tests           # Run basic tests"
 echo "  ./parallel_decoding_test  # Run parallel decoding tests"
 echo "  ./chat_parse_utf8_test    # Run chat parse UTF-8 tests"
 echo "  ./model_info_test         # Run model info tests"
+echo "  ./video_test              # Run video decoder tests"
 echo ""
 echo "Or run all:"
-echo "  ./rnllama_tests && ./parallel_decoding_test && ./chat_parse_utf8_test && ./model_info_test"
+echo "  ./rnllama_tests && ./parallel_decoding_test && ./chat_parse_utf8_test && ./model_info_test && ./video_test"
 echo ""
