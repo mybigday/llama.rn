@@ -387,6 +387,36 @@ const result = await context.completion({
 console.log('Transcription:', result.text)
 ```
 
+#### Video Processing
+
+A `video_url` part works with any vision model. The video is decoded by the platform (AVFoundation on iOS, MediaCodec on Android), so no ffmpeg is needed. Models with video support of their own (Qwen3-VL, LFM3-VL) get the frames, timestamps and frame size they were trained with; other models get frames sampled at 4 fps with a timestamp every 5 seconds, so keep the clip short or the context large.
+
+```js
+const result = await context.completion({
+  messages: [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'What happens in this video?',
+        },
+        {
+          type: 'video_url',
+          video_url: {
+            url: 'file:///path/to/video.mp4',
+            // or base64: 'data:video/mp4;base64,AAAAIGZ0eXBpc29t...' (Android 9+)
+          },
+        },
+      ],
+    },
+  ],
+  n_predict: 200,
+})
+
+console.log('AI Response:', result.text)
+```
+
 ### Tokenization with Media
 
 ```js

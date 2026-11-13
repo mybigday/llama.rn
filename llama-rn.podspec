@@ -1,7 +1,7 @@
 require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
-base_ld_flags = "-framework Accelerate -framework Foundation -framework Metal -framework MetalKit"
+base_ld_flags = "-framework Accelerate -framework Foundation -framework Metal -framework MetalKit -framework AVFoundation -framework CoreMedia -framework CoreVideo"
 base_compiler_flags = "-fno-objc-arc -fvisibility-inlines-hidden -DGGML_USE_CPU -DGGML_USE_ACCELERATE -DGGML_USE_BLAS -DGGML_BLAS_USE_ACCELERATE -DGGML_USE_CPU_REPACK -Wno-shorten-64-to-32"
 
 if ENV["RNLLAMA_DISABLE_METAL"] != "1" then
@@ -38,7 +38,7 @@ Pod::Spec.new do |s|
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     # ios/*: not ios/**, or the prebuilt xcframework's flat Headers/ would join
     # the header map and shadow the vendored headers with the same basenames.
-    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c}",
+    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,mm}",
       "#{llama_cpp}/include/*.h",
       "#{llama_cpp}/src/**/*.{h,cpp}",
       "#{llama_cpp}/ggml/include/*.h",

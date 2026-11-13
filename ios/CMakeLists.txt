@@ -79,6 +79,7 @@ target_link_libraries(rnllama PRIVATE
     "-framework Foundation"
     "-framework Metal"
     "-framework MetalKit"
+    ${RNLLAMA_VIDEO_LIBS}
 )
 
 # Set properties for framework

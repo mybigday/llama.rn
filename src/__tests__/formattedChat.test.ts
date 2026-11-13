@@ -73,6 +73,39 @@ it('pairs a wav url with its media marker', async () => {
   expect(result.media_paths).toEqual(['/tmp/a.wav'])
 })
 
+it('pairs a video url with its media marker', async () => {
+  const result = await ctx.getFormattedChat(
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What happens?' },
+          { type: 'video_url', video_url: { url: 'file:///tmp/a.mp4' } },
+        ],
+      },
+    ],
+    null,
+    { jinja: true },
+  )
+
+  const messages = JSON.parse(mockGetFormattedChat.mock.calls[0][1])
+  expect(messages[0].content).toEqual([
+    { type: 'text', text: 'What happens?' },
+    { type: 'text', text: '<__media__>' },
+  ])
+  expect(result.media_paths).toEqual(['/tmp/a.mp4'])
+})
+
+it('rejects a video part that has no url', async () => {
+  await expect(
+    ctx.getFormattedChat(
+      [{ role: 'user', content: [{ type: 'video_url', video_url: {} }] }],
+      null,
+      { jinja: true },
+    ),
+  ).rejects.toThrow('video_url url is required')
+})
+
 it('does not bind the next media file to an audio part that has no bytes', async () => {
   await expect(
     ctx.getFormattedChat(

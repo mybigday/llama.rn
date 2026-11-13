@@ -2,6 +2,7 @@
 
 #include "rn-llama.h"
 #include "rn-common.hpp"
+#include "rn-video.h"
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
 #include <algorithm>
@@ -179,8 +180,8 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
         LOG_INFO("[DEBUG] Loading media: %s",
                  media_path.substr(0, 50).c_str()); // Only log part of path for base64
 
-        // Check if it's a base64 media
-        if (media_path.compare(0, 11, "data:image/") == 0 || media_path.compare(0, 11, "data:audio/") == 0) {
+        // Check if it's a base64 media (mtmd tells image, audio and video apart by the content)
+        if (media_path.compare(0, 5, "data:") == 0) {
             LOG_INFO("[DEBUG] Detected base64 encoded media");
 
             // Parse base64 data
@@ -203,7 +204,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
-            auto loaded = mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size(), false, mtmd_helper_init_opt_default());
+            auto loaded = mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size(), false, rnllama::media_init_opt());
             if (loaded.video_ctx) {
                 videos.emplace_back(loaded.video_ctx);
             }
@@ -246,7 +247,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             fclose(file);
 
             // Create bitmap directly
-            auto loaded = mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str(), false, mtmd_helper_init_opt_default());
+            auto loaded = mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str(), false, rnllama::media_init_opt());
             if (loaded.video_ctx) {
                 videos.emplace_back(loaded.video_ctx);
             }

@@ -126,6 +126,7 @@ LLAMA_CPP_PATHS=(
   tools/mtmd/mtmd-graph.h
   tools/mtmd/mtmd-helper-common.h
   tools/mtmd/mtmd-helper-gen.cpp
+  tools/mtmd/mtmd-helper-video-ffmpeg.cpp
   tools/mtmd/mtmd-helper.cpp
   tools/mtmd/mtmd-helper.h
   tools/mtmd/mtmd-image.cpp
