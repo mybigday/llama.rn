@@ -21,6 +21,7 @@
 // what wavtokenizer/snac already do.
 
 #include "xy_tokenizer.h"
+#include <cstdlib>
 
 #include "../codec_internal.h"
 #include "../runtime/audio_dsp.h"

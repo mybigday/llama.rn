@@ -1,4 +1,5 @@
 #include "chatterbox_s3t.h"
+#include <cstdlib>
 
 #include "../blocks/s3_tokenizer.h"
 #include "../runtime/graph.h"

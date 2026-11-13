@@ -1,4 +1,5 @@
 #include "lm_internal.h"
+#include <algorithm>
 
 #include "../models/bluemagpie_blocks.h"
 #include "../ops/ggml_ops.h"

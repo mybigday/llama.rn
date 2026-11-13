@@ -1,4 +1,5 @@
 #include "chatterbox_s3g.h"
+#include <cstdlib>
 
 #include "../blocks/campplus.h"
 #include "../blocks/chatterbox_voice_encoder.h"

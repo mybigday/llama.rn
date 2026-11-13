@@ -1,0 +1,13 @@
+codec.cpp does not compile with libc++ (clang): std::atoi is used
+without including <cstdlib>. GCC and Apple clang accept this through
+transitive includes; libc++ does not. Found while building the C++ test
+suite with clang (tests/build_and_test.sh).
+
+--- a/common/audio_lm.cpp
++++ b/common/audio_lm.cpp
+@@ -1,4 +1,5 @@
+ #include "codec_common.h"
++#include <cstdlib>
+ 
+ #include <algorithm>
+ #include <cstring>

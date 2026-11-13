@@ -1,4 +1,5 @@
 #include "soprano.h"
+#include <cstdlib>
 
 #include "../ops/conv1d.h"
 #include "../ops/ggml_ops.h"

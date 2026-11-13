@@ -1,4 +1,5 @@
 #include "codec_common.h"
+#include <cstdlib>
 
 #include <algorithm>
 #include <cstring>
