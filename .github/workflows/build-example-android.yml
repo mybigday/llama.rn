@@ -44,6 +44,14 @@ jobs:
       - name: Setup Node.js and build prerequisites
         uses: ./.github/actions/setup
 
+      # Pin the JDK: with the runner's newer default, a JVM restricted-method
+      # warning fails the Android Gradle Plugin's CMake configure.
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
       - name: Setup Gradle cache
         uses: burrunan/gradle-cache-action@v3
         with:
