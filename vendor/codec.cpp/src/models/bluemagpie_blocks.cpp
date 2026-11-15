@@ -152,7 +152,7 @@ ggml_tensor * codec_bm_minicpm_block_htb(
     if (causal) {
         // causal path: scale, mask, softmax (soft_max_ext has no built-in causal mask)
         scores = ggml_scale(ctx, scores, kq_scale);
-        scores = ggml_diag_mask_inf(ctx, scores, 0);
+        scores = codec_op_diag_mask_inf(ctx, scores, 0);
         scores = ggml_soft_max(ctx, scores);
     } else {
         // non-causal (LocDiT/LocEnc): fuse the 1/sqrt(d) scale into soft_max_ext.

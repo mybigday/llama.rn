@@ -1,0 +1,49 @@
+ggml removed ggml_diag_mask_inf and ggml_flash_attn_ext_set_prec (llama.cpp
+#29801). Use codec_op_diag_mask_inf and ggml_prec_set_acc.
+--- a/src/ops/lm_attn.cpp
++++ b/src/ops/lm_attn.cpp
+@@ -45,7 +45,7 @@
+         return ggml_permute(ctx, ggml_reshape_4d(ctx, x, head_dim, n_heads, t, nb), 0, 2, 1, 3);
+     };
+     ggml_tensor * fa = ggml_flash_attn_ext(ctx, heads(q_ct), heads(k_ct), heads(v_ct), nullptr, scale, 0.0f, 0.0f);
+-    ggml_flash_attn_ext_set_prec(fa, GGML_PREC_F32);
++    ggml_prec_set_acc(fa, GGML_PREC_F32);
+     if (codec_graph_backend_supports(fa)) {
+         return ggml_reshape_3d(ctx, fa, inner, t, nb);   // fa: [head_dim, n_heads, t, n]
+     }
+@@ -104,7 +104,7 @@
+     if (attn_probs == nullptr) {  // no graph build to hold the mask constant
+         attn_scores = ggml_scale_inplace(ctx, attn_scores, scale);
+         if (causal) {
+-            attn_scores = ggml_diag_mask_inf_inplace(ctx, attn_scores, 0);
++            attn_scores = codec_op_diag_mask_inf(ctx, attn_scores, 0);
+         }
+         if (params != nullptr && params->n_valid > 0 && params->n_valid < (int32_t) q_dth->ne[1]) {
+             // Padding mask: set scores for keys at positions >= n_valid to -inf.
+@@ -131,7 +131,7 @@
+         }
+         if (causal && params != nullptr && params->window > 0 && params->window < (int32_t) q_dth->ne[1]) {
+             // Sliding-window causal mask: in addition to the upper triangle
+-            // (handled by ggml_diag_mask_inf above), zero out keys older than
++            // (handled by codec_op_diag_mask_inf above), zero out keys older than
+             // `window-1` steps.  attn_scores shape is (k, q, h).  We add a
+             // -inf bias where `j < i - window + 1` (i query, j key).
+             const int64_t t = q_dth->ne[1];
+@@ -278,7 +278,7 @@
+ 
+     ggml_tensor * scores = ggml_add(ctx, mat_ac, mat_bd);
+     if (params != nullptr && params->causal) {
+-        scores = ggml_diag_mask_inf(ctx, scores, 0);
++        scores = codec_op_diag_mask_inf(ctx, scores, 0);
+     }
+     ggml_tensor * attn_w = ggml_soft_max_ext(ctx, scores, nullptr, scale, 0.0f);
+ 
+@@ -442,7 +442,7 @@
+     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3));
+ 
+     ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);
+-    scores = ggml_diag_mask_inf(ctx, scores, /*n_past=*/0);
++    scores = codec_op_diag_mask_inf(ctx, scores, /*n_past=*/0);
+     scores = ggml_soft_max_ext(ctx, scores, nullptr, 1.0f / std::sqrt((float) head_dim), 0.0f);
+ 
+     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v, 1, 2, 0, 3));

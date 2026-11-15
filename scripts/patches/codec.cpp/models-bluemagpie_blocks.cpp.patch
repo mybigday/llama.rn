@@ -1,0 +1,12 @@
+ggml removed ggml_diag_mask_inf (llama.cpp #29801). Use codec_op_diag_mask_inf.
+--- a/src/models/bluemagpie_blocks.cpp
++++ b/src/models/bluemagpie_blocks.cpp
+@@ -152,7 +152,7 @@
+     if (causal) {
+         // causal path: scale, mask, softmax (soft_max_ext has no built-in causal mask)
+         scores = ggml_scale(ctx, scores, kq_scale);
+-        scores = ggml_diag_mask_inf(ctx, scores, 0);
++        scores = codec_op_diag_mask_inf(ctx, scores, 0);
+         scores = ggml_soft_max(ctx, scores);
+     } else {
+         // non-causal (LocDiT/LocEnc): fuse the 1/sqrt(d) scale into soft_max_ext.

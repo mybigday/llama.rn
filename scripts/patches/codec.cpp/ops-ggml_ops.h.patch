@@ -1,0 +1,16 @@
+ggml removed ggml_diag_mask_inf (llama.cpp #29801). Add codec_op_diag_mask_inf,
+which applies the same causal mask as an additive mask.
+--- a/src/ops/ggml_ops.h
++++ b/src/ops/ggml_ops.h
+@@ -23,6 +23,11 @@
+ // ggml_arange where the backend runs it, else the same values as a graph
+ // constant (ggml-opencl has no ARANGE).
+ ggml_tensor * codec_op_arange(ggml_context * ctx, float start, float stop, float step);
++// Causal mask over attention scores a [n_k, n_q, ...]: a[k, q, ...] = -inf for
++// k > q + n_past, the values of ggml_diag_mask_inf (removed from ggml), as an
++// additive [n_k, n_q] mask. In a graph build the mask is a graph constant;
++// outside one it is built from arange ops with a finite -1e30.
++ggml_tensor * codec_op_diag_mask_inf(ggml_context * ctx, ggml_tensor * a, int32_t n_past);
+ ggml_tensor * codec_op_layer_norm(ggml_context * ctx, ggml_tensor * x, float eps, ggml_tensor * gamma, ggml_tensor * beta);
+ ggml_tensor * codec_op_layer_norm_ct(ggml_context * ctx, ggml_tensor * x_ct, float eps, ggml_tensor * gamma, ggml_tensor * beta);
+ ggml_tensor * codec_op_layer_norm_tc(ggml_context * ctx, ggml_tensor * x_tc, float eps, ggml_tensor * gamma, ggml_tensor * beta);

@@ -132,6 +132,14 @@ static __device__ __forceinline__ void ggml_cuda_syncwarp() {
 #endif // GGML_USE_HIP
 }
 
+static __device__ __forceinline__ void ggml_cuda_prefetch_l2(const void * p) {
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    asm volatile("prefetch.global.L2 [%0];" :: "l"(p));
+#else
+    GGML_UNUSED(p);
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+}
+
 static __device__ __forceinline__ void ggml_cuda_pdl_sync() {
 #if defined(GGML_CUDA_USE_PDL) && __CUDA_ARCH__ >= GGML_CUDA_CC_HOPPER
     cudaGridDependencySynchronize();
@@ -1271,6 +1279,8 @@ const ggml_cuda_device_info & ggml_cuda_info();
 void ggml_cuda_set_device(int device);
 int ggml_cuda_get_device();
 
+bool ggml_cuda_pool_debug_enabled();
+
 struct ggml_cuda_pool {
     virtual ~ggml_cuda_pool() = default;
 
@@ -1397,10 +1407,14 @@ struct ggml_backend_cuda_context {
             CUBLAS_CHECK(cublasCreate(&cublas_handles[device][curr_stream_no]));
             CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device][curr_stream_no], CUBLAS_TF32_TENSOR_OP_MATH));
             CUBLAS_CHECK(cublasSetStream(cublas_handles[device][curr_stream_no], stream()));
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && (CUBLAS_VER_MAJOR > 11 || (CUBLAS_VER_MAJOR == 11 && CUBLAS_VER_MINOR >= 2))
+#if (defined(GGML_USE_HIP) && HIP_VERSION >= 70000000) || (!defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && (CUBLAS_VER_MAJOR > 11 || (CUBLAS_VER_MAJOR == 11 && CUBLAS_VER_MINOR >= 2)))
             if (cublas_workspace_sizes[device] == 0) {
+#if defined(GGML_USE_HIP)
+                cublas_workspace_sizes[device] = 32 * 1024 * 1024;
+#else
                 const int cc = ggml_cuda_info().devices[device].cc;
                 cublas_workspace_sizes[device] = (cc >= GGML_CUDA_CC_HOPPER) ? 32 * 1024 * 1024 : 4 * 1024 * 1024;
+#endif
             }
             CUDA_CHECK(cudaMalloc(&cublas_workspaces[device][curr_stream_no], cublas_workspace_sizes[device]));
             CUBLAS_CHECK(cublasSetWorkspace(cublas_handles[device][curr_stream_no], cublas_workspaces[device][curr_stream_no], cublas_workspace_sizes[device]));
