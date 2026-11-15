@@ -166,7 +166,7 @@ if(ENABLE_HEXAGON)
 endif()
 target_link_libraries(kv_cache_bench PRIVATE ${LOG_LIB} m dl ${RNLLAMA_VIDEO_LIBS})
 
-# Platform video decoder behind video_url (cpp/rn-video.cpp): needs no backend and
+# Platform video decoder behind video_url (cpp/rn-video.h): needs no backend and
 # no model, only the tests/fixtures/video*.mp4 next to the binary.
 #   adb push tests/android/build/video_test tests/fixtures/video*.mp4 /data/local/tmp/
 #   adb shell "cd /data/local/tmp && ./video_test video.mp4 video-offset.mp4 video-sar.mp4"

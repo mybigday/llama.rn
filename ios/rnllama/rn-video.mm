@@ -1,4 +1,4 @@
-// Video decoder for mtmd on Apple platforms, on top of AVFoundation (see mtmd_helper_video_decoder).
+// Video decoder for mtmd on Apple platforms, on top of AVFoundation (see cpp/rn-video.h).
 // Built without ARC.
 
 #include "rn-video.h"

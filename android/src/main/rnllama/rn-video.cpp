@@ -1,5 +1,4 @@
-// Video decoder for mtmd on Android, on top of the NDK media APIs (see mtmd_helper_video_decoder).
-// The Apple decoder is rn-video-apple.mm; the other platforms have none.
+// Video decoder for mtmd on Android, on top of the NDK media APIs (see cpp/rn-video.h).
 
 // AMediaDataSource (API 28) reads a video from memory. The library also runs on older Android
 // versions, where a video must be given by its path: the NDK declares the symbols weak when this
@@ -7,8 +6,6 @@
 #define __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__ 1
 
 #include "rn-video.h"
-
-#if defined(__ANDROID__)
 
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaDataSource.h>
@@ -558,14 +555,3 @@ const mtmd_helper_video_decoder * video_decoder() {
 
 } // namespace rnllama
 
-#elif !defined(__APPLE__)
-
-namespace rnllama {
-
-const mtmd_helper_video_decoder * video_decoder() {
-    return nullptr;
-}
-
-} // namespace rnllama
-
-#endif

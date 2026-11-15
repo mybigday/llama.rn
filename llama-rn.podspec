@@ -38,7 +38,8 @@ Pod::Spec.new do |s|
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     # ios/*: not ios/**, or the prebuilt xcframework's flat Headers/ would join
     # the header map and shadow the vendored headers with the same basenames.
-    s.source_files = "ios/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,mm}",
+    # ios/rnllama/: library sources, part of the xcframework when it is prebuilt.
+    s.source_files = "ios/*.{h,m,mm}", "ios/rnllama/*.mm", "cpp/**/*.{h,cpp,hpp,c}",
       "#{llama_cpp}/include/*.h",
       "#{llama_cpp}/src/**/*.{h,cpp}",
       "#{llama_cpp}/ggml/include/*.h",

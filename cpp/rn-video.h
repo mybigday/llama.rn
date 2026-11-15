@@ -5,9 +5,16 @@
 
 namespace rnllama {
 
-// The platform's video decoder for mtmd: AVFoundation on Apple platforms, MediaCodec on Android.
+// The platform's video decoder for mtmd: AVFoundation on Apple platforms (ios/rnllama/rn-video.mm),
+// MediaCodec on Android (android/src/main/rnllama/rn-video.cpp).
 // nullptr on the other platforms, where mtmd can only decode video with ffmpeg (MTMD_VIDEO).
+#if defined(__APPLE__) || defined(__ANDROID__)
 const mtmd_helper_video_decoder * video_decoder();
+#else
+inline const mtmd_helper_video_decoder * video_decoder() {
+    return nullptr;
+}
+#endif
 
 // mtmd_helper_init_opt_default() that decodes video with video_decoder()
 inline mtmd_helper_init_opt media_init_opt() {
