@@ -229,13 +229,13 @@ static ggml_tensor * codec_q3t_apply_sliding_mask(
     if (ctx_eval == nullptr || attn_scores == nullptr) {
         return nullptr;
     }
-    attn_scores = ggml_diag_mask_inf_inplace(ctx_eval, attn_scores, 0);
+    attn_scores = codec_op_diag_mask_inf(ctx_eval, attn_scores, 0);
     if (window <= 0) {
         return attn_scores;
     }
     const int32_t n_past = std::max(0, window - 1);
     ggml_tensor * t = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, attn_scores));
-    t = ggml_diag_mask_inf_inplace(ctx_eval, t, n_past);
+    t = codec_op_diag_mask_inf(ctx_eval, t, n_past);
     return ggml_cont(ctx_eval, ggml_transpose(ctx_eval, t));
 }
 

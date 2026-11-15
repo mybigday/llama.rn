@@ -1,0 +1,12 @@
+ggml removed ggml_diag_mask_inf (llama.cpp #29801). Use codec_op_diag_mask_inf.
+--- a/src/lm/bluemagpie_cfm.cpp
++++ b/src/lm/bluemagpie_cfm.cpp
+@@ -273,7 +273,7 @@
+     ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, kk, 0, 2, 1, 3));   // (d, T, n_kv)
+     ggml_tensor * scores = codec_mul_mat(ctx, k_p, q_p);                       // (T_k, T_q, n_heads)
+     scores = ggml_scale(ctx, scores, 1.0f / std::sqrt((float) head_dim));
+-    scores = ggml_diag_mask_inf(ctx, scores, 0);
++    scores = codec_op_diag_mask_inf(ctx, scores, 0);
+     scores = ggml_soft_max(ctx, scores);
+     ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, vv, 1, 2, 0, 3));   // (T, d, n_kv)
+     ggml_tensor * attn = ggml_cont(ctx, ggml_permute(ctx, codec_mul_mat(ctx, v_p, scores), 0, 2, 1, 3));
