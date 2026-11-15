@@ -1,0 +1,15 @@
+codec.cpp does not compile with libc++ (clang): std::fill is used
+without including <algorithm>. GCC and Apple clang accept this
+through transitive includes; libc++ does not. Found while building
+the C++ test suite with clang (tests/build_and_test.sh).
+
+--- a/src/lm/bluemagpie_cfm.cpp
++++ b/src/lm/bluemagpie_cfm.cpp
+@@ -6,6 +6,7 @@
+ #include "../runtime/gguf_kv.h"
+ #include "../runtime/tensor_utils.h"
+ 
++#include <algorithm>
+ #include <cmath>
+ #include <cstring>
+ #include <new>

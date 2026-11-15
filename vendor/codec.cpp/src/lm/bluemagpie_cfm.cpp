@@ -6,6 +6,7 @@
 #include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <new>

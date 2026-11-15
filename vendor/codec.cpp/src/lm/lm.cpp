@@ -9,6 +9,7 @@
 #include <ggml.h>
 #include <gguf.h>
 
+#include <algorithm>
 #include <cstring>
 #include <new>
 #include <string>

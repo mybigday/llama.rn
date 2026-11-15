@@ -4,6 +4,7 @@
 #include "../runtime/graph.h"
 #include "../runtime/tensor_utils.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string>
