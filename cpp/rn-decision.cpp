@@ -2596,43 +2596,41 @@ static std::vector<float> decision_read_labels(const float * logits, const llama
     return out;
 }
 
-// Evaluate a prompt with media in one batch from the start of the sequence, the media as embeddings
-// next to the text (llama-server: add_prompt_mixed). A model without memory, or with non-causal
-// attention, must see the whole prompt at once. Every entry is an output, batch index = prompt position.
-static void decision_eval_mixed(
+// the chunks of a prompt's pieces, in order
+static std::vector<const mtmd_input_chunk *> decision_flatten(const std::vector<std::shared_ptr<mtmd_input_chunks>> & pieces) {
+    std::vector<const mtmd_input_chunk *> out;
+    for (const auto & piece : pieces) {
+        for (size_t i = 0; i < mtmd_input_chunks_size(piece.get()); i++) {
+            out.push_back(mtmd_input_chunks_get(piece.get(), i));
+        }
+    }
+    return out;
+}
+
+// Add chunks to a batch from position n_past, the media as embeddings next to the text
+// (llama-server: add_prompt_mixed). The batch only points at the embeddings, embds keeps them
+// until it is decoded.
+static void decision_add_chunks_mixed(
         mtmd_context * mctx,
         llama_context * ctx,
         llama_seq_id seq_id,
-        const llama_rn_decision_prompt & prompt) {
-    GGML_ASSERT(mctx != nullptr && prompt.media);
-    const size_t n_total = prompt.n_tokens();
-    if (n_total > (size_t) llama_n_batch(ctx)) {
-        throw std::runtime_error(string_format(
-            "the decision prompt does not fit in one batch (%zu tokens, n_batch = %u)", n_total, llama_n_batch(ctx)));
-    }
-
-    llama_memory_t mem = llama_get_memory(ctx);
-    if (mem != nullptr) {
-        llama_memory_seq_rm(mem, seq_id, -1, -1);
-    }
-
+        const std::vector<const mtmd_input_chunk *> & chunks,
+        bool output,
+        common_batch & batch,
+        std::vector<std::vector<float>> & embds,
+        llama_pos & n_past) {
     const int32_t n_embd   = llama_model_n_embd_inp(llama_get_model(ctx));
     const bool    is_mrope = mtmd_decode_use_mrope(mctx);
-    const mtmd_input_chunks * chunks = prompt.media.get();
 
-    // the batch only points at the embeddings, they are kept until it is decoded
-    std::vector<std::vector<float>> embds;
     mtmd::batch_ptr mbatch;
-    common_batch batch(ctx);
-    llama_pos n_past = 0;
-    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
-        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+    for (size_t i = 0; i < chunks.size(); i++) {
+        const mtmd_input_chunk * chunk = chunks[i];
         const size_t n_tokens = mtmd_input_chunk_get_n_tokens(chunk);
         if (mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT) {
             size_t n_text = 0;
             const llama_token * tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_text);
             for (size_t j = 0; j < n_text; j++) {
-                batch.add(tokens[j], n_past++, seq_id, true);
+                batch.add(tokens[j], n_past++, seq_id, output);
             }
             continue;
         }
@@ -2642,8 +2640,8 @@ static void decision_eval_mixed(
         if (out == nullptr) {
             mbatch.reset(mtmd_batch_init(mctx));
             GGML_ASSERT(mtmd_batch_add_chunk(mbatch.get(), chunk) == 0);
-            for (size_t k = i + 1; k < mtmd_input_chunks_size(chunks); k++) {
-                const mtmd_input_chunk * next = mtmd_input_chunks_get(chunks, k);
+            for (size_t k = i + 1; k < chunks.size(); k++) {
+                const mtmd_input_chunk * next = chunks[k];
                 if (mtmd_input_chunk_get_type(next) != MTMD_INPUT_CHUNK_TYPE_TEXT && mtmd_batch_add_chunk(mbatch.get(), next) != 0) {
                     break; // the batch is full, or the chunk cannot go with the others
                 }
@@ -2669,10 +2667,36 @@ static void decision_eval_mixed(
                 pos[2] = rel.x;
                 pos[3] = rel.z;
             }
-            batch.add_embd({ embd + j * n_embd, 1, (size_t) n_embd }, pos, seq_id, true);
+            batch.add_embd({ embd + j * n_embd, 1, (size_t) n_embd }, pos, seq_id, output);
         }
         n_past += mtmd_input_chunk_get_n_pos(chunk);
     }
+}
+
+// Evaluate a prompt with media in one batch from the start of the sequence, the media as embeddings
+// next to the text (llama-server: add_prompt_mixed). A model without memory, or with non-causal
+// attention, must see the whole prompt at once. Every entry is an output, batch index = prompt position.
+static void decision_eval_mixed(
+        mtmd_context * mctx,
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const llama_rn_decision_prompt & prompt) {
+    GGML_ASSERT(mctx != nullptr && prompt.media);
+    const size_t n_total = prompt.n_tokens();
+    if (n_total > (size_t) llama_n_batch(ctx)) {
+        throw std::runtime_error(string_format(
+            "the decision prompt does not fit in one batch (%zu tokens, n_batch = %u)", n_total, llama_n_batch(ctx)));
+    }
+
+    llama_memory_t mem = llama_get_memory(ctx);
+    if (mem != nullptr) {
+        llama_memory_seq_rm(mem, seq_id, -1, -1);
+    }
+
+    std::vector<std::vector<float>> embds;
+    common_batch batch(ctx);
+    llama_pos n_past = 0;
+    decision_add_chunks_mixed(mctx, ctx, seq_id, decision_flatten({prompt.media}), true, batch, embds, n_past);
 
     // the decision order covers the text after the media, the media have none
     for (size_t j = 0; j < prompt.tokens.size(); j++) {
@@ -2690,17 +2714,6 @@ static void decision_eval_mixed(
         }
         throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
     }
-}
-
-// the chunks of a prompt's pieces, in order
-static std::vector<const mtmd_input_chunk *> decision_flatten(const std::vector<std::shared_ptr<mtmd_input_chunks>> & pieces) {
-    std::vector<const mtmd_input_chunk *> out;
-    for (const auto & piece : pieces) {
-        for (size_t i = 0; i < mtmd_input_chunks_size(piece.get()); i++) {
-            out.push_back(mtmd_input_chunks_get(piece.get(), i));
-        }
-    }
-    return out;
 }
 
 // Evaluate a prompt with images from the start of the sequence, the way llama-server does
@@ -2774,6 +2787,47 @@ static void decision_eval_chunks(
             throw std::runtime_error("failed to decode the images of the decision prompt");
         }
         n_past = new_n_past;
+    }
+}
+
+// Same prompt as decision_eval_chunks(), in one batch from the start of the sequence: a context
+// without memory, or with non-causal attention, must see the whole prompt at once (llama-server:
+// add_prompt_mixed). Only the last token of the prompt has an output.
+static void decision_eval_chunks_mixed(
+        mtmd_context * mctx,
+        llama_context * ctx,
+        llama_seq_id seq_id,
+        const std::vector<const mtmd_input_chunk *> & chunks) {
+    size_t n_total = 0;
+    for (const mtmd_input_chunk * chunk : chunks) {
+        n_total += mtmd_input_chunk_get_n_tokens(chunk);
+    }
+    if (n_total > (size_t) llama_n_batch(ctx)) {
+        throw std::runtime_error(string_format(
+            "the decision prompt does not fit in one batch (%zu tokens, n_batch = %u)", n_total, llama_n_batch(ctx)));
+    }
+    if (chunks.empty() || mtmd_input_chunk_get_type(chunks.back()) != MTMD_INPUT_CHUNK_TYPE_TEXT || mtmd_input_chunk_get_n_tokens(chunks.back()) == 0) {
+        throw std::runtime_error("a decision prompt must end with text");
+    }
+
+    llama_memory_t mem = llama_get_memory(ctx);
+    if (mem != nullptr) {
+        llama_memory_seq_rm(mem, seq_id, -1, -1);
+    }
+
+    std::vector<std::vector<float>> embds;
+    common_batch batch(ctx);
+    llama_pos n_past = 0;
+    decision_add_chunks_mixed(mctx, ctx, seq_id, chunks, false, batch, embds, n_past);
+    GGML_ASSERT((size_t) batch.size() == n_total);
+    batch.set_output(batch.size() - 1, true);
+
+    const int32_t ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+    if (ret != 0) {
+        if (mem != nullptr) {
+            llama_memory_seq_rm(mem, seq_id, -1, -1);
+        }
+        throw std::runtime_error(string_format("failed to evaluate the decision prompt (error %d)", ret));
     }
 }
 
@@ -2931,14 +2985,22 @@ std::vector<float> llama_rn_decision_eval(
         size_t    first_token = 0;
         llama_pos n_past      = 0;
         const std::vector<const mtmd_input_chunk *> chunks = decision_flatten(prompt.chunks);
-        if (mem != nullptr && !cache.chunks.empty() && !prompt.no_prefix_cache) {
+        if (mem == nullptr || !llama_get_causal_attn(ctx)) {
+            // nothing is kept between batches, or a batch does not attend to what follows it
+            cache.clear();
+            decision_eval_chunks_mixed(mctx, ctx, seq_id, chunks);
+            const float * logits = llama_get_logits_ith(ctx, -1);
+            if (logits == nullptr) {
+                throw std::runtime_error("failed to get logits");
+            }
+            return decision_read_labels(logits, prompt, prompt.labels.size());
+        }
+        if (!cache.chunks.empty() && !prompt.no_prefix_cache) {
             decision_common_prefix(decision_flatten(cache.chunks), chunks, first_chunk, first_token, n_past);
         }
         // a recurrent state cannot be rolled back, start over
-        if (mem == nullptr || !llama_memory_seq_rm(mem, seq_id, n_past, -1)) {
-            if (mem != nullptr) {
-                llama_memory_seq_rm(mem, seq_id, -1, -1);
-            }
+        if (!llama_memory_seq_rm(mem, seq_id, n_past, -1)) {
+            llama_memory_seq_rm(mem, seq_id, -1, -1);
             first_chunk = 0;
             first_token = 0;
             n_past      = 0;
@@ -2947,9 +3009,7 @@ std::vector<float> llama_rn_decision_eval(
         try {
             decision_eval_chunks(mctx, ctx, seq_id, chunks, n_past, true, first_chunk, first_token);
         } catch (...) {
-            if (mem != nullptr) {
-                llama_memory_seq_rm(mem, seq_id, -1, -1);
-            }
+            llama_memory_seq_rm(mem, seq_id, -1, -1);
             throw;
         }
         cache.chunks = prompt.chunks;
