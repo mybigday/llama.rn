@@ -1824,13 +1824,29 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
     mtmd::bitmaps bitmaps;
     std::vector<mtmd_helper_video *> videos; // the frames of a video need its context while they are tokenized
     decision_load_bitmaps(mctx, request.images, bitmaps, profile.video_input, &videos);
-    const std::vector<const mtmd_bitmap *> bitmaps_c_ptr = bitmaps.c_ptr();
+    std::vector<const mtmd_bitmap *> bitmaps_c_ptr = bitmaps.c_ptr();
+
+    // the frames of a video are read once, when a prompt is tokenized: load it again for the next prompt
+    bool media_used = false;
+    auto next_media = [&]() {
+        if (media_used && !videos.empty()) {
+            for (mtmd_helper_video * video : videos) {
+                mtmd_helper_video_free(video);
+            }
+            videos.clear();
+            bitmaps.entries.clear();
+            decision_load_bitmaps(mctx, request.images, bitmaps, profile.video_input, &videos);
+            bitmaps_c_ptr = bitmaps.c_ptr();
+        }
+        media_used = true;
+    };
 
     std::vector<llama_rn_decision_prompt> prompts;
     try {
         if (is_joint() && profile.joint_per_question) {
             // each question has its own prompt, with the spans that the head reads (vllm-decision2)
             for (size_t i = 0; i < request.questions.size(); i++) {
+                next_media();
                 prompts.push_back(fill_prompt_joint(request, mctx, bitmaps_c_ptr, i));
             }
         } else if (is_joint()) {
@@ -1838,6 +1854,7 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
         } else {
             for (size_t i = 0; i < request.questions.size(); i++) {
                 for (size_t variant = 0; variant < n_variants(request.questions[i]); variant++) {
+                    next_media();
                     prompts.push_back(fill_prompt(request, i, variant, mctx, bitmaps_c_ptr));
                 }
             }
@@ -1860,7 +1877,8 @@ std::vector<llama_rn_decision_prompt> llama_rn_decision_context::fill_prompts(co
 }
 
 // images: file paths or data URLs, the same as the media_paths of a completion. Loaded once per
-// request: a prompt per question tokenizes the same images again, from these
+// request: a prompt per question tokenizes the same images again, from these; a request with a
+// video is loaded again for each prompt, see fill_prompts()
 // (mtmd::bitmaps cannot be returned: its destructor leaves it without a move constructor)
 // allow_video: a video is kept as its frames, without its soundtrack (lfm3-d1); its contexts are
 // appended to videos, which the caller keeps alive until the bitmaps are tokenized, then frees
