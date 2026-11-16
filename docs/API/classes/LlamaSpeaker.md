@@ -35,7 +35,7 @@
 
 #### Defined in
 
-[index.ts:400](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L400)
+[index.ts:409](https://github.com/mybigday/llama.rn/blob/99150bed/src/index.ts#L409)
 
 ## Properties
 
@@ -45,7 +45,7 @@
 
 #### Defined in
 
-[index.ts:398](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L398)
+[index.ts:407](https://github.com/mybigday/llama.rn/blob/99150bed/src/index.ts#L407)
 
 ___
 
@@ -55,7 +55,7 @@ ___
 
 #### Defined in
 
-[index.ts:396](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L396)
+[index.ts:405](https://github.com/mybigday/llama.rn/blob/99150bed/src/index.ts#L405)
 
 ___
 
@@ -65,7 +65,7 @@ ___
 
 #### Defined in
 
-[index.ts:394](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L394)
+[index.ts:403](https://github.com/mybigday/llama.rn/blob/99150bed/src/index.ts#L403)
 
 ## Methods
 
@@ -79,4 +79,4 @@ ___
 
 #### Defined in
 
-[index.ts:406](https://github.com/mybigday/llama.rn/blob/5f4d794a/src/index.ts#L406)
+[index.ts:415](https://github.com/mybigday/llama.rn/blob/99150bed/src/index.ts#L415)

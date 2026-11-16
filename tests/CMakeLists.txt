@@ -69,6 +69,7 @@ function(rnllama_test name main)
         target_link_libraries(${name} PRIVATE
             "-framework Accelerate"
             "-framework Foundation"
+            ${RNLLAMA_VIDEO_LIBS}
         )
     elseif(UNIX AND NOT APPLE)
         find_package(Threads REQUIRED)
@@ -115,6 +116,9 @@ rnllama_test(barbet_hidden_dump barbet_hidden_dump.cpp NATIVE_SIMD)
 
 # read_gguf_file_info() array-length reporting
 rnllama_test(model_info_test model_info_test.cpp)
+
+# Platform video decoder behind video_url (cpp/rn-video.h)
+rnllama_test(video_test video_test.cpp)
 
 # KV-cache-reuse harness
 rnllama_test(kv_cache_reuse_test kv_cache_reuse_test.cpp)

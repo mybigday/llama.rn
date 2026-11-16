@@ -138,6 +138,18 @@ set(RNLLAMA_RN_SOURCES
     ${RNLLAMA_CPP_DIR}/rn-slot-manager.cpp
     ${RNLLAMA_CPP_DIR}/rn-tts.cpp
 )
+# Video decoding for mtmd goes through the platform (see cpp/rn-video.h):
+# AVFoundation on Apple, built as Objective-C++ by the C++ compiler; MediaCodec
+# on Android. Callers link RNLLAMA_VIDEO_LIBS.
+if(APPLE)
+    list(APPEND RNLLAMA_RN_SOURCES ${RNLLAMA_ROOT_DIR}/ios/rnllama/rn-video.mm)
+    set(RNLLAMA_VIDEO_LIBS "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo")
+elseif(ANDROID)
+    list(APPEND RNLLAMA_RN_SOURCES ${RNLLAMA_ROOT_DIR}/android/src/main/rnllama/rn-video.cpp)
+    set(RNLLAMA_VIDEO_LIBS mediandk)
+else()
+    set(RNLLAMA_VIDEO_LIBS "")
+endif()
 
 # Everything a CPU-only build of the library needs.
 set(RNLLAMA_CORE_SOURCES

@@ -56,7 +56,7 @@ function(build_rnllama_library target_name arch cpu_flags)
         ${SOURCE_FILES_ARCH}
     )
 
-    target_link_libraries(${target_name} PRIVATE ${LOG_LIB} android)
+    target_link_libraries(${target_name} PRIVATE ${LOG_LIB} android ${RNLLAMA_VIDEO_LIBS})
 
     if (${arch} STREQUAL "generic")
         target_compile_options(${target_name} PRIVATE -DGGML_CPU_GENERIC)

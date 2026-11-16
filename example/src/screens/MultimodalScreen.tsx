@@ -32,7 +32,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
-import type { LLMMessage } from '../utils/llmMessages'
+import type { LLMContentPart, LLMMessage } from '../utils/llmMessages'
 import { initLlama } from '../../../src' // import 'llama.rn'
 import {
   useStoredCompletionParams,
@@ -72,9 +72,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
   const [pendingMedia, setPendingMedia] = useState<{
-    data: string // base64 data URL
+    data: string // base64 data URL, or the file path of a video
     mimeType: string
-    type: 'image' | 'audio'
+    type: 'image' | 'audio' | 'video'
   } | null>(null)
   const [multimodalSupport, setMultimodalSupport] = useState<{
     vision: boolean
@@ -114,12 +114,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   }
 
   const buildLLMMessages = (
-    currentUserContent?: Array<{
-      type: 'text' | 'image_url' | 'input_audio'
-      text?: string
-      image_url?: { url: string }
-      input_audio?: { format: string; data: string }
-    }>,
+    currentUserContent?: LLMContentPart[],
   ): LLMMessage[] => {
     const conversationMessages: LLMMessage[] = [
       {
@@ -136,9 +131,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     // Add previous messages from chat history (excluding system messages)
     const recentMessages = messagesRef.current
       .filter(
-        (msg): msg is MessageType.Text | MessageType.Image =>
+        (msg): msg is MessageType.Text | MessageType.Image | MessageType.File =>
           (msg.type === 'text' && !msg.metadata?.system) ||
-          msg.type === 'image',
+          msg.type === 'image' ||
+          msg.type === 'file', // a video
       )
       .reverse() // Reverse to get chronological order
       .slice(-20) // Keep more messages to account for images
@@ -210,6 +206,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             },
           ]
         }
+      } else if (msg.type === 'file' && Array.isArray(currentGroup.content)) {
+        currentGroup.content.push({
+          type: 'video_url',
+          video_url: { url: msg.uri },
+        })
       }
 
       return acc
@@ -431,12 +432,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       setIsLoading(true)
 
       // Prepare current user message content for AI context (don't add to chat yet)
-      const currentUserContent: Array<{
-        type: 'text' | 'image_url' | 'input_audio'
-        text?: string
-        image_url?: { url: string }
-        input_audio?: { format: string; data: string }
-      }> = []
+      const currentUserContent: LLMContentPart[] = []
 
       // Add media content if there's pending media
       if (pendingMedia) {
@@ -455,16 +451,18 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               data: pendingMedia.data,
             },
           })
+        } else if (pendingMedia.type === 'video') {
+          currentUserContent.push({
+            type: 'video_url',
+            video_url: { url: pendingMedia.data },
+          })
         }
       }
 
       // Add text content if provided
       const textContent =
         message.text.trim() ||
-        (pendingMedia?.type === 'image'
-          ? 'Describe this image in detail.'
-          : '') ||
-        (pendingMedia?.type === 'audio' ? 'Describe this audio in detail.' : '')
+        (pendingMedia ? `Describe this ${pendingMedia.type} in detail.` : '')
 
       if (textContent) {
         currentUserContent.push({
@@ -496,6 +494,20 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           },
         }
         addMessage(imageMessage)
+      }
+
+      if (pendingMedia && pendingMedia.type === 'video') {
+        const videoMessage: MessageType.File = {
+          author: CHAT_USER,
+          createdAt: Date.now(),
+          id: createMessageId(),
+          name: pendingMedia.data.split('/').pop() || 'video',
+          size: 0,
+          type: 'file',
+          uri: pendingMedia.data,
+          mimeType: pendingMedia.mimeType,
+        }
+        addMessage(videoMessage)
       }
 
       if (message.text.trim()) {
@@ -596,6 +608,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
             : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
         supportedTypes.push(...imageTypes)
+        // Any vision model can take a video: it sees the sampled frames
+        supportedTypes.push(
+          ...(Platform.OS === 'ios'
+            ? ['public.movie']
+            : ['video/mp4', 'video/quicktime', 'video/webm']),
+        )
       }
 
       if (multimodalSupport.audio) {
@@ -640,6 +658,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           // Audio
           wav: 'audio/wav',
           mp3: 'audio/mpeg',
+
+          // Video
+          mp4: 'video/mp4',
+          m4v: 'video/mp4',
+          mov: 'video/quicktime',
+          webm: 'video/webm',
         }
         return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
       }
@@ -657,8 +681,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         })
 
         if (localCopy.status === 'success') {
-          const mediaFormat = getFileExtension(file.uri)
-          const mimeType = getMimeType(mediaFormat)
+          // A content:// URI (Android photo picker) has no extension: trust
+          // the picker's type first, then the file name
+          const mediaFormat = getFileExtension(file.name ?? file.uri)
+          const mimeType = file.type || getMimeType(mediaFormat)
 
           try {
             // Determine if it's an image or audio file and check if supported
@@ -676,6 +702,17 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 mimeType,
                 type: 'image',
               })
+            } else if (mimeType.startsWith('video/')) {
+              if (!multimodalSupport.vision) {
+                Alert.alert('Error', 'This model does not support video input')
+                return
+              }
+              // A video is passed by its path, the native side decodes it
+              setPendingMedia({
+                data: localCopy.localUri,
+                mimeType,
+                type: 'video',
+              })
             } else if (mimeType.startsWith('audio/')) {
               if (!multimodalSupport.audio) {
                 Alert.alert('Error', 'This model does not support audio input')
@@ -692,7 +729,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               })
             } else {
               const supportedFormats = []
-              if (multimodalSupport.vision) supportedFormats.push('images')
+              if (multimodalSupport.vision)
+                supportedFormats.push('images', 'videos')
               if (multimodalSupport.audio) supportedFormats.push('audio')
               const formatText = supportedFormats.join(' or ')
               Alert.alert(
@@ -814,13 +852,17 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             />
           ) : (
             <View style={styles.pendingMediaIcon}>
-              <Text style={{ color: 'white', fontSize: 24 }}>♪</Text>
+              <Text style={{ color: 'white', fontSize: 24 }}>
+                {pendingMedia.type === 'video' ? '▶' : '♪'}
+              </Text>
             </View>
           )}
           <Text style={styles.pendingMediaText}>
             {pendingMedia.type === 'image'
               ? 'Image ready'
-              : `Audio file ready (${pendingMedia.mimeType
+              : `${
+                  pendingMedia.type === 'video' ? 'Video' : 'Audio'
+                } file ready (${pendingMedia.mimeType
                   .split('/')[1]
                   ?.toUpperCase()})`}
           </Text>
