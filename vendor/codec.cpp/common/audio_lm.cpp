@@ -1,6 +1,7 @@
 #include "codec_common.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string>

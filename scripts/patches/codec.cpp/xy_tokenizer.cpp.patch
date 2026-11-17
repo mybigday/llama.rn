@@ -1,0 +1,15 @@
+codec.cpp does not compile with libc++ (clang): std::malloc is used without
+including <cstdlib>. GCC and Apple clang accept this through transitive
+includes; libc++ does not. Found while building the C++ test suite with
+clang (tests/build_and_test.sh).
+
+--- a/src/models/xy_tokenizer.cpp
++++ b/src/models/xy_tokenizer.cpp
+@@ -36,6 +36,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <string>
+ #include <vector>
