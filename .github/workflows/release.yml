@@ -40,6 +40,8 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+        with:
+          bootstrap: hexagon-image hexagon-sdk
 
       - name: Setup Gradle cache
         uses: burrunan/gradle-cache-action@v3
@@ -73,6 +75,8 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+        with:
+          bootstrap: metal
 
       - name: Resolve release version
         id: release
