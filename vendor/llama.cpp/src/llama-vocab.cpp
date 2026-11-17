@@ -584,6 +584,12 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                 regex_exprs = { "\\p{N}", "\\s+|[\\p{L}\\p{N}_]+|[^\\p{L}\\p{N}_\\s]+" };
                 byte_encode = false;
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_ZONOS3:
+                // SuperBPE: no split on whitespace, tokens can span several words
+                regex_exprs = {
+                    "\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]{2,}[\\r\\n/]*| +(?!\\S)",
+                };
+                break;
             case LLAMA_VOCAB_PRE_TYPE_CHATTERBOX:
                 // HF tokenizers' Whitespace pre-tokenizer (\\w+|[^\\w\\s]+) over a
                 // raw-UTF-8 BPE (Chatterbox T3's text tokenizer)
@@ -2704,6 +2710,11 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_GPT4O;
                 clean_spaces = false;
             } else if (
+                tokenizer_pre == "inkling2") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_GPT4O;
+                special_bos_id = LLAMA_TOKEN_NULL;
+                clean_spaces = false;
+            } else if (
                 tokenizer_pre == "granite-embed-multi-97m") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_GRANITE_EMB_MULTI;
                 clean_spaces = false;
@@ -2797,6 +2808,10 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_SOPRANO;
                 // [UNK]; GGUFs converted before upstream's Soprano support lack tokenizer.ggml.unknown_token_id
                 special_unk_id = 0;
+            } else if (
+                tokenizer_pre == "zonos3") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_ZONOS3;
+                clean_spaces = false;
             } else if (
                 tokenizer_pre == "chatterbox") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_CHATTERBOX;
