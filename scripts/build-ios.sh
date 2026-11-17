@@ -7,10 +7,53 @@ if ! command -v cmake &> /dev/null; then
   exit 1
 fi
 
+# Usage: scripts/build-ios.sh [slice...]
+#
+# Builds ios/rnllama.xcframework from the named slices, all of them by default.
+# Each slice compiles the whole library, so CI builds them as separate jobs; an
+# xcframework made from a subset only serves the platforms of those slices.
+ALL_SLICES=(ios-simulator ios-device tvos-simulator tvos-device)
+
+# <system name>|<architectures>|<sysroot>|<xcframework library identifier>
+slice_config() {
+  case "$1" in
+    ios-simulator)  echo "iOS|arm64;x86_64|iphonesimulator|ios-arm64_x86_64-simulator" ;;
+    ios-device)     echo "iOS|arm64|iphoneos|ios-arm64" ;;
+    tvos-simulator) echo "tvOS|arm64;x86_64|appletvsimulator|tvos-arm64_x86_64-simulator" ;;
+    tvos-device)    echo "tvOS|arm64|appletvos|tvos-arm64" ;;
+    *)
+      echo "Unknown slice '$1' (expected: ${ALL_SLICES[*]})" >&2
+      return 1
+      ;;
+  esac
+}
+
+slice_library_identifier() {
+  slice_config "$1" | cut -d'|' -f4
+}
+
+if [[ $# -gt 0 ]]; then
+  SLICES=("$@")
+else
+  SLICES=("${ALL_SLICES[@]}")
+fi
+for slice in "${SLICES[@]}"; do
+  slice_config "$slice" > /dev/null
+done
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/ios/rnllama.xcframework"
 BUILD_ROOT="$ROOT_DIR/.build-ios-xcframework"
 STAGING_DIR="$BUILD_ROOT/staging"
+
+# CMake's Xcode generator ignores compiler launchers, so ccache only works by
+# standing in for the compiler: when its compiler symlinks come first on PATH,
+# make Xcode resolve the compilers through PATH instead of its toolchain.
+XCODEBUILD_ARGS=()
+if [[ "$(command -v clang)" == *ccache* ]]; then
+  echo "Using ccache via $(command -v clang)"
+  XCODEBUILD_ARGS=(-- CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ COMPILER_INDEX_STORE_ENABLE=NO)
+fi
 
 cleanup() {
   rm -rf "$BUILD_ROOT"
@@ -92,17 +135,10 @@ assert_matching_dsym() {
 }
 
 build_framework_slice() {
-  # Parameters:
-  # $1: system_name (iOS/tvOS)
-  # $2: architectures
-  # $3: sysroot
-  # $4: library_identifier
-  # $5: build_dir_name
-  local system_name="$1"
-  local architectures="$2"
-  local sysroot="$3"
-  local library_identifier="$4"
-  local build_dir="$BUILD_ROOT/$5"
+  local slice="$1"
+  local system_name architectures sysroot library_identifier
+  IFS='|' read -r system_name architectures sysroot library_identifier <<< "$(slice_config "$slice")"
+  local build_dir="$BUILD_ROOT/$slice"
   local release_dir="$build_dir/Release-$sysroot"
   local framework_path="$release_dir/rnllama.framework"
   local dsym_path="$release_dir/rnllama.framework.dSYM"
@@ -123,7 +159,10 @@ build_framework_slice() {
       -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
       -DCMAKE_IOS_INSTALL_COMBINED=YES
 
-    cmake --build . --config Release -j "$(sysctl -n hw.logicalcpu)"
+    # (the expansion is spelled this way because macOS's bash 3.2 treats an
+    # empty array as unset under `set -u`)
+    cmake --build . --config Release -j "$(sysctl -n hw.logicalcpu)" \
+      ${XCODEBUILD_ARGS[@]+"${XCODEBUILD_ARGS[@]}"}
   )
 
   if [[ ! -d "$framework_path" ]]; then
@@ -159,30 +198,22 @@ t0=$(date +%s)
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$STAGING_DIR"
 
-build_framework_slice "iOS" "arm64;x86_64" "iphonesimulator" \
-  "ios-arm64_x86_64-simulator" "ios-simulator"
-build_framework_slice "iOS" "arm64" "iphoneos" \
-  "ios-arm64" "ios-device"
-build_framework_slice "tvOS" "arm64;x86_64" "appletvsimulator" \
-  "tvos-arm64_x86_64-simulator" "tvos-simulator"
-build_framework_slice "tvOS" "arm64" "appletvos" \
-  "tvos-arm64" "tvos-device"
+create_xcframework_args=()
+for slice in "${SLICES[@]}"; do
+  build_framework_slice "$slice"
 
-xcodebuild -create-xcframework \
-  -framework "$STAGING_DIR/ios-arm64_x86_64-simulator/rnllama.framework" \
-  -debug-symbols "$STAGING_DIR/ios-arm64_x86_64-simulator/rnllama.framework.dSYM" \
-  -framework "$STAGING_DIR/ios-arm64/rnllama.framework" \
-  -debug-symbols "$STAGING_DIR/ios-arm64/rnllama.framework.dSYM" \
-  -framework "$STAGING_DIR/tvos-arm64_x86_64-simulator/rnllama.framework" \
-  -debug-symbols "$STAGING_DIR/tvos-arm64_x86_64-simulator/rnllama.framework.dSYM" \
-  -framework "$STAGING_DIR/tvos-arm64/rnllama.framework" \
-  -debug-symbols "$STAGING_DIR/tvos-arm64/rnllama.framework.dSYM" \
-  -output "$OUTPUT_DIR"
+  library_identifier="$(slice_library_identifier "$slice")"
+  create_xcframework_args+=(
+    -framework "$STAGING_DIR/$library_identifier/rnllama.framework"
+    -debug-symbols "$STAGING_DIR/$library_identifier/rnllama.framework.dSYM"
+  )
+done
 
-validate_packaged_dsym "ios-arm64_x86_64-simulator"
-validate_packaged_dsym "ios-arm64"
-validate_packaged_dsym "tvos-arm64_x86_64-simulator"
-validate_packaged_dsym "tvos-arm64"
+xcodebuild -create-xcframework "${create_xcframework_args[@]}" -output "$OUTPUT_DIR"
+
+for slice in "${SLICES[@]}"; do
+  validate_packaged_dsym "$(slice_library_identifier "$slice")"
+done
 
 t1=$(date +%s)
 echo "Total time: $((t1 - t0)) seconds"

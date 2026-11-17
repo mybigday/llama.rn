@@ -43,6 +43,8 @@ jobs:
 
       - name: Setup Node.js and build prerequisites
         uses: ./.github/actions/setup
+        with:
+          bootstrap: hexagon-image hexagon-sdk
 
       # Pin the JDK: with the runner's newer default, a JVM restricted-method
       # warning fails the Android Gradle Plugin's CMake configure.

@@ -1,0 +1,36 @@
+name: Save ccache
+description: >-
+  Prints the ccache statistics of the job and saves the cache that
+  setup-ccache restored, unless nearly everything was a hit.
+
+runs:
+  using: composite
+  steps:
+    - name: Show statistics
+      id: stats
+      run: |
+        if ! command -v ccache > /dev/null; then
+          echo "ccache was not set up, nothing to save"
+          exit 0
+        fi
+        ccache --show-stats --verbose || ccache --show-stats || true
+
+        # A cache is hundreds of MB and the repository gets 10 GB for all of
+        # them, so a new one is stored only when the restored one left real
+        # work to do. (Saves when the counter cannot be read.)
+        misses=$(ccache --print-stats | awk -F'\t' '$1 == "cache_miss" { print $2 }' || true)
+        echo "Compiled without a cache hit: ${misses:-unknown}"
+        if [ "${misses:-25}" -ge 25 ]; then
+          echo "save=true" >> "$GITHUB_OUTPUT"
+        fi
+      shell: bash
+
+    - name: Save compiler cache
+      if: steps.stats.outputs.save == 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: |
+          .ccache
+          .thinlto-cache
+        key: ${{ env.RNLLAMA_COMPILER_CACHE_KEY }}-${{ github.sha }}

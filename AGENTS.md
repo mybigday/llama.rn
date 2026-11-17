@@ -62,12 +62,16 @@ Developer environment only; it never touches `vendor/` contents:
 2. `example/` dependencies and, on macOS, CocoaPods
 3. Flattens each split Metal kernel with `ggml-common.h` / `ggml-metal-impl.h` and emits per-kernel `ggml-metal-embed-*.s` files next to the kernels (gitignored) so the sources are embedded into the framework binary (avoids `.metallib` distribution and runtime `.metal` file loading; see #348)
 
+Runs every step by default; name steps to run a subset (`scripts/bootstrap.sh metal`, see the script header). CI jobs only run the steps they need.
+
 **Run `npm run bootstrap` after cloning; run `npm run sync:vendor` after editing `vendor/VERSIONS` or `scripts/patches/`.**
 
 ### Platform Builds
 
 - **iOS:** Library consumers use pre-built `ios/rnllama.xcframework` by default. The example app (`example/ios/Podfile`) sets `RNLLAMA_BUILD_FROM_SOURCE=1` to build from source, so C++ changes take effect when building the example. `scripts/build-ios.sh` builds device/simulator frameworks for release. Metal is enabled unless `RNLLAMA_DISABLE_METAL=1`.
 - **Android:** Library consumers use pre-built `.so` libraries by default. The example app (`example/android/gradle.properties`) sets `rnllamaBuildFromSource=true` to build from source. `scripts/build-android.sh` builds native libs (OpenCL via `scripts/build-opencl.sh`). CMake config lives in `android/build.gradle` and `ios/CMakeLists.txt`.
+- **Android CPU variants:** each ABI ships several `librnllama_*.so` built for different CPU features. Only the ggml-cpu backend and the few sources that read a per-variant macro (`RNLLAMA_VARIANT_MACROS`, e.g. `GGML_USE_OPENCL`) are compiled per variant; everything else is compiled once per ABI and linked into all of them (`android/src/main/rnllama/CMakeLists.txt`). The variants link one after another and share a ThinLTO cache. A shared source that would see a per-variant macro through a header fails to compile ("poisoned identifier"); move it to `RNLLAMA_VARIANT_SOURCES`.
+- **iOS slices:** `scripts/build-ios.sh [slice...]` builds the named xcframework slices (`ios-simulator`, `ios-device`, `tvos-simulator`, `tvos-device`; all by default). CI builds them in parallel jobs; the release and sync workflows package all four.
 - **For library users:** Pre-built frameworks/libs are recommended (the default). Only enable build-from-source if you need to modify C++ code or apply custom patches.
 
 ## Common Development Commands
@@ -110,7 +114,7 @@ npm run build:android          # Build Android example app
 ## Testing Strategy
 
 - **TypeScript/Javascript:** Jest unit tests in `src/__tests__/` (JSI mocked in `jest/mock.js`). Run with `npm test`.
-- **C++:** Unit tests in `tests/` (`tests/build_and_test.sh` or `tests/run_tests.sh` after building).
+- **C++:** Unit tests in `tests/` (`tests/build_and_test.sh` or `tests/run_tests.sh` after building). The test executables link one shared build of the library (`rnllama_test_core` in `tests/CMakeLists.txt`).
 - **Integration:** Example app under `example/` for device validation, GPU/performance checks, and parallel decoding stress.
 
 ## Key Files Reference

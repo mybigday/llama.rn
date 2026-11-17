@@ -164,7 +164,7 @@ jobs:
         run: npm ci
 
       - name: Bootstrap
-        run: npm run bootstrap
+        run: ./scripts/bootstrap.sh hexagon-image hexagon-sdk
 
       - name: Build Android libraries
         run: npm run build:android-libs
@@ -194,7 +194,7 @@ jobs:
         run: npm ci
 
       - name: Bootstrap
-        run: npm run bootstrap
+        run: ./scripts/bootstrap.sh metal
 
       # The three checks are independent; run them all so the PR lists every
       # failure, then fail the job below.
@@ -209,7 +209,7 @@ jobs:
         run: |
           cd tests
           mkdir -p build && cd build
-          cmake .. && make && ./rnllama_tests
+          cmake .. && make -j "$(sysctl -n hw.logicalcpu)" && ./rnllama_tests
 
       - name: Build TypeScript library
         id: ts

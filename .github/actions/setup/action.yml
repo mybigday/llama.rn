@@ -1,6 +1,14 @@
 name: Setup
 description: Setup Node.js and install dependencies
 
+inputs:
+  bootstrap:
+    description: >-
+      Steps of scripts/bootstrap.sh the job needs, space separated
+      (hexagon-image, hexagon-sdk, example, metal, pods). Bootstrap is skipped
+      when empty.
+    default: ''
+
 runs:
   using: composite
   steps:
@@ -15,10 +23,12 @@ runs:
       continue-on-error: true
       with:
         path: |
-          **/node_modules
-        key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/package.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/package.json') }}
+          node_modules
+          example/node_modules
+        # The manifests are named one by one: the key is evaluated again when the
+        # job ends, and a `**` glob then walks node_modules and the build output
+        # (20-40 s per job).
+        key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json', 'example/package-lock.json', 'package.json', 'example/package.json') }}
 
     - name: Install dependencies
       if: steps.npm-cache.outputs.cache-hit != 'true'
@@ -27,6 +37,13 @@ runs:
         npm ci
       shell: bash
 
-    - name: Bootstrap & Build
-      run: npm run bootstrap && npm run build
+    - name: Bootstrap
+      if: inputs.bootstrap != ''
+      env:
+        BOOTSTRAP_STEPS: ${{ inputs.bootstrap }}
+      run: ./scripts/bootstrap.sh $BOOTSTRAP_STEPS
+      shell: bash
+
+    - name: Build
+      run: npm run build
       shell: bash

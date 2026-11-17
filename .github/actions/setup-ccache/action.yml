@@ -1,15 +1,85 @@
 name: Setup ccache
-description: Ensures ccache is installed so the CMake builds can pick it up
+description: >-
+  Installs ccache and restores its cache from an earlier run, together with the
+  ThinLTO cache of the Android builds. Pair it with save-ccache at the end of
+  the job.
+
+inputs:
+  key:
+    description: >-
+      Name of the cache. Jobs that compile different things need different
+      names.
+    required: true
+  max-size:
+    description: Upper bound for the ccache directory
+    default: 1G
 
 runs:
   using: composite
   steps:
     - name: Install ccache
+      env:
+        CACHE_NAME: ${{ inputs.key }}
+        MAX_SIZE: ${{ inputs.max-size }}
       run: |
         if ! command -v ccache > /dev/null; then
-          sudo apt-get update
-          sudo apt-get install -y ccache
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ccache
+          else
+            sudo apt-get update
+            sudo apt-get install -y ccache
+          fi
         fi
         ccache --version
-        ccache --zero-stats
+
+        {
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache"
+          echo "CCACHE_MAXSIZE=$MAX_SIZE"
+          # android/src/main/rnllama/CMakeLists.txt keeps its ThinLTO cache here
+          echo "RNLLAMA_THINLTO_CACHE_DIR=$GITHUB_WORKSPACE/.thinlto-cache"
+          # For save-ccache
+          echo "RNLLAMA_COMPILER_CACHE_KEY=$RUNNER_OS-ccache-$CACHE_NAME"
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # /usr/bin/clang only forwards to the selected Xcode, so tell
+            # compilers apart by version instead of by that binary.
+            echo "CCACHE_COMPILERCHECK=string:$(clang --version | sed -n 1p)"
+            # What React Native sets to build with ccache under Xcode
+            # (react-native/scripts/xcode/ccache.conf), minus file_clone, which
+            # would store the cache uncompressed.
+            echo "CCACHE_SLOPPINESS=clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros"
+            echo "CCACHE_DEPEND=true"
+          else
+            # The NDK is reinstalled per run, so hash the compiler rather than stat it.
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime"
+            # llama.rn's CMake files look for ccache themselves. This covers the
+            # other CMake projects of an example app build (React Native's
+            # generated code, other native modules).
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          fi
+        } >> "$GITHUB_ENV"
+
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          # Xcode has no compiler launcher setting. It runs ccache when it finds
+          # it as `clang` on PATH, which the builds ask for with CC=clang
+          # (example/package.json build:ios, scripts/build-ios.sh).
+          echo "$(brew --prefix ccache)/libexec" >> "$GITHUB_PATH"
+        fi
+      shell: bash
+
+    - name: Restore compiler cache
+      uses: actions/cache/restore@v4
+      continue-on-error: true
+      with:
+        path: |
+          .ccache
+          .thinlto-cache
+        key: ${{ runner.os }}-ccache-${{ inputs.key }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ inputs.key }}-
+
+    - name: Reset statistics
+      run: ccache --zero-stats
       shell: bash
