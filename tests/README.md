@@ -45,9 +45,9 @@ make
 ### Build Scripts
 
 **`build_and_test.sh`**
-- Builds `rnllama_tests`, `parallel_decoding_test` and `chat_parse_utf8_test`
+- Builds `rnllama_tests`, `parallel_decoding_test`, `chat_parse_utf8_test`, `model_info_test` and `video_test`
 - Uses CMake with Release configuration
-- Parallel compilation with `-j4`
+- Compiles the library once (`rnllama_test_core`) and links it into every test, using all cores
 
 **`run_tests.sh`**
 - Runs all test suites

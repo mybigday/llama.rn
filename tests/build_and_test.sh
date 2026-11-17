@@ -23,48 +23,33 @@ fi
 echo "Configuring with CMake..."
 cmake "$SCRIPT_DIR" -DCMAKE_BUILD_TYPE=Release $CMAKE_OSX_SYSROOT
 
-# Build both test executables
+# The test executables share one compiled copy of the library (see
+# rnllama_test_core in CMakeLists.txt), so build them in a single invocation.
+TEST_TARGETS=(
+    rnllama_tests
+    parallel_decoding_test
+    chat_parse_utf8_test
+    model_info_test
+    video_test
+)
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    JOBS=$(sysctl -n hw.logicalcpu)
+else
+    JOBS=$(nproc)
+fi
+
 echo ""
-echo "Building test executables..."
-echo "Building rnllama_tests..."
-make rnllama_tests -j4
-if [ ! -f "rnllama_tests" ]; then
-    echo "Error: Failed to build rnllama_tests"
-    exit 1
-fi
-echo "✓ rnllama_tests built successfully"
+echo "Building test executables (${TEST_TARGETS[*]}) with $JOBS jobs..."
+cmake --build . --target "${TEST_TARGETS[@]}" -j "$JOBS"
 
-echo "Building parallel_decoding_test..."
-make parallel_decoding_test -j4
-if [ ! -f "parallel_decoding_test" ]; then
-    echo "Error: Failed to build parallel_decoding_test"
-    exit 1
-fi
-echo "✓ parallel_decoding_test built successfully"
-
-echo "Building chat_parse_utf8_test..."
-make chat_parse_utf8_test -j4
-if [ ! -f "chat_parse_utf8_test" ]; then
-    echo "Error: Failed to build chat_parse_utf8_test"
-    exit 1
-fi
-echo "✓ chat_parse_utf8_test built successfully"
-
-echo "Building model_info_test..."
-make model_info_test -j4
-if [ ! -f "model_info_test" ]; then
-    echo "Error: Failed to build model_info_test"
-    exit 1
-fi
-echo "✓ model_info_test built successfully"
-
-echo "Building video_test..."
-make video_test -j4
-if [ ! -f "video_test" ]; then
-    echo "Error: Failed to build video_test"
-    exit 1
-fi
-echo "✓ video_test built successfully"
+for target in "${TEST_TARGETS[@]}"; do
+    if [ ! -f "$target" ]; then
+        echo "Error: Failed to build $target"
+        exit 1
+    fi
+    echo "✓ $target built successfully"
+done
 
 echo ""
 echo "=== Build Successful ==="
