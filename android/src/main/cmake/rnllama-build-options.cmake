@@ -4,22 +4,7 @@
 include_guard(GLOBAL)
 
 # --- ccache ------------------------------------------------------------------
-# Each arm64 build compiles the whole llama.cpp tree once per CPU-feature
-# variant, so a warm compiler cache is worth a lot on CI and on rebuilds.
-option(RNLLAMA_CCACHE "Use ccache to speed up recompilation" ON)
-
-if (RNLLAMA_CCACHE AND NOT CMAKE_C_COMPILER_LAUNCHER)
-    find_program(RNLLAMA_CCACHE_BIN NAMES ccache sccache)
-    if (RNLLAMA_CCACHE_BIN)
-        # include() runs in the calling scope, so these reach the targets defined
-        # there and any add_subdirectory() below it.
-        set(CMAKE_C_COMPILER_LAUNCHER   ${RNLLAMA_CCACHE_BIN})
-        set(CMAKE_CXX_COMPILER_LAUNCHER ${RNLLAMA_CCACHE_BIN})
-        message(STATUS "rnllama: using compiler cache ${RNLLAMA_CCACHE_BIN}")
-    else()
-        message(STATUS "rnllama: ccache not found, compiling without a compiler cache")
-    endif()
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../../../../cmake/rnllama-compiler-cache.cmake)
 
 # --- variant selection -------------------------------------------------------
 # Every variant is a full copy of the source tree built with different -march
