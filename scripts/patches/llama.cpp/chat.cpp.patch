@@ -1,7 +1,7 @@
 llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<end_function_call>), content-part extra fields, and template caps/variant queries used by the JSI bridge.
 --- a/common/chat.cpp
 +++ b/common/chat.cpp
-@@ -196,10 +196,16 @@
+@@ -197,10 +197,16 @@
                          {"name", part.name},
                      });
                  } else {
@@ -20,7 +20,7 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
                  }
              }
          }
-@@ -382,6 +388,11 @@
+@@ -383,6 +389,11 @@
                          msg_part.type = type;
                          if (type == "text" || type == "media_marker") {
                              msg_part.text = part.at("text");
@@ -32,7 +32,7 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
                          } else if (type == "tool_reference") {
                              // names a request tool, the template renders its definition
                              msg_part.name = part.at("name");
-@@ -1299,6 +1310,12 @@
+@@ -1329,6 +1340,12 @@
      if (src.find(">>>all") != std::string::npos && src.find(">>>${recipient}") != std::string::npos) {
          LOG_DBG("Using specialized template: Functionary v3.2\n");
          return common_chat_params_init_functionary_v3_2;
@@ -45,10 +45,10 @@ llama.rn: FunctionGemma tool-call template (<start_function_call>call:name{...}<
      }
  
      // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
-@@ -1951,5 +1968,36 @@
-                                                                       : chat_templates->template_default->caps;
+@@ -1980,5 +1997,36 @@
      common_json result = caps.to_map();
      result["reasoning_effort_levels"] = caps.reasoning_effort_levels;
+     result["reasoning_effort_rejected"] = caps.reasoning_effort_rejected;
 +    return result;
 +}
 +

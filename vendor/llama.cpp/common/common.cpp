@@ -1134,6 +1134,12 @@ static void common_init_sampler_from_model(
     get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT),        sparams.mirostat,        common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT);
     get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU),    sparams.mirostat_tau,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT_TAU);
     get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA),    sparams.mirostat_eta,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_MIROSTAT_ETA);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ),    sparams.penalty_freq,    common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_PENALTY_FREQ);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT), sparams.penalty_present, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_PENALTY_PRESENT);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER),  sparams.dry_multiplier,  common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_MULTIPLIER);
+    get_float(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE),        sparams.dry_base,        common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_BASE);
+    get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH), sparams.dry_allowed_length, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_ALLOWED_LENGTH);
+    get_int32(llama_model_meta_key_str(LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N), sparams.dry_penalty_last_n, common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_DRY_PENALTY_LAST_N);
 }
 
 struct common_init_result::impl {
@@ -1690,6 +1696,7 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
         mparams.devices = params.devices.data();
     }
 
+    mparams.vocab_only      = params.vocab_only;
     mparams.n_gpu_layers    = params.n_gpu_layers;
     mparams.main_gpu        = params.main_gpu;
     mparams.split_mode      = params.split_mode;
@@ -1718,6 +1725,11 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.progress_callback_user_data = params.load_progress_callback_user_data;
     mparams.no_alloc                    = params.no_alloc;
     mparams.load_mtp                    = params.load_mtp || std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
+
+    if (params.progress_callback != nullptr) {
+        mparams.progress_callback = params.progress_callback;
+        mparams.progress_callback_user_data = params.progress_callback_user_data;
+    }
 
     return mparams;
 }

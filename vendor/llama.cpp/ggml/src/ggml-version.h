@@ -1,4 +1,4 @@
 #pragma once
 
 #define GGML_VERSION "1.0.0-dev"
-#define GGML_COMMIT  "0cc522e"
+#define GGML_COMMIT  "ef3848f"

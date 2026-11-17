@@ -1999,3 +1999,34 @@ common_json common_chat_templates_get_caps(const common_chat_templates * chat_te
     result["reasoning_effort_rejected"] = caps.reasoning_effort_rejected;
     return result;
 }
+
+common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
+    common_chat_template_caps result;
+    const common_chat_template * tmpl = nullptr;
+
+    if (!variant.empty() && variant == "tool_use") {
+        tmpl = tmpls->template_tool_use.get();
+    } else {
+        tmpl = tmpls->template_default.get();
+    }
+
+    if (tmpl) {
+        auto caps = tmpl->original_caps();
+        result.supports_tools = caps.supports_tools;
+        result.supports_tool_calls = caps.supports_tool_calls;
+        result.supports_system_role = caps.supports_system_role;
+        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
+    }
+
+    return result;
+}
+
+bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
+    if (variant.empty() || variant == "default") {
+        return tmpls->template_default != nullptr;
+    }
+    if (variant == "tool_use") {
+        return tmpls->template_tool_use != nullptr;
+    }
+    return false;
+}
