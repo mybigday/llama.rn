@@ -1,0 +1,10 @@
+--- src/llama-model.cpp
++++ src/llama-model.cpp
+@@ -3706,6 +3711,7 @@
+         case LLM_ARCH_GLM5_NEXT:
+         case LLM_ARCH_STARCODER:
+         case LLM_ARCH_INKLING2:
++        case LLM_ARCH_COSYVOICE:   // relative positions are applied inside its attention
+             return LLAMA_ROPE_TYPE_NONE;
+ 
+         // use what we call a normal RoPE, operating on pairs of consecutive head values

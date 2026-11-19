@@ -258,6 +258,47 @@ struct mtmd_graph_chatterbox : mtmd_graph_chatterbox_base {
     ggml_cgraph * build_vocoder(int n_mel, int n_stft);
 };
 
+struct mtmd_graph_kokoro : mtmd_graph {
+    enum stage_type {
+        STAGE_TEXT, // tokens -> text encoder CNN
+        STAGE_F0N,  // shared LSTM output -> F0 and energy curves
+        STAGE_DEC,  // aligned features + source STFT -> STFT coefficients
+    };
+    static constexpr int n_style = 128; // a voice row is the decoder style, then the predictor style
+
+    stage_type stage;
+    int n_tok    = 0;
+    int n_frames = 0;
+    int n_har    = 0;
+    mtmd_graph_kokoro(mtmd_subcontext * ctx, const mtmd_image_f32 & img, stage_type stage, int n_tok, int n_frames, int n_har)
+        : mtmd_graph(ctx, img), stage(stage), n_tok(n_tok), n_frames(n_frames), n_har(n_har) {}
+    ggml_cgraph * build() override;
+
+    // host side, between the graphs
+    // bert [n_tok, n_embd], text_cnn [n_tok, 512], style is the predictor style
+    // fills shared and asr as [n_frames, 512], returns n_frames
+    static int prosody(const mtmd_model & model, const float * bert, int n_embd, const float * text_cnn, int n_tok,
+                       const float * style, float speed, std::vector<float> & shared, std::vector<float> & asr);
+    // fills har as [n_har, 22], returns n_har
+    static int har_source(const mtmd_model & model, const std::vector<float> & f0, std::mt19937 & rng, std::vector<float> & har);
+    static void istft(const std::vector<float> & spec, std::vector<float> & audio);
+
+  private:
+    ggml_tensor * tensor(const std::string & name) const;
+    bool          has_tensor(const std::string & name) const;
+    ggml_tensor * conv(const std::string & name, ggml_tensor * x, int stride, int pad, int dil) const;
+    ggml_tensor * adain(const std::string & name, ggml_tensor * x, ggml_tensor * style) const;
+    ggml_tensor * snake(const std::string & name, ggml_tensor * x) const;
+    ggml_tensor * interleave(ggml_tensor * a, ggml_tensor * b) const;
+    ggml_tensor * adain_resblk(const std::string & name, ggml_tensor * x, ggml_tensor * style, bool upsample) const;
+    ggml_tensor * gen_resblock(const std::string & name, ggml_tensor * x, ggml_tensor * style) const;
+    ggml_tensor * input(const char * name, ggml_type type, int64_t ne0, int64_t ne1) const;
+    ggml_cgraph * output(const char * name, ggml_tensor * t) const;
+    ggml_cgraph * build_text();
+    ggml_cgraph * build_f0n();
+    ggml_cgraph * build_dec();
+};
+
 struct mtmd_graph_lfm3a : mtmd_graph {
     mtmd_graph_lfm3a(mtmd_subcontext * ctx, const mtmd_image_f32 & img) : mtmd_graph(ctx, img) {}
     ggml_cgraph * build() override;
@@ -737,6 +778,52 @@ struct mtmd_graph_music3_gen : mtmd_graph_snake_vae {
     ggml_cgraph * build_cond();
     ggml_cgraph * build_dit();
     ggml_cgraph * build_vocoder();
+};
+
+// tiny-voca: small graphs around the stacks, the stacks run on libllama (see mtmd_gen_wav_tiny_voca())
+// LATENT_IN:  token states [n_embd, n_rows] -> duration outputs [2, n_rows]
+// LATENT_OUT: acoustic states [n_embd, n_rows] -> source-filter params [n_voc, n_rows]
+struct mtmd_graph_tiny_voca : mtmd_graph {
+    mtmd_graph_tiny_voca(mtmd_subcontext * ctx, const mtmd_image_f32 & img, mtmd_subctx_gen_process gen_process, int n_rows)
+        : mtmd_graph(ctx, img), gen_process(gen_process), n_rows(n_rows) {}
+    ggml_cgraph * build() override;
+
+    static constexpr int   n_prosody_layer  = 2;
+    static constexpr int   n_acoustic_layer = 5;
+    static constexpr int   n_max_frames     = 3000;
+    static constexpr int   hop              = 256;  // samples per frame
+    static constexpr int   n_cep_causal     = 80;
+    static constexpr int   n_cep_anti       = 16;
+    static constexpr int   n_noise_cep      = 32;
+    static constexpr int   harm_fft         = 512;
+    static constexpr int   harm_hop         = 128;
+    static constexpr int   harm_steps       = hop / harm_hop;
+    static constexpr int   noise_fft        = 256;
+    static constexpr int   noise_hop        = 64;
+    static constexpr int   noise_steps      = hop / noise_hop;
+    static constexpr int   n_voc            = n_cep_causal + n_cep_anti + harm_steps + n_noise_cep + noise_steps;
+    static constexpr float rope_theta       = 10000.0f;
+    static constexpr float sample_rate      = 24000.0f;
+    static constexpr float harmonic_limit   = 0.47f;  // highest harmonic, relative to the sample rate
+    static constexpr float f0_ref           = 200.0f; // Hz, log F0 is predicted relative to it
+    static constexpr float f0_min           = 50.0f;
+    static constexpr float f0_max           = 600.0f;
+    static constexpr float max_dur          = 400.0f; // frames per token before the speed
+
+    mtmd_subctx_gen_process gen_process;
+    int n_rows;
+
+    // host: frame params [n_frames, n_voc] and F0 [n_frames] in Hz -> waveform [n_frames * hop]
+    static void synth(const std::vector<float> & voc, const std::vector<float> & f0, std::mt19937 & rng, std::vector<float> & audio);
+
+    // unknown-word model: letters (a-z and ') -> CMUdict phonemes separated by spaces, other characters are skipped
+    static constexpr int n_g2p_slot   = 2;  // positions per letter
+    static constexpr int n_g2p_letter = 27;
+    static constexpr int n_g2p_symbol = 69;
+    static std::string g2p(const mtmd_tiny_voca & tv, const std::string & word);
+
+  private:
+    ggml_tensor * conv3(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b) const;
 };
 
 struct mtmd_graph_soprano : mtmd_graph {

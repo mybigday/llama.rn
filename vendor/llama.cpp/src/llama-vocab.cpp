@@ -591,12 +591,6 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                     "\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]{2,}[\\r\\n/]*| +(?!\\S)",
                 };
                 break;
-            case LLAMA_VOCAB_PRE_TYPE_CHATTERBOX:
-                // HF tokenizers' Whitespace pre-tokenizer (\\w+|[^\\w\\s]+) over a
-                // raw-UTF-8 BPE (Chatterbox T3's text tokenizer)
-                regex_exprs = { "[\\p{L}\\p{M}\\p{N}_]+|[^\\p{L}\\p{M}\\p{N}_\\s]+" };
-                byte_encode = false;
-                break;
             case LLAMA_VOCAB_PRE_TYPE_WHITESPACE:
                 // whitespace pre-tokenizer (jinaai/jina-embeddings-v2-base-zh)
                 regex_exprs = {
@@ -720,13 +714,6 @@ struct llm_tokenizer_bpe_session {
         }
 
         for (const auto & word : word_collection) {
-            if (tok_pre == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX) {
-                // the Whitespace pre-tokenizer drops the whitespace between words
-                const auto cpts = unicode_cpts_from_utf8(word);
-                if (std::all_of(cpts.begin(), cpts.end(), [](uint32_t c) { return unicode_cpt_flags_from_cpt(c).is_whitespace; })) {
-                    continue;
-                }
-            }
             work_queue = llm_bigram_bpe::queue();
             symbols.clear();
 
@@ -817,8 +804,7 @@ struct llm_tokenizer_bpe_session {
                 const std::string str = std::string(symbol.text, symbol.n);
                 const auto token = vocab.text_to_token(str);
 
-                if (token == LLAMA_TOKEN_NULL && (tok_pre == LLAMA_VOCAB_PRE_TYPE_SOPRANO ||
-                                                  tok_pre == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX)) {
+                if (token == LLAMA_TOKEN_NULL && tok_pre == LLAMA_VOCAB_PRE_TYPE_SOPRANO) {
                     output.push_back(vocab.token_unk());
                 } else if (token == LLAMA_TOKEN_NULL) {
                     for (auto j = str.begin(); j != str.end(); ++j) {
@@ -1168,29 +1154,17 @@ struct llm_tokenizer_ugm_session {
         }
 
         // now backtrack from the end to gather token ids of the best tokenization
-        // merge sequences of consecutive unknown tokens into single unknown tokens;
-        // with byte-fallback pieces (<0xXX>), an unknown span is its UTF-8 bytes
-        // instead, as SentencePiece's byte_fallback does
-        const bool byte_fallback = vocab.text_to_token("<0x00>") != LLAMA_TOKEN_NULL;
+        // merge sequences of consecutive unknown tokens into single unknown tokens
         bool is_prev_unknown = false;
-        size_t end_offset = input_len;
         for (struct best_tokenization & tokenization = tokenization_results[input_len]; ; tokenization = tokenization_results[tokenization.input_offset]) {
             bool is_unknown = tokenization.token_id == vocab.token_unk();
-            if (is_unknown && byte_fallback) {
-                for (size_t i = end_offset; i > tokenization.input_offset; --i) {
-                    char piece[8];
-                    snprintf(piece, sizeof(piece), "<0x%02X>", (uint8_t) normalized[i - 1]);
-                    output.push_back(vocab.text_to_token(piece));
-                }
-                is_unknown = false;
-            } else if (!(is_prev_unknown && is_unknown)) {
+            if (!(is_prev_unknown && is_unknown)) {
                 output.push_back(tokenization.token_id);
             }
             if (tokenization.input_offset == 0) {
                 break;
             }
             is_prev_unknown = is_unknown;
-            end_offset = tokenization.input_offset;
         }
 
         // reverse the output since we added tokens starting from the end of the input
@@ -2267,8 +2241,40 @@ struct llama_vocab::impl {
     void print_info() const;
 
 private:
+    bool load_bpe_ranks(const gguf_context * ctx, const LLM_KV & kv);
+
     const llama_vocab & vocab;
 };
+
+bool llama_vocab::impl::load_bpe_ranks(const gguf_context * ctx, const LLM_KV & kv) {
+    const int merges_keyidx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_MERGES).c_str());
+    if (merges_keyidx == -1) {
+        return false;
+    }
+
+    if (gguf_get_kv_type(ctx, merges_keyidx) != GGUF_TYPE_ARRAY ||
+        gguf_get_arr_type(ctx, merges_keyidx) != GGUF_TYPE_STRING) {
+        throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
+    }
+
+    const int n_merges = gguf_get_arr_n(ctx, merges_keyidx);
+    bpe_ranks.reserve(n_merges);
+    for (int i = 0; i < n_merges; i++) {
+        const char * word = gguf_get_arr_str(ctx, merges_keyidx, i);
+        std::string first;
+        std::string second;
+
+        const char * sep = *word ? strchr(word + 1, ' ') : nullptr;
+
+        if (sep) {
+            first.assign(word, sep - word);
+            second.assign(sep + 1);
+        }
+
+        bpe_ranks.emplace(std::make_pair(std::move(first), std::move(second)), i);
+    }
+    return true;
+}
 
 void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
     struct gguf_context * ctx = ml.metadata;
@@ -2327,40 +2333,16 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
         } else if (tokenizer_model == "gpt2" || tokenizer_model == "hybriddna" || tokenizer_model == "whitespace") {
             type = LLAMA_VOCAB_TYPE_BPE;
 
-            // read bpe merges and populate bpe ranks
-            const int merges_keyidx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_MERGES).c_str());
             // Kimi-K2 uses custom tokenization without traditional BPE merges
             const bool is_kimi_k2 = (tokenizer_pre == "kimi-k2");
 
-            if (merges_keyidx == -1) {
+            // read bpe merges and populate bpe ranks
+            if (!load_bpe_ranks(ctx, kv)) {
                 if (!is_kimi_k2) {
                     throw std::runtime_error("cannot find tokenizer merges in model file\n");
                 }
                 // Kimi-K2 doesn't need merges, skip
                 LLAMA_LOG_INFO("%s: Kimi-K2 tokenizer detected, skipping BPE merges\n", __func__);
-            } else {
-                if (gguf_get_kv_type(ctx, merges_keyidx) != GGUF_TYPE_ARRAY ||
-                    gguf_get_arr_type(ctx, merges_keyidx) != GGUF_TYPE_STRING) {
-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
-                }
-                const int n_merges = gguf_get_arr_n(ctx, merges_keyidx);
-                bpe_ranks.reserve(n_merges);
-                for (int i = 0; i < n_merges; i++) {
-                    const char * word = gguf_get_arr_str(ctx, merges_keyidx, i);
-                    //GGML_ASSERT(unicode_cpts_from_utf8(word).size() > 0);
-
-                    std::string first;
-                    std::string second;
-
-                    const char * sep = *word ? strchr(word + 1, ' ') : nullptr;
-
-                    if (sep) {
-                        first.assign(word, sep - word);
-                        second.assign(sep + 1);
-                    }
-
-                    bpe_ranks.emplace(std::make_pair(std::move(first), std::move(second)), i);
-                }
             }
 
             // default special tokens
@@ -2446,32 +2428,8 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
             type = LLAMA_VOCAB_TYPE_BPE;
 
             // read bpe merges and populate bpe ranks
-            const int merges_keyidx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_MERGES).c_str());
-            if (merges_keyidx == -1) {
+            if (!load_bpe_ranks(ctx, kv)) {
                 throw std::runtime_error("cannot find tokenizer merges in model file\n");
-            }
-            {
-                if (gguf_get_kv_type(ctx, merges_keyidx) != GGUF_TYPE_ARRAY ||
-                    gguf_get_arr_type(ctx, merges_keyidx) != GGUF_TYPE_STRING) {
-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
-                }
-                const int n_merges = gguf_get_arr_n(ctx, merges_keyidx);
-                bpe_ranks.reserve(n_merges);
-                for (int i = 0; i < n_merges; i++) {
-                    const char * word = gguf_get_arr_str(ctx, merges_keyidx, i);
-
-                    std::string first;
-                    std::string second;
-
-                    const char * sep = *word ? strchr(word + 1, ' ') : nullptr;
-
-                    if (sep) {
-                        first.assign(word, sep - word);
-                        second.assign(sep + 1);
-                    }
-
-                    bpe_ranks.emplace(std::make_pair(std::move(first), std::move(second)), i);
-                }
             }
 
             // default special tokens (to be read from GGUF)
@@ -2806,16 +2764,10 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
             } else if (
                 tokenizer_pre == "soprano") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_SOPRANO;
-                // [UNK]; GGUFs converted before upstream's Soprano support lack tokenizer.ggml.unknown_token_id
-                special_unk_id = 0;
             } else if (
                 tokenizer_pre == "zonos3") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_ZONOS3;
                 clean_spaces = false;
-            } else if (
-                tokenizer_pre == "chatterbox") {
-                pre_type = LLAMA_VOCAB_PRE_TYPE_CHATTERBOX;
-                add_bos = false;
             } else {
                 throw std::runtime_error(format("unknown pre-tokenizer type: '%s'", tokenizer_pre.c_str()));
             }
@@ -4186,7 +4138,7 @@ int32_t llama_vocab::impl::token_to_piece(llama_token token, char * buf, int32_t
                     return _try_copy(token_text.data(), token_text.size());
                 }
                 if (attr & LLAMA_TOKEN_ATTR_NORMAL) {
-                    if (pre_type == LLAMA_VOCAB_PRE_TYPE_SOPRANO || pre_type == LLAMA_VOCAB_PRE_TYPE_CHATTERBOX) {
+                    if (pre_type == LLAMA_VOCAB_PRE_TYPE_SOPRANO) {
                         return _try_copy(token_text.data(), token_text.size());
                     }
                     if (escape_whitespaces) {
