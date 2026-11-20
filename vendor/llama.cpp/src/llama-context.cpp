@@ -3096,7 +3096,6 @@ llm_graph_params llama_context::graph_params(
                           llm_graph_type   gtype) const {
     return {
         /*.model       =*/ &model,
-        /*.hparams     =*/ model.hparams,
         /*.cparams     =*/ cparams,
         /*.ubatch      =*/ ubatch,
         /*.gtype       =*/ gtype,
@@ -3107,8 +3106,6 @@ llm_graph_params llama_context::graph_params(
         /*.mctx        =*/ mctx,
         /*.cross       =*/ &cross,
         /*.moe_cache   =*/ moe_cache.get(),
-        /*.prec_policy =*/ &model.prec_policy,
-        /*.hdmd        =*/ model.hdmd.rot.empty() ? nullptr : &model.hdmd,
         /*.layer_inp_dev =*/ layer_inp_dev,
         /*.layer_inp_src =*/ supports_embd_row() ? cparams.ctx_other->get_layer_inp_dev() : nullptr,
         /*.h_nextn_dev   =*/ cparams.embeddings_nextn_dev ? h_nextn_dev : nullptr,
