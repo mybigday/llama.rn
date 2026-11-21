@@ -250,10 +250,6 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_nemotron_h(params);
         case LLM_ARCH_NEMOTRON_H_MOE:
             return new llama_model_nemotron_h_moe(params);
-        case LLM_ARCH_BARBET:
-            return new llama_model_barbet(params);
-        case LLM_ARCH_COSYVOICE:
-            return new llama_model_cosyvoice(params);
         case LLM_ARCH_METIS16:
             return new llama_model_metis16(params);
         case LLM_ARCH_EXAONE:
@@ -330,6 +326,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_falcon_h1(params);
         case LLM_ARCH_INKLING2:
             return new llama_model_inkling2(params);
+        case LLM_ARCH_INKLING2_LOOP:
+            return new llama_model_inkling2_loop(params);
         case LLM_ARCH_LFM2:
             return new llama_model_lfm2(params);
         case LLM_ARCH_LFM2MOE:
@@ -398,6 +396,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_k2_horizon(params);
         case LLM_ARCH_KOLIBRI1:
             return new llama_model_kolibri1(params);
+        case LLM_ARCH_DOMYN_EDGE:
+            return new llama_model_domyn_edge(params);
         default:
             throw std::runtime_error(std::string("unsupported model architecture: '") + llm_arch_name(arch) + "'");
     }
@@ -1913,6 +1913,12 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
             }
             if (!layer.ffn_up_exps_s && layer.ffn_up_exps) {
                 layer.ffn_up_exps_s = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "scale", i), {n_expert}, TENSOR_NOT_REQUIRED);
+                if (layer.ffn_up_exps_s && layer.ffn_gate_up_exps) {
+                    throw std::runtime_error(format("ffn_up_exps.scale and ffn_gate_up_exps.weight both exist for layer %d", i));
+                }
+            }
+            if (!layer.ffn_up_exps_s && layer.ffn_gate_up_exps) {
+                layer.ffn_up_exps_s = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "scale", i), {n_expert}, TENSOR_NOT_REQUIRED);
             }
 
             // recurrent / linear-attention weight scales (per-tensor, shape {1})
@@ -2733,8 +2739,7 @@ void llama_model::print_info() const {
                 arch == LLM_ARCH_CLOVER_MOE ||
                 arch == LLM_ARCH_ZONOS3 ||
                 arch == LLM_ARCH_NEMOTRON_H ||
-                arch == LLM_ARCH_NEMOTRON_H_MOE ||
-                arch == LLM_ARCH_BARBET) {
+                arch == LLM_ARCH_NEMOTRON_H_MOE) {
             LLAMA_LOG_INFO("%s: ssm_d_conv            = %u\n",     __func__, hparams.ssm_d_conv);
             LLAMA_LOG_INFO("%s: ssm_d_inner           = %u\n",     __func__, hparams.ssm_d_inner);
             LLAMA_LOG_INFO("%s: ssm_d_state           = %u\n",     __func__, hparams.ssm_d_state);
@@ -3356,7 +3361,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         filter_idx = [&](uint32_t il) {
                             return il < hparams.n_layer() && !hparams.is_recr(il) && hparams.is_indexer_full(il);
                         };
-                    } else if (arch == LLM_ARCH_FALCON_H1 || arch == LLM_ARCH_INKLING2 || arch == LLM_ARCH_ZAYA1) {
+                    } else if (arch == LLM_ARCH_FALCON_H1 || arch == LLM_ARCH_INKLING2 || arch == LLM_ARCH_INKLING2_LOOP || arch == LLM_ARCH_ZAYA1) {
                         filter_attn = [&](uint32_t) { return true; };
                         filter_recr = [&](uint32_t) { return true; };
                     } else if (arch == LLM_ARCH_NEMOTRON_H || arch == LLM_ARCH_NEMOTRON_H_MOE) {
@@ -3732,6 +3737,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_GLM5_NEXT:
         case LLM_ARCH_STARCODER:
         case LLM_ARCH_INKLING2:
+        case LLM_ARCH_INKLING2_LOOP:
         case LLM_ARCH_KOKORO:
             return LLAMA_ROPE_TYPE_NONE;
 
@@ -3878,7 +3884,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_HRM_TEXT:
         case LLM_ARCH_BEAM:
         case LLM_ARCH_KOLIBRI1:
-        case LLM_ARCH_BARBET:
+        case LLM_ARCH_DOMYN_EDGE:
             return LLAMA_ROPE_TYPE_NEOX;
 
         case LLM_ARCH_DFLASH:
@@ -3951,12 +3957,6 @@ const char * llama_model_meta_key_str(llama_model_meta_key key) {
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT:        return "general.sampling.mirostat";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU:    return "general.sampling.mirostat_tau";
         case LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA:    return "general.sampling.mirostat_eta";
-        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_FREQ:    return "general.sampling.penalty_freq";
-        case LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_PRESENT: return "general.sampling.penalty_present";
-        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_MULTIPLIER:  return "general.sampling.dry_multiplier";
-        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_BASE:        return "general.sampling.dry_base";
-        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_ALLOWED_LENGTH: return "general.sampling.dry_allowed_length";
-        case LLAMA_MODEL_META_KEY_SAMPLING_DRY_PENALTY_LAST_N: return "general.sampling.dry_penalty_last_n";
         default:                                            return nullptr;
     }
 }
