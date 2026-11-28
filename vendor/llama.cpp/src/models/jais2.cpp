@@ -42,6 +42,10 @@ void llama_model_jais2::load_arch_tensors(llama_model_loader &) {
         layer.ffn_up_b   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias", i),   {n_ff}, 0);
         layer.ffn_down   = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, 0);
         layer.ffn_down_b = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "bias", i),   {n_embd}, 0);
+
+        // numerical issues with F16 accumulators
+        prec_policy.set_acc(layer.wo,       GGML_PREC_BF16);
+        prec_policy.set_acc(layer.ffn_down, GGML_PREC_BF16);
     }
 }
 
@@ -91,7 +95,7 @@ llama_model_jais2::graph::graph(const llm_graph_params & params) : llm_graph_con
             cb(Kcur, "Kcur_rope", il);
 
             cur = build_attn(inp_attn,
-                    model.layers[il].wo, model.layers[il].wo_b, model.layers[il].wo_s,
+                    model.layers[il].wo, model.layers[il].wo_b,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
 
@@ -114,9 +118,9 @@ llama_model_jais2::graph::graph(const llm_graph_params & params) : llm_graph_con
         // FFN with relu2 activation (ReLU squared) - no gate projection
         // up -> relu2 -> down
         cur = build_ffn(cur,
-                model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
-                NULL, NULL, NULL,  // no gate
-                model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
+                model.layers[il].ffn_up,   model.layers[il].ffn_up_b,
+                NULL, NULL,  // no gate
+                model.layers[il].ffn_down, model.layers[il].ffn_down_b,
                 NULL,
                 LLM_FFN_RELU_SQR, LLM_FFN_SEQ, il);
         cb(cur, "ffn_out", il);
@@ -137,7 +141,7 @@ llama_model_jais2::graph::graph(const llm_graph_params & params) : llm_graph_con
     res->t_embd = cur;
 
     // Output projection
-    cur = build_lora_mm(model.output, cur, model.output_s);
+    cur = build_lora_mm(model.output, cur);
     cb(cur, "result_output", -1);
 
     res->t_logits = cur;

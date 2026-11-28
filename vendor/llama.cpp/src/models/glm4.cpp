@@ -58,6 +58,10 @@ void llama_model_glm4::load_arch_tensors(llama_model_loader &) {
             layer.nextn.shared_head_head = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_HEAD, "weight", i), { n_embd, n_vocab }, flags | TENSOR_NOT_REQUIRED);
             layer.nextn.shared_head_norm = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_NORM, "weight", i), { n_embd }, flags | TENSOR_NOT_REQUIRED);
         }
+
+        // numerical issues with F16 accumulators
+        prec_policy.set_acc(layer.wo,       GGML_PREC_BF16);
+        prec_policy.set_acc(layer.ffn_down, GGML_PREC_BF16);
     }
 }
 
@@ -111,7 +115,7 @@ llama_model_glm4::graph::graph(const llm_graph_params & params) : llm_graph_cont
             cb(Vcur, "Vcur", il);
 
             cur = build_attn(inp_attn,
-                    model.layers[il].wo, NULL, model.layers[il].wo_s,
+                    model.layers[il].wo, NULL,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
@@ -134,9 +138,9 @@ llama_model_glm4::graph::graph(const llm_graph_params & params) : llm_graph_cont
 
             // MLP
             cur = build_ffn(cur,
-                    model.layers[il].ffn_up, NULL, NULL,
-                    NULL, NULL, NULL,
-                    model.layers[il].ffn_down, NULL, NULL,
+                    model.layers[il].ffn_up, NULL,
+                    NULL, NULL,
+                    model.layers[il].ffn_down, NULL,
                     NULL, LLM_FFN_SWIGLU, LLM_FFN_SEQ, il);
             cb(cur, "ffn_out", il);
 
@@ -159,7 +163,7 @@ llama_model_glm4::graph::graph(const llm_graph_params & params) : llm_graph_cont
     res->t_embd = cur;
 
     // Output projection
-    cur = build_lora_mm(model.output, cur, model.output_s);
+    cur = build_lora_mm(model.output, cur);
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;

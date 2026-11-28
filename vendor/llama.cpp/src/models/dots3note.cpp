@@ -203,7 +203,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
         {
             ggml_tensor * attn_inp = cur;
 
-            ggml_tensor * qr = ggml_mul_mat(ctx0, model.layers[il].wq_a, cur);
+            ggml_tensor * qr = build_lora_mm(model.layers[il].wq_a, cur);
             cb(qr, "qr", il);
 
             qr = build_norm(qr, model.layers[il].attn_q_a_norm, nullptr, LLM_NORM_RMS, il);
@@ -213,7 +213,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
 
             // lightning indexer (full-attention layers only)
             if (!is_swa) {
-                ggml_tensor * indexer_q = ggml_mul_mat(ctx0, model.layers[il].indexer_attn_q_b, qr);
+                ggml_tensor * indexer_q = build_lora_mm(model.layers[il].indexer_attn_q_b, qr);
                 cb(indexer_q, "indexer_q", il);
 
                 // {n_embd_indexer_head, n_indexer_head, n_tokens}
@@ -221,7 +221,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 indexer_q = build_rope_indexer(indexer_q, inp_pos, il);
                 cb(indexer_q, "indexer_q", il);
 
-                ggml_tensor * indexer_k = ggml_mul_mat(ctx0, model.layers[il].indexer_attn_k, cur);
+                ggml_tensor * indexer_k = build_lora_mm(model.layers[il].indexer_attn_k, cur);
                 cb(indexer_k, "indexer_k", il);
 
                 indexer_k = build_norm(indexer_k, model.layers[il].indexer_k_norm, model.layers[il].indexer_k_norm_b, LLM_NORM, il);
@@ -243,7 +243,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 const auto & k_idxs_lid = inp_attn->get_dsa()->get_k_idxs_lid();
                 ggml_build_forward_expand(gf, mctx_lid->cpy_k(ctx0, indexer_k, k_idxs_lid, il));
 
-                ggml_tensor * indexer_weights = ggml_mul_mat(ctx0, model.layers[il].indexer_proj, cur);
+                ggml_tensor * indexer_weights = build_lora_mm(model.layers[il].indexer_proj, cur);
                 cb(indexer_weights, "indexer_weights", il);
 
                 indexer_k = mctx_lid->get_k(ctx0, il);
@@ -257,42 +257,8 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 indexer_weights = ggml_scale(ctx0, indexer_weights, 1.0f / sqrtf(float(n_embd_indexer_head * n_indexer_head)));
                 cb(indexer_weights, "indexer_weights", il);
 
-                ggml_tensor * indexer_score = nullptr;
-                if (cparams.fused_lid) {
-                    indexer_score = ggml_lightning_indexer(ctx0, indexer_q, indexer_k, indexer_weights, inp_attn->get_dsa()->self_attn_mask_lid.raw);
-                    cb(indexer_score, "indexer_score", il);
-                    res->add_fused_node({LLM_FUSED_OP_LIGHTNING_INDEXER, indexer_score, il});
-                } else {
-                    indexer_q = ggml_permute(ctx0, indexer_q, 0, 2, 1, 3);
-                    cb(indexer_q, "indexer_q", il);
-                    indexer_k = ggml_permute(ctx0, indexer_k, 0, 2, 1, 3);
-                    cb(indexer_k, "indexer_k", il);
-
-                    ggml_tensor * indexer_kq = ggml_mul_mat(ctx0, indexer_k, indexer_q);
-                    cb(indexer_kq, "indexer_kq", il);
-
-                    // ReLU requires contiguous tensors
-                    indexer_kq = ggml_cont(ctx0, ggml_permute(ctx0, indexer_kq, 2, 1, 0, 3));
-                    cb(indexer_kq, "indexer_kq", il);
-
-                    indexer_score = ggml_relu(ctx0, indexer_kq);
-                    cb(indexer_score, "indexer_score", il);
-
-                    indexer_score = ggml_mul(ctx0, indexer_score, indexer_weights);
-                    cb(indexer_score, "indexer_score", il);
-
-                    // sum by q n_indexer_head dimension
-                    indexer_score = ggml_sum_rows(ctx0, indexer_score);
-                    cb(indexer_score, "indexer_score", il);
-
-                    // permute result to match KQ mask
-                    indexer_score = ggml_cont(ctx0, ggml_permute(ctx0, indexer_score, 2, 1, 0, 3));
-                    cb(indexer_score, "indexer_score", il);
-
-                    ggml_tensor * indexer_kq_mask = inp_attn->get_dsa()->self_attn_mask_lid.raw;
-                    indexer_score = ggml_add(ctx0, indexer_score, indexer_kq_mask);
-                    cb(indexer_score, "indexer_score", il);
-                }
+                ggml_tensor * indexer_score = ggml_lightning_indexer(ctx0, indexer_q, indexer_k, indexer_weights, inp_attn->get_dsa()->self_attn_mask_lid.raw);
+                cb(indexer_score, "indexer_score", il);
 
                 // get indices of top k indexer scores
                 uint32_t n_top_k = indexer_score->ne[0] < n_indexer_top_k ? indexer_score->ne[0] : n_indexer_top_k;
@@ -300,7 +266,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 cb(top_k, "top_k", il);
             }
 
-            ggml_tensor * q = ggml_mul_mat(ctx0, model.layers[il].wq_b, qr);
+            ggml_tensor * q = build_lora_mm(model.layers[il].wq_b, qr);
             cb(q, "q", il);
 
             // split into {n_embd_head_qk_nope, n_head_l, n_tokens}
@@ -315,7 +281,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 ggml_row_size(q->type, n_embd_head_k_mla) * n_head_l, ggml_row_size(q->type, n_embd_head_qk_nope));
             cb(q_pe, "q_pe", il);
 
-            ggml_tensor * kv_cmpr_pe = ggml_mul_mat(ctx0, model.layers[il].wkv_a_mqa, cur);
+            ggml_tensor * kv_cmpr_pe = build_lora_mm(model.layers[il].wkv_a_mqa, cur);
             cb(kv_cmpr_pe, "kv_cmpr_pe", il);
 
             // split into {kv_lora_rank, n_tokens}
@@ -351,7 +317,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 cb(q_nope, "q_nope_perm", il);
 
                 // {n_embd_head_qk_nope, kv_lora_rank, n_head_l} x {n_embd_head_qk_nope, n_tokens, n_head_l}
-                ggml_tensor * q_nope_absorbed = ggml_mul_mat(ctx0, model.layers[il].wk_b, q_nope);
+                ggml_tensor * q_nope_absorbed = build_lora_mm(model.layers[il].wk_b, q_nope);
                 cb(q_nope_absorbed, "q_nope_absorbed", il);
 
                 // {kv_lora_rank, n_head_l, n_tokens}
@@ -376,11 +342,11 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 // apply the head-wise output gate before o_proj, so wo stays out of build_attn
                 if (is_swa) {
                     cur = build_attn(inp_attn->get_swa(),
-                            nullptr, nullptr, nullptr,
+                            nullptr, nullptr,
                             Qcur, Kcur, Vcur, nullptr, nullptr, model.layers[il].wv_b, kq_scale, il);
                 } else {
                     cur = build_attn(inp_attn->get_dsa(),
-                            nullptr, nullptr, nullptr,
+                            nullptr, nullptr,
                             Qcur, Kcur, Vcur, nullptr, nullptr, model.layers[il].wv_b, top_k, kq_scale, il);
                 }
                 cb(cur, "attn_out", il);
@@ -399,7 +365,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
 
                 cur = ggml_reshape_2d(ctx0, attn_3d, n_embd_head_v_mla * n_head_l, n_tokens);
 
-                cur = build_lora_mm(model.layers[il].wo, cur, model.layers[il].wo_s);
+                cur = build_lora_mm(model.layers[il].wo, cur);
                 cb(cur, "attn_output", il);
             }
         }
@@ -417,9 +383,9 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
 
         if ((uint32_t) il < hparams.n_layer_dense_lead) {
             cur = build_ffn(cur,
-                model.layers[il].ffn_up, NULL, model.layers[il].ffn_up_s,
-                model.layers[il].ffn_gate, NULL, model.layers[il].ffn_gate_s,
-                model.layers[il].ffn_down, NULL, model.layers[il].ffn_down_s,
+                model.layers[il].ffn_up, NULL,
+                model.layers[il].ffn_gate, NULL,
+                model.layers[il].ffn_down, NULL,
                 NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(cur, "ffn_out", il);
         } else {
@@ -435,17 +401,14 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
                 (llama_expert_gating_func_type) hparams.expert_gating_func,
                 il,
                 nullptr,
-                model.layers[il].ffn_gate_up_exps,
-                model.layers[il].ffn_up_exps_s,
-                model.layers[il].ffn_gate_exps_s,
-                model.layers[il].ffn_down_exps_s);
+                model.layers[il].ffn_gate_up_exps);
             cb(moe_out, "ffn_moe_out", il);
 
             ggml_tensor * ffn_shexp =
                 build_ffn(cur,
-                    model.layers[il].ffn_up_shexp, NULL, model.layers[il].ffn_up_shexp_s,
-                    model.layers[il].ffn_gate_shexp, NULL, model.layers[il].ffn_gate_shexp_s,
-                    model.layers[il].ffn_down_shexp, NULL, model.layers[il].ffn_down_shexp_s,
+                    model.layers[il].ffn_up_shexp, NULL,
+                    model.layers[il].ffn_gate_shexp, NULL,
+                    model.layers[il].ffn_down_shexp, NULL,
                     NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(ffn_shexp, "ffn_shexp", il);
 
@@ -468,7 +431,7 @@ llama_model_dots3note::graph::graph(const llm_graph_params & params) :
     cb(cur, "result_norm", -1);
     res->t_embd = cur;
 
-    cur = ggml_mul_mat(ctx0, model.output, cur);
+    cur = build_lora_mm(model.output, cur);
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;

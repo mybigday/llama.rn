@@ -1,0 +1,10 @@
+--- src/llama-arch.cpp
++++ src/llama-arch.cpp
+@@ -1438,6 +1457,7 @@
+         case LLM_ARCH_MINIMAX_01:
+         case LLM_ARCH_ZONOS3:
+         case LLM_ARCH_INKLING2:
++        case LLM_ARCH_BARBET:
+             return true;
+         default:
+             return false;

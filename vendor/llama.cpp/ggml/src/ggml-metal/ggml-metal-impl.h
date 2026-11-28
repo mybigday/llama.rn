@@ -17,6 +17,8 @@
 #define N_ARGMAX_NPART_MAX 256
 #define N_ARGMAX_CHUNK 4096
 
+#define N_SG_CONV_2D 4
+
 // kernel parameters for mat-vec threadgroups
 //
 // N_R0: number of src0 rows to process per simdgroup
@@ -47,6 +49,9 @@
 
 #define N_R0_MXFP4 2
 #define N_SG_MXFP4 2
+
+#define N_R0_NVFP4 2
+#define N_SG_NVFP4 2
 
 #define N_R0_Q2_K 4
 #define N_SG_Q2_K 2
@@ -284,6 +289,19 @@ typedef struct {
     size_t nb11;
     size_t nb21;
 } ggml_metal_kargs_add_id;
+
+typedef struct {
+    int64_t  ne0;
+    int64_t  ne2;
+    uint64_t nb1;
+    uint64_t nb2;
+    uint64_t nb3;
+    uint64_t s_nb0;
+    uint64_t s_nb1;
+    uint64_t ids_nb0;
+    uint64_t ids_nb1;
+    int32_t  use_ids;
+} ggml_metal_kargs_mul_mat_scale;
 
 typedef struct {
     int32_t  ne00;
@@ -752,7 +770,13 @@ typedef struct {
     int32_t  p1;
     int32_t  d0;
     int32_t  d1;
+    int32_t  nk;    // reduction length per split
 } ggml_metal_kargs_conv_2d;
+
+typedef struct {
+    int32_t  ne;     // output elements
+    int32_t  nsplit;
+} ggml_metal_kargs_conv_2d_reduce;
 
 typedef struct {
     uint64_t nb00;  // kernel strides
@@ -1026,6 +1050,17 @@ typedef struct {
     uint64_t nb2;
     uint64_t nb3;
     uint64_t nb_out; // 0 => snapshots are appended after the attn scores (unfused)
+    int32_t  n_pend; // replay: pending tokens per seq in pend_k, pend_v and pend_gb
+    int32_t  keep;   // replay: write the state after the replay, not the final one
+    uint64_t nb61;   // pend_k
+    uint64_t nb62;
+    uint64_t nb63;
+    uint64_t nb71;   // pend_v
+    uint64_t nb72;
+    uint64_t nb73;
+    uint64_t nb81;   // pend_gb
+    uint64_t nb82;
+    uint64_t nb83;
 } ggml_metal_kargs_gated_delta_net;
 
 typedef struct {
